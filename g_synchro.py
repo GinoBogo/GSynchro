@@ -870,9 +870,7 @@ class GSynchro:
                             self.remote_pass_a.get(),
                             int(self.remote_port_a.get()),
                         )
-                    rules = (
-                        self._get_active_filters()  # Filters are now applied during tree population
-                    )
+                    rules = self._get_active_filters()
                     files = self._scan_folder(
                         folder_path, use_ssh, self.ssh_client_a, "A"
                     )
@@ -887,9 +885,7 @@ class GSynchro:
                             self.remote_pass_b.get(),
                             int(self.remote_port_b.get()),
                         )
-                    rules = (
-                        self._get_active_filters()  # Filters are now applied during tree population
-                    )
+                    rules = self._get_active_filters()
                     files = self._scan_folder(
                         folder_path, use_ssh, self.ssh_client_b, "B"
                     )
@@ -975,12 +971,12 @@ class GSynchro:
         self.log(f"Local folder scan ended for {folder_path}")
         return files
 
-    def _scan_remote(self, folder_path, ssh_client):  # Removed filter_rules
+    def _scan_remote(self, folder_path, ssh_client):
         """Scan remote folder using SSH."""
         files = {}
         try:
             stdin, stdout, stderr = ssh_client.exec_command(
-                f"find '{folder_path}' -mindepth 1 -exec stat -c '%n|%F|%s|%Y' {{}} \\; 2>/dev/null"  # Added 2>/dev/null to suppress errors
+                f"find '{folder_path}' -mindepth 1 -exec stat -c '%n|%F|%s|%Y' {{}} \\; 2>/dev/null"
             )
 
             for line in stdout:
@@ -992,7 +988,7 @@ class GSynchro:
                         if filepath.startswith(folder_path):
                             rel_path = filepath[len(folder_path) :].lstrip("/")
                         else:
-                            continue  # Ignore paths that don't match the base folder
+                            continue
                         if "directory" in filetype:
                             files[rel_path] = {"type": "dir"}
                         else:
@@ -1034,9 +1030,7 @@ class GSynchro:
 
         return tree_structure
 
-    def _batch_populate_tree(
-        self, tree, structure, filter_rules=None
-    ):  # Added filter_rules
+    def _batch_populate_tree(self, tree, structure, filter_rules=None):
         """Populate treeview from nested structure."""
         if not tree:
             return
@@ -1058,7 +1052,7 @@ class GSynchro:
                 if name == ".":
                     continue
 
-                # Apply filter rules here
+                # Apply filter rules
                 if any(
                     fnmatch.fnmatch(
                         os.path.join(current_path_prefix, name).replace(os.sep, "/"),
@@ -1158,8 +1152,7 @@ class GSynchro:
                 return
 
             try:
-                # Use existing data in self.files_a and self.files_b for comparison
-                self.log("Using existing data for comparison...")
+                # Use existing data for comparison
                 total_items = len(set(self.files_a.keys()) | set(self.files_b.keys()))
                 self.root.after(
                     0, self.start_progress, None, total_items, "Comparing..."
@@ -1169,7 +1162,7 @@ class GSynchro:
                 use_ssh_a = self._has_ssh_a()
                 use_ssh_b = self._has_ssh_b()
 
-                # Re-establish SSH clients if they were closed by scanning threads
+                # Re-establish SSH clients if closed
                 if use_ssh_a and (
                     self.ssh_client_a is None
                     or self.ssh_client_a.get_transport() is None
@@ -1180,6 +1173,7 @@ class GSynchro:
                     or self.ssh_client_b.get_transport() is None
                 ):
                     self.ssh_client_b = self._create_ssh_for_panel("B")
+
                 # Perform comparison
                 self._update_trees_with_comparison(
                     self.files_a, self.files_b, use_ssh_a, use_ssh_b
@@ -1196,15 +1190,12 @@ class GSynchro:
 
     def _update_trees_with_comparison(self, files_a, files_b, use_ssh_a, use_ssh_b):
         """Update tree views with comparison results."""
-
         # Statistics
         identical_count = 0
         different_count = 0
         only_a_count = 0
         only_b_count = 0
-        dirty_folders = (
-            set()
-        )  # Stores relative paths of folders that contain differences
+        dirty_folders = set()  # Folders that contain differences
 
         # Build path maps for tree items
         tree_a_map = self._build_tree_map(self.tree_a)
@@ -1213,16 +1204,15 @@ class GSynchro:
         # Clear sync states
         self.sync_states.clear()
 
-        # Collect all unique relative paths that are currently visible in either tree
+        # Collect all unique relative paths
         all_visible_paths = set(tree_a_map.keys()) | set(tree_b_map.keys())
 
-        # First pass: Determine status for all visible files and mark parent directories as dirty
-        file_item_statuses = {}  # Store status for files
+        # First pass: Determine status for files
+        file_item_statuses = {}
         for rel_path in sorted(all_visible_paths):
             file_a_info = files_a.get(rel_path)
             file_b_info = files_b.get(rel_path)
 
-            # Determine if it's a file (could be a file in A, B, or both)
             is_file_in_a = file_a_info and file_a_info.get("type") == "file"
             is_file_in_b = file_b_info and file_b_info.get("type") == "file"
 
@@ -1235,12 +1225,10 @@ class GSynchro:
                 )
                 file_item_statuses[rel_path] = (status, status_color)
 
-                # Update statistics and mark parent folders as dirty
+                # Update statistics
                 if status == "Identical":
                     identical_count += 1
-                    self.sync_states[rel_path] = (
-                        False  # Not checked for sync by default
-                    )
+                    self.sync_states[rel_path] = False
                 else:
                     if status == "Different":
                         different_count += 1
@@ -1249,20 +1237,15 @@ class GSynchro:
                     elif status == "Only in Folder B":
                         only_b_count += 1
 
-                    # Mark this file for synchronization by default if it's not identical
                     self.sync_states[rel_path] = True
 
-                    # Mark all parent directories as dirty
+                    # Mark parent directories as dirty
                     current_parent = os.path.dirname(rel_path)
                     while current_parent and current_parent not in dirty_folders:
                         dirty_folders.add(current_parent)
                         current_parent = os.path.dirname(current_parent)
-            else:
-                # It's a directory, we'll determine its status later
-                pass
 
-        # Second pass: Determine status for all visible directories
-        # This needs to be done after all files have been processed and dirty_folders is complete
+        # Second pass: Determine status for directories
         final_item_statuses = {}
         for rel_path in sorted(all_visible_paths):
             self.root.after(0, self.update_progress, 1)
@@ -1274,33 +1257,30 @@ class GSynchro:
             is_dir_in_b = file_b_info and file_b_info.get("type") == "dir"
 
             if is_dir_in_a or is_dir_in_b:
-                # It's a directory
+                # Directory logic
                 if rel_path in dirty_folders:
                     status, status_color = "Contains differences", "orange"
-                    self.sync_states[rel_path] = True  # Mark dirty folders for sync
+                    self.sync_states[rel_path] = True
                 elif is_dir_in_a and is_dir_in_b:
                     status, status_color = "Identical", "green"
-                    self.sync_states[rel_path] = (
-                        False  # Not checked for sync by default
-                    )
+                    self.sync_states[rel_path] = False
                 elif is_dir_in_a:
                     status, status_color = "Only in Folder A", "blue"
-                    self.sync_states[rel_path] = True  # Mark for sync
+                    self.sync_states[rel_path] = True
                 elif is_dir_in_b:
                     status, status_color = "Only in Folder B", "red"
-                    self.sync_states[rel_path] = True  # Mark for sync
+                    self.sync_states[rel_path] = True
                 else:
-                    # This case should ideally not be reached if all_visible_paths is correct
                     status, status_color = "Unknown (Dir)", "black"
                     self.sync_states[rel_path] = False
                 final_item_statuses[rel_path] = (status, status_color)
             else:
-                # It's a file, use the status determined in the first pass
+                # File status from first pass
                 final_item_statuses[rel_path] = file_item_statuses.get(
                     rel_path, ("Unknown (File)", "black")
                 )
 
-        # Third pass: Update Treeview items with final statuses
+        # Third pass: Update Treeview items
         for rel_path in sorted(all_visible_paths):
             self.root.after(0, self.update_progress, 1)
 
@@ -1320,7 +1300,7 @@ class GSynchro:
                     self.tree_b, tree_b_map[rel_path], rel_path, status, status_color
                 )
 
-        # Configure tags (ensure they are always configured)
+        # Configure tags
         for tree in [self.tree_a, self.tree_b]:
             if tree:
                 tree.tag_configure("black", foreground="black")
@@ -1410,7 +1390,7 @@ class GSynchro:
         def sync_thread():
             self.log(f"Starting synchronization: {direction}")
 
-            # Determine source and target based on direction
+            # Determine source and target
             if direction == "left_to_right":
                 source_path = self.folder_a.get()
                 target_path = self.folder_b.get()
@@ -1492,7 +1472,7 @@ class GSynchro:
                     direction,
                     target_path,
                     use_ssh_a,
-                    use_ssh_b,  # Pass use_ssh_a/b correctly
+                    use_ssh_b,
                 )
 
                 # Re-establish SSH clients for comparison
@@ -1527,23 +1507,17 @@ class GSynchro:
     def _get_files_to_copy(self, source_files_dict):
         """Get list of files to copy based on sync states."""
         files_to_sync = []
-        # Iterate over a copy of items to avoid issues with dictionary changes
-        # if any
         for rel_path, is_checked in self.sync_states.items():
             if not is_checked:
                 continue
 
-            # Check if the path exists in the source dictionary
             source_item = source_files_dict.get(rel_path)
 
             if source_item:
-                # If it's a file in the source, add it
                 if source_item.get("type") == "file":
                     files_to_sync.append(rel_path)
-                # If it's a directory, find all source files within it
                 elif source_item.get("type") == "dir":
-                    # Ensure directory path ends with a separator for correct
-                    # prefix matching
+                    # Add all files in directory
                     dir_prefix = rel_path.rstrip(os.sep) + os.sep
                     for file_path, file_info in source_files_dict.items():
                         if file_info.get("type") == "file" and file_path.startswith(
@@ -1585,7 +1559,7 @@ class GSynchro:
             self.log("Rescanning Folder B...")
             self.files_b = self._scan_folder(
                 target_path,
-                use_ssh_b,  # Corrected argument
+                use_ssh_b,
                 self.ssh_client_b,
                 "B",
             )
@@ -1596,7 +1570,7 @@ class GSynchro:
                 target_path,
                 use_ssh_a,
                 self.ssh_client_a,
-                "A",  # Corrected arguments
+                "A",
             )
             self._update_status("A", self.files_a)
 
@@ -1639,11 +1613,10 @@ class GSynchro:
                     sftp.stat(remote_dir)
                 except FileNotFoundError:
                     self.log(f"Creating remote directory: {remote_dir}")
-                    # A more robust way to create directories recursively
                     stdin, stdout, stderr = ssh_client.exec_command(
                         f"mkdir -p '{remote_dir}'"
                     )
-                    stderr.read()  # Wait for command to finish
+                    stderr.read()
 
                 scp.put(local_file, remote_file)
                 self.root.after(0, self.update_progress)
@@ -1681,18 +1654,14 @@ class GSynchro:
             target_dir = os.path.dirname(target_file_path)
             target_ssh.exec_command(f"mkdir -p '{target_dir}'")
 
-            # Use scp to copy from one remote host to another This is more
-            # complex as it requires passwordless auth between hosts or
-            # forwarding credentials. A simpler, though less efficient, method
-            # is to stream through the local machine.
+            # Stream through local temporary file
             with SCPClient(source_ssh.get_transport()) as scp_source:
                 with SCPClient(target_ssh.get_transport()) as scp_target:
                     self.log(f"Copying remote-to-remote: {rel_path}")
-                    # Stream the file through a local temporary file
                     with tempfile.NamedTemporaryFile() as temp_f:
-                        # Download from source to the temporary file
+                        # Download from source
                         scp_source.get(source_file_path, temp_f.name)
-                        # Upload from the temporary file to the target
+                        # Upload to target
                         scp_target.put(temp_f.name, target_file_path)
 
             self.root.after(0, self.update_progress)
