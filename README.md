@@ -2,6 +2,8 @@
 
 GSynchro is a graphical user interface (GUI) tool designed for comparing and synchronizing files and directories between two locations. It provides a clear side-by-side view to visualize differences and enables flexible synchronization operations. It is particularly useful for developers, system administrators, or anyone needing to maintain consistency between local and remote file sets.
 
+![figure_01.png](docs/images/figure_01.png)
+
 ## Key Features
 
 *   **Side-by-Side Comparison**: Visually compare the contents of two directories in a hierarchical tree view.

@@ -1151,29 +1151,41 @@ class GSynchro:
                 messagebox.showerror("Error", "Please select both folders to compare")
                 return
 
-            total_items = len(set(self.files_a.keys()) | set(self.files_b.keys()))
-            self.root.after(0, self.start_progress, None, total_items, "Comparing...")
-
             try:
+                # Rescan both folders to ensure data is fresh before comparing
+                self.log("Rescanning folders before comparison...")
+                self.root.after(0, self.start_progress, None, 0, "Scanning...")
+
+                thread_a = self._populate_single_folder("A", path_a, active_rules=rules)
+                thread_b = self._populate_single_folder("B", path_b, active_rules=rules)
+
+                # Wait for both scanning threads to complete
+                if thread_a:
+                    thread_a.join()  # This thread might close the ssh_client_a
+                if thread_b:
+                    thread_b.join()
+
+                self.log("Scanning complete. Starting comparison...")
+                total_items = len(set(self.files_a.keys()) | set(self.files_b.keys()))
+                self.root.after(
+                    0, self.start_progress, None, total_items, "Comparing..."
+                )
+
                 # Set up SSH connections if needed
                 use_ssh_a = self._has_ssh_a()
-                if use_ssh_a:
-                    self.ssh_client_a = self._create_ssh_client(
-                        self.remote_host_a.get(),
-                        self.remote_user_a.get(),
-                        self.remote_pass_a.get(),
-                        int(self.remote_port_a.get()),
-                    )
-
                 use_ssh_b = self._has_ssh_b()
-                if use_ssh_b:
-                    self.ssh_client_b = self._create_ssh_client(
-                        self.remote_host_b.get(),
-                        self.remote_user_b.get(),
-                        self.remote_pass_b.get(),
-                        int(self.remote_port_b.get()),
-                    )
 
+                # Re-establish SSH clients if they were closed by scanning threads
+                if use_ssh_a and (
+                    self.ssh_client_a is None
+                    or self.ssh_client_a.get_transport() is None
+                ):
+                    self.ssh_client_a = self._create_ssh_for_panel("A")
+                if use_ssh_b and (
+                    self.ssh_client_b is None
+                    or self.ssh_client_b.get_transport() is None
+                ):
+                    self.ssh_client_b = self._create_ssh_for_panel("B")
                 # Perform comparison
                 self._update_trees_with_comparison(
                     self.files_a, self.files_b, use_ssh_a, use_ssh_b, rules
