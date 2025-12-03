@@ -1146,10 +1146,6 @@ class GSynchro:
         """Compare files between folders."""
 
         def compare_thread():
-            rules = (
-                active_rules if active_rules is not None else self._get_active_filters()
-            )
-
             self.log("Starting folder comparison...")
 
             path_a = self.folder_a.get()
@@ -1676,16 +1672,19 @@ class GSynchro:
             target_dir = os.path.dirname(target_file_path)
             target_ssh.exec_command(f"mkdir -p '{target_dir}'")
 
-            # Use scp to copy from one remote host to another
-            # This is more complex as it requires passwordless auth between hosts
-            # or forwarding credentials. A simpler, though less efficient, method
-            # is to stream through the local machine.
+            # Use scp to copy from one remote host to another This is more complex
+            # as it requires passwordless auth between hosts or forwarding credentials.
+            # A simpler, though less efficient, method is to stream through the local machine.
             with SCPClient(source_ssh.get_transport()) as scp_source:
                 with SCPClient(target_ssh.get_transport()) as scp_target:
                     self.log(f"Copying remote-to-remote: {rel_path}")
-                    scp_target.putfo(
-                        scp_source.getfo(source_file_path), target_file_path
-                    )
+                    # Stream the file through a local temporary file
+                    with tempfile.NamedTemporaryFile() as temp_f:
+                        # Download from source to the temporary file
+                        scp_source.get(source_file_path, temp_f.name)
+                        # Upload from the temporary file to the target
+                        scp_target.put(temp_f.name, target_file_path)
+
             self.root.after(0, self.update_progress)
 
     # ==========================================================================
