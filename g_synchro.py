@@ -1321,19 +1321,21 @@ class GSynchro:
                 dirty_folders.add(parent)
 
         for rel_path in dirty_folders:
-            if rel_path in tree_a_map and self.tree_a is not None:
-                if self.sync_states.get(rel_path) is not False:
-                    self.sync_states[rel_path] = True
-                values = list(self.tree_a.item(tree_a_map[rel_path], "values"))
-                values[0] = self.CHECKED_CHAR
-                self.tree_a.item(tree_a_map[rel_path], values=values, tags=("orange",))
+            for tree, tree_map in [(self.tree_a, tree_a_map), (self.tree_b, tree_b_map)]:
+                if tree is None or rel_path not in tree_map:
+                    continue
 
-            if rel_path in tree_b_map and self.tree_b is not None:
-                if self.sync_states.get(rel_path) is not False:
-                    self.sync_states[rel_path] = True
-                values = list(self.tree_b.item(tree_b_map[rel_path], "values"))
-                values[0] = self.CHECKED_CHAR
-                self.tree_b.item(tree_b_map[rel_path], values=values, tags=("orange",))
+                item_id = tree_map[rel_path]
+                values = list(tree.item(item_id, "values"))
+                status = values[3]
+
+                # Only update if it's not already marked as identical
+                if status != "Identical":
+                    if self.sync_states.get(rel_path) is not False:
+                        self.sync_states[rel_path] = True
+
+                    values[0] = self.CHECKED_CHAR
+                    tree.item(item_id, values=values, tags=("orange",))
 
         # Configure tags
         for tree in [self.tree_a, self.tree_b]:
