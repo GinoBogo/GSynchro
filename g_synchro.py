@@ -492,10 +492,7 @@ class GSynchro:
 
         for col, text, width in headings_config:
             tree.heading(col, text=text)
-            if col in ["size", "modified"]:
-                tree.column(col, width=width, anchor=tk.E)
-            else:
-                tree.column(col, width=width)
+            tree.column(col, width=width, anchor=tk.E)
 
         # Configure tags for different status colors
         tree.tag_configure("green", foreground="green")
@@ -1672,9 +1669,10 @@ class GSynchro:
             target_dir = os.path.dirname(target_file_path)
             target_ssh.exec_command(f"mkdir -p '{target_dir}'")
 
-            # Use scp to copy from one remote host to another This is more complex
-            # as it requires passwordless auth between hosts or forwarding credentials.
-            # A simpler, though less efficient, method is to stream through the local machine.
+            # Use scp to copy from one remote host to another This is more
+            # complex as it requires passwordless auth between hosts or
+            # forwarding credentials. A simpler, though less efficient, method
+            # is to stream through the local machine.
             with SCPClient(source_ssh.get_transport()) as scp_source:
                 with SCPClient(target_ssh.get_transport()) as scp_target:
                     self.log(f"Copying remote-to-remote: {rel_path}")
