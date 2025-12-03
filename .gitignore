@@ -7,3 +7,6 @@ __pycache__
 
 *.cfg
 *.json
+
+github-markdown.css
+
