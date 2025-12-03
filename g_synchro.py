@@ -21,6 +21,7 @@ import tempfile
 import threading
 from typing import Optional
 from datetime import datetime
+import tkinter.font as tkfont
 
 import paramiko
 from scp import SCPClient
@@ -868,12 +869,10 @@ class GSynchro:
                             int(self.remote_port_a.get()),
                         )
                     rules = (
-                        active_rules
-                        if active_rules is not None
-                        else self._get_active_filters()
+                        self._get_active_filters()  # Filters are now applied during tree population
                     )
                     files = self._scan_folder(
-                        folder_path, use_ssh, self.ssh_client_a, "A", rules
+                        folder_path, use_ssh, self.ssh_client_a, "A"
                     )
                     self.files_a = files
                     self._update_status("A", files)
@@ -887,20 +886,23 @@ class GSynchro:
                             int(self.remote_port_b.get()),
                         )
                     rules = (
-                        active_rules
-                        if active_rules is not None
-                        else self._get_active_filters()
+                        self._get_active_filters()  # Filters are now applied during tree population
                     )
                     files = self._scan_folder(
-                        folder_path, use_ssh, self.ssh_client_b, "B", rules
+                        folder_path, use_ssh, self.ssh_client_b, "B"
                     )
                     self.files_b = files
                     self._update_status("B", files)
 
                 # Update tree view
                 tree_structure = self._build_tree_structure(files)
-                tree = getattr(self, f"tree_{panel.lower()}")
-                self.root.after(0, self._batch_populate_tree, tree, tree_structure)
+                tree = getattr(self, f"tree_{panel.lower()}")  # type: ignore
+
+                def populate_and_adjust():
+                    self._batch_populate_tree(tree, tree_structure, rules)
+                    self._adjust_tree_column_widths(tree)
+
+                self.root.after(0, populate_and_adjust)
 
             except Exception as e:
                 self.log(f"Error populating {panel} folder: {str(e)}")
@@ -915,12 +917,12 @@ class GSynchro:
         thread.start()
         return thread
 
-    def _scan_folder(self, folder_path, use_ssh, ssh_client, panel_name, filter_rules):
+    def _scan_folder(self, folder_path, use_ssh, ssh_client, panel_name):
         """Scan folder (local or remote)."""
         if use_ssh:
             self.log(f"Using SSH for folder {panel_name} scan")
             try:
-                files = self._scan_remote(folder_path, ssh_client, filter_rules)
+                files = self._scan_remote(folder_path, ssh_client)
                 self.log(f"Found {len(files)} files in folder {panel_name}")
                 return files
             except Exception as e:
@@ -928,11 +930,11 @@ class GSynchro:
                 return {}
         else:
             self.log(f"Using local folder scan for folder {panel_name}")
-            files = self._scan_local(folder_path, filter_rules)
+            files = self._scan_local(folder_path)
             self.log(f"Found {len(files)} files in folder {panel_name}")
             return files
 
-    def _scan_local(self, folder_path, filter_rules):
+    def _scan_local(self, folder_path):
         """Scan local folder."""
         files = {}
         try:
@@ -941,30 +943,19 @@ class GSynchro:
                 dirs[:] = [
                     d
                     for d in dirs
-                    if not any(fnmatch.fnmatch(d, pattern) for pattern in filter_rules)
+                    if not any(fnmatch.fnmatch(d, pattern) for pattern in [])
                 ]
 
                 # Add directories
                 for dirname in dirs:
                     full_path = os.path.join(root, dirname)
                     rel_path = os.path.relpath(full_path, folder_path)
-                    if any(
-                        fnmatch.fnmatch(part, pattern)
-                        for part in rel_path.split(os.sep)
-                        for pattern in filter_rules
-                    ):
-                        continue
                     files[rel_path] = {"type": "dir"}
 
                 # Add files
                 for filename in filenames:
                     full_path = os.path.join(root, filename)
                     rel_path = os.path.relpath(full_path, folder_path)
-
-                    if any(
-                        fnmatch.fnmatch(filename, pattern) for pattern in filter_rules
-                    ):
-                        continue
 
                     try:
                         stat = os.stat(full_path)
@@ -982,12 +973,12 @@ class GSynchro:
         self.log(f"Local folder scan ended for {folder_path}")
         return files
 
-    def _scan_remote(self, folder_path, ssh_client, filter_rules):
+    def _scan_remote(self, folder_path, ssh_client):  # Removed filter_rules
         """Scan remote folder using SSH."""
         files = {}
         try:
             stdin, stdout, stderr = ssh_client.exec_command(
-                f"find {folder_path} -mindepth 1 -exec stat -c '%n|%F|%s|%Y' {{}} \\;"
+                f"find '{folder_path}' -mindepth 1 -exec stat -c '%n|%F|%s|%Y' {{}} \\; 2>/dev/null"  # Added 2>/dev/null to suppress errors
             )
 
             for line in stdout:
@@ -1000,13 +991,6 @@ class GSynchro:
                             rel_path = filepath[len(folder_path) :].lstrip("/")
                         else:
                             continue  # Ignore paths that don't match the base folder
-                        if any(
-                            fnmatch.fnmatch(part, pattern)
-                            for part in rel_path.split("/")
-                            for pattern in filter_rules
-                        ):
-                            continue
-
                         if "directory" in filetype:
                             files[rel_path] = {"type": "dir"}
                         else:
@@ -1048,7 +1032,9 @@ class GSynchro:
 
         return tree_structure
 
-    def _batch_populate_tree(self, tree, structure):
+    def _batch_populate_tree(
+        self, tree, structure, filter_rules=None
+    ):  # Added filter_rules
         """Populate treeview from nested structure."""
         if not tree:
             return
@@ -1057,10 +1043,27 @@ class GSynchro:
         for item in tree.get_children():
             tree.delete(item)
 
-        def insert_items(parent_node, data):
+        if filter_rules is None:
+            current_filter_rules = []
+        else:
+            current_filter_rules = filter_rules
+
+        def insert_items(
+            parent_node, data, filter_rules_for_insertion, current_path_prefix=""
+        ):
             items = sorted(data.items())
             for name, content in items:
                 if name == ".":
+                    continue
+
+                # Apply filter rules here
+                if any(
+                    fnmatch.fnmatch(
+                        os.path.join(current_path_prefix, name).replace(os.sep, "/"),
+                        pattern,
+                    )
+                    for pattern in filter_rules_for_insertion
+                ):
                     continue
 
                 if isinstance(content, dict) and "size" not in content:
@@ -1073,7 +1076,12 @@ class GSynchro:
                         tags=("black",),
                         open=False,
                     )
-                    insert_items(node, content)
+                    insert_items(
+                        node,
+                        content,
+                        filter_rules_for_insertion,
+                        os.path.join(current_path_prefix, name),
+                    )
                 else:
                     # File
                     if content and "size" in content:
@@ -1090,7 +1098,7 @@ class GSynchro:
                             tags=("black",),
                         )
 
-        insert_items("", structure)
+        insert_items("", structure, current_filter_rules, "")
 
     def _build_tree_map(self, tree, parent_item="", path=""):
         """Build path to item ID map for a tree."""
@@ -1152,20 +1160,8 @@ class GSynchro:
                 return
 
             try:
-                # Rescan both folders to ensure data is fresh before comparing
-                self.log("Rescanning folders before comparison...")
-                self.root.after(0, self.start_progress, None, 0, "Scanning...")
-
-                thread_a = self._populate_single_folder("A", path_a, active_rules=rules)
-                thread_b = self._populate_single_folder("B", path_b, active_rules=rules)
-
-                # Wait for both scanning threads to complete
-                if thread_a:
-                    thread_a.join()  # This thread might close the ssh_client_a
-                if thread_b:
-                    thread_b.join()
-
-                self.log("Scanning complete. Starting comparison...")
+                # Use existing data in self.files_a and self.files_b for comparison
+                self.log("Using existing data for comparison...")
                 total_items = len(set(self.files_a.keys()) | set(self.files_b.keys()))
                 self.root.after(
                     0, self.start_progress, None, total_items, "Comparing..."
@@ -1188,31 +1184,29 @@ class GSynchro:
                     self.ssh_client_b = self._create_ssh_for_panel("B")
                 # Perform comparison
                 self._update_trees_with_comparison(
-                    self.files_a, self.files_b, use_ssh_a, use_ssh_b, rules
+                    self.files_a, self.files_b, use_ssh_a, use_ssh_b
                 )
                 self.log("Folder comparison completed")
 
             except Exception as e:
                 self.log(f"Error during comparison: {str(e)}")
-                messagebox.showerror("Error", f"Comparison failed: {str(e)}")
             finally:
                 self.root.after(0, self.stop_progress)
                 self._close_ssh()
 
         threading.Thread(target=compare_thread, daemon=True).start()
 
-    def _update_trees_with_comparison(
-        self, files_a, files_b, use_ssh_a, use_ssh_b, filter_rules
-    ):
+    def _update_trees_with_comparison(self, files_a, files_b, use_ssh_a, use_ssh_b):
         """Update tree views with comparison results."""
-        all_files = set(files_a.keys()) | set(files_b.keys())
 
         # Statistics
         identical_count = 0
         different_count = 0
         only_a_count = 0
         only_b_count = 0
-        dirty_folders = set()
+        dirty_folders = (
+            set()
+        )  # Stores relative paths of folders that contain differences
 
         # Build path maps for tree items
         tree_a_map = self._build_tree_map(self.tree_a)
@@ -1221,86 +1215,100 @@ class GSynchro:
         # Clear sync states
         self.sync_states.clear()
 
-        # First pass: analyze files and collect stats
-        item_statuses = {}
-        for rel_path in sorted(all_files):
-            # Check against filters
-            if any(
-                fnmatch.fnmatch(part, pattern)
-                for part in rel_path.replace(os.sep, "/").split("/")
-                for pattern in filter_rules
-            ):
-                continue
+        # Collect all unique relative paths that are currently visible in either tree
+        all_visible_paths = set(tree_a_map.keys()) | set(tree_b_map.keys())
 
-            file_a = files_a.get(rel_path)
-            file_b = files_b.get(rel_path)
+        # First pass: Determine status for all visible files and mark parent directories as dirty
+        file_item_statuses = {}  # Store status for files
+        for rel_path in sorted(all_visible_paths):
+            file_a_info = files_a.get(rel_path)
+            file_b_info = files_b.get(rel_path)
 
-            is_file = (file_a and file_a.get("type") == "file") or (
-                file_b and file_b.get("type") == "file"
-            )
+            # Determine if it's a file (could be a file in A, B, or both)
+            is_file_in_a = file_a_info and file_a_info.get("type") == "file"
+            is_file_in_b = file_b_info and file_b_info.get("type") == "file"
 
-            status, status_color = "Unknown", "black"
-            if is_file:
+            if is_file_in_a or is_file_in_b:
                 status, status_color = self._compare_files(
-                    file_a, file_b, use_ssh_a, use_ssh_b
+                    file_a_info if is_file_in_a else None,
+                    file_b_info if is_file_in_b else None,
+                    use_ssh_a,
+                    use_ssh_b,
                 )
+                file_item_statuses[rel_path] = (status, status_color)
 
-                # Update statistics
+                # Update statistics and mark parent folders as dirty
                 if status == "Identical":
                     identical_count += 1
-                    self.sync_states[rel_path] = False
-                elif status == "Different":
-                    different_count += 1
-                    parent_dir = os.path.dirname(rel_path)
-                    if parent_dir:
-                        dirty_folders.add(parent_dir)
-                elif status == "Only in Folder A":
-                    only_a_count += 1
-                    parent_dir = os.path.dirname(rel_path)
-                    if parent_dir:
-                        dirty_folders.add(parent_dir)
-                elif status == "Only in Folder B":
-                    only_b_count += 1
-                    parent_dir = os.path.dirname(rel_path)
-                    if parent_dir:
-                        dirty_folders.add(parent_dir)
+                    self.sync_states[rel_path] = (
+                        False  # Not checked for sync by default
+                    )
+                else:
+                    if status == "Different":
+                        different_count += 1
+                    elif status == "Only in Folder A":
+                        only_a_count += 1
+                    elif status == "Only in Folder B":
+                        only_b_count += 1
 
-                if status != "Identical":
+                    # Mark this file for synchronization by default if it's not identical
                     self.sync_states[rel_path] = True
 
-            item_statuses[rel_path] = (status, status_color)
+                    # Mark all parent directories as dirty
+                    current_parent = os.path.dirname(rel_path)
+                    while current_parent and current_parent not in dirty_folders:
+                        dirty_folders.add(current_parent)
+                        current_parent = os.path.dirname(current_parent)
+            else:
+                # It's a directory, we'll determine its status later
+                pass
 
-        # Second pass: update tree items
-        for rel_path in sorted(all_files):
-            # Check against filters
-            if any(
-                fnmatch.fnmatch(part, pattern)
-                for part in rel_path.replace(os.sep, "/").split("/")
-                for pattern in filter_rules
-            ):
-                continue
-
+        # Second pass: Determine status for all visible directories
+        # This needs to be done after all files have been processed and dirty_folders is complete
+        final_item_statuses = {}
+        for rel_path in sorted(all_visible_paths):
             self.root.after(0, self.update_progress, 1)
 
-            file_a = files_a.get(rel_path)
-            file_b = files_b.get(rel_path)
-            is_dir = (file_a and file_a.get("type") == "dir") or (
-                file_b and file_b.get("type") == "dir"
-            )
+            file_a_info = files_a.get(rel_path)
+            file_b_info = files_b.get(rel_path)
 
-            status, status_color = item_statuses.get(rel_path, ("Unknown", "black"))
+            is_dir_in_a = file_a_info and file_a_info.get("type") == "dir"
+            is_dir_in_b = file_b_info and file_b_info.get("type") == "dir"
 
-            # Handle directories
-            if is_dir:
-                if file_a and file_b:
-                    if rel_path in dirty_folders:
-                        status, status_color = "Contains differences", "orange"
-                    else:
-                        status, status_color = "Identical", "green"
-                elif file_a:
+            if is_dir_in_a or is_dir_in_b:
+                # It's a directory
+                if rel_path in dirty_folders:
+                    status, status_color = "Contains differences", "orange"
+                    self.sync_states[rel_path] = True  # Mark dirty folders for sync
+                elif is_dir_in_a and is_dir_in_b:
+                    status, status_color = "Identical", "green"
+                    self.sync_states[rel_path] = (
+                        False  # Not checked for sync by default
+                    )
+                elif is_dir_in_a:
                     status, status_color = "Only in Folder A", "blue"
-                else:
+                    self.sync_states[rel_path] = True  # Mark for sync
+                elif is_dir_in_b:
                     status, status_color = "Only in Folder B", "red"
+                    self.sync_states[rel_path] = True  # Mark for sync
+                else:
+                    # This case should ideally not be reached if all_visible_paths is correct
+                    status, status_color = "Unknown (Dir)", "black"
+                    self.sync_states[rel_path] = False
+                final_item_statuses[rel_path] = (status, status_color)
+            else:
+                # It's a file, use the status determined in the first pass
+                final_item_statuses[rel_path] = file_item_statuses.get(
+                    rel_path, ("Unknown (File)", "black")
+                )
+
+        # Third pass: Update Treeview items with final statuses
+        for rel_path in sorted(all_visible_paths):
+            self.root.after(0, self.update_progress, 1)
+
+            status, status_color = final_item_statuses.get(
+                rel_path, ("Unknown", "black")
+            )
 
             # Update tree A
             if rel_path in tree_a_map:
@@ -1314,33 +1322,14 @@ class GSynchro:
                     self.tree_b, tree_b_map[rel_path], rel_path, status, status_color
                 )
 
-        # Mark parent directories
-        for dirty_folder in sorted(list(dirty_folders), key=len, reverse=True):
-            parent = os.path.dirname(dirty_folder)
-            if parent:
-                dirty_folders.add(parent)
-
-        for rel_path in dirty_folders:
-            for tree, tree_map in [(self.tree_a, tree_a_map), (self.tree_b, tree_b_map)]:
-                if tree is None or rel_path not in tree_map:
-                    continue
-
-                item_id = tree_map[rel_path]
-                values = list(tree.item(item_id, "values"))
-                status = values[3]
-
-                # Only update if it's not already marked as identical
-                if status != "Identical":
-                    if self.sync_states.get(rel_path) is not False:
-                        self.sync_states[rel_path] = True
-
-                    values[0] = self.CHECKED_CHAR
-                    tree.item(item_id, values=values, tags=("orange",))
-
-        # Configure tags
+        # Configure tags (ensure they are always configured)
         for tree in [self.tree_a, self.tree_b]:
             if tree:
                 tree.tag_configure("black", foreground="black")
+                tree.tag_configure("green", foreground="green")
+                tree.tag_configure("orange", foreground="orange")
+                tree.tag_configure("blue", foreground="blue")
+                tree.tag_configure("red", foreground="red")
 
         # Update status summary
         status_summary = (
@@ -1349,6 +1338,12 @@ class GSynchro:
         )
         self.status_a.set(status_summary)
         self.status_b.set("")
+
+        # Adjust column widths
+        if self.tree_a:
+            self._adjust_tree_column_widths(self.tree_a)
+        if self.tree_b:
+            self._adjust_tree_column_widths(self.tree_b)
 
     def _compare_files(self, file_a, file_b, use_ssh_a, use_ssh_b):
         """Compare two files and return status."""
@@ -1496,7 +1491,10 @@ class GSynchro:
                 # Rescan target folder
                 self.log("Synchronization completed. Refreshing view...")
                 self._rescan_target_folder(
-                    direction, target_path, source_use_ssh, target_use_ssh
+                    direction,
+                    target_path,
+                    use_ssh_a,
+                    use_ssh_b,  # Pass use_ssh_a/b correctly
                 )
 
                 # Re-establish SSH clients for comparison
@@ -1511,7 +1509,6 @@ class GSynchro:
                     self.files_b,
                     use_ssh_a,
                     use_ssh_b,
-                    self._get_active_filters(),
                 )
 
                 self.log("Synchronization completed")
@@ -1531,25 +1528,24 @@ class GSynchro:
 
     def _get_files_to_copy(self, source_files_dict):
         """Get list of files to copy based on sync states."""
-        files_to_copy = []
+        files_to_sync = []
         for rel_path, is_checked in self.sync_states.items():
+            if not is_checked:
+                continue
+
+            # If it's a file in the source, add it
             if (
-                is_checked
-                and rel_path in source_files_dict
+                rel_path in source_files_dict
                 and source_files_dict[rel_path].get("type") == "file"
             ):
-                # Check if any parent directory is explicitly unchecked
-                parent_is_unchecked = False
-                parent = os.path.dirname(rel_path)
-                while parent:
-                    if self.sync_states.get(parent) is False:
-                        parent_is_unchecked = True
-                        break
-                    parent = os.path.dirname(parent)
+                files_to_sync.append(rel_path)
 
-                if not parent_is_unchecked:
-                    files_to_copy.append(rel_path)
-        return files_to_copy
+            # If it's a directory, find all source files within it
+            elif source_files_dict.get(rel_path, {}).get("type") == "dir":
+                for file_path in source_files_dict:
+                    if file_path.startswith(rel_path + os.sep):
+                        files_to_sync.append(file_path)
+        return sorted(list(set(files_to_sync)))
 
     def _perform_sync(
         self,
@@ -1578,28 +1574,24 @@ class GSynchro:
         else:
             self._sync_local_to_local(files_to_copy, source_files_dict, target_path)
 
-    def _rescan_target_folder(
-        self, direction, target_path, source_use_ssh, target_use_ssh
-    ):
+    def _rescan_target_folder(self, direction, target_path, use_ssh_a, use_ssh_b):
         """Rescan target folder after synchronization."""
         if direction == "left_to_right":
             self.log("Rescanning Folder B...")
             self.files_b = self._scan_folder(
                 target_path,
-                target_use_ssh,
+                use_ssh_b,  # Corrected argument
                 self.ssh_client_b,
                 "B",
-                self._get_active_filters(),
             )
             self._update_status("B", self.files_b)
         else:
             self.log("Rescanning Folder A...")
             self.files_a = self._scan_folder(
                 target_path,
-                target_use_ssh,
+                use_ssh_a,
                 self.ssh_client_a,
-                "A",
-                self._get_active_filters(),
+                "A",  # Corrected arguments
             )
             self._update_status("A", self.files_a)
 
@@ -1633,13 +1625,21 @@ class GSynchro:
         with SCPClient(ssh_client.get_transport()) as scp:
             for rel_path in files_to_copy:
                 local_file = source_files_dict[rel_path]["full_path"]
-                remote_file = os.path.join(remote_path, rel_path).replace("\\", "/")
+                remote_file = os.path.join(remote_path, rel_path).replace(os.sep, "/")
 
                 # Create remote directory
-                remote_dir = os.path.dirname(remote_file)
-                ssh_client.exec_command(f"mkdir -p '{remote_dir}'")
+                remote_dir = os.path.dirname(remote_file).replace(os.sep, "/")
+                try:
+                    sftp = ssh_client.open_sftp()
+                    sftp.stat(remote_dir)
+                except FileNotFoundError:
+                    self.log(f"Creating remote directory: {remote_dir}")
+                    # A more robust way to create directories recursively
+                    stdin, stdout, stderr = ssh_client.exec_command(
+                        f"mkdir -p '{remote_dir}'"
+                    )
+                    stderr.read()  # Wait for command to finish
 
-                self.log(f"Uploading: {rel_path}")
                 scp.put(local_file, remote_file)
                 self.root.after(0, self.update_progress)
 
@@ -1669,22 +1669,23 @@ class GSynchro:
         self.log(f"Syncing remote files to remote {target_path}")
 
         for rel_path in files_to_copy:
-            source_file = source_files_dict[rel_path]["full_path"]
-            target_file = os.path.join(target_path, rel_path).replace("\\", "/")
+            source_file_path = source_files_dict[rel_path]["full_path"]
+            target_file_path = os.path.join(target_path, rel_path).replace(os.sep, "/")
 
             # Create target directory
-            target_dir = os.path.dirname(target_file)
+            target_dir = os.path.dirname(target_file_path)
             target_ssh.exec_command(f"mkdir -p '{target_dir}'")
 
-            # Transfer via temporary local file
-            with tempfile.NamedTemporaryFile() as temp_file:
-                with SCPClient(source_ssh.get_transport()) as scp_a:
-                    scp_a.get(source_file, temp_file.name)
-
-                with SCPClient(target_ssh.get_transport()) as scp_b:
-                    scp_b.put(temp_file.name, target_file)
-
-            self.log(f"Copying remote-to-remote: {rel_path}")
+            # Use scp to copy from one remote host to another
+            # This is more complex as it requires passwordless auth between hosts
+            # or forwarding credentials. A simpler, though less efficient, method
+            # is to stream through the local machine.
+            with SCPClient(source_ssh.get_transport()) as scp_source:
+                with SCPClient(target_ssh.get_transport()) as scp_target:
+                    self.log(f"Copying remote-to-remote: {rel_path}")
+                    scp_target.putfo(
+                        scp_source.getfo(source_file_path), target_file_path
+                    )
             self.root.after(0, self.update_progress)
 
     # ==========================================================================
@@ -2217,6 +2218,39 @@ class GSynchro:
         if path_parts:
             return os.path.sep.join(path_parts)
         return None
+
+    def _adjust_tree_column_widths(self, tree: ttk.Treeview):
+        """Adjust column widths to fit content."""
+        self.log("Adjusting column widths for tree...")
+        try:
+            # Use a default font for measuring if a specific one isn't set
+            font = tkfont.Font()
+            padding = 20  # Extra space for padding
+
+            # Adjust data columns
+            columns = tree["columns"]
+            for col in columns:
+                # Start with the heading width
+                heading_text = tree.heading(col, "text")
+                max_width = font.measure(heading_text)
+
+                def find_max_width(item_id=""):
+                    nonlocal max_width
+                    for child_id in tree.get_children(item_id):
+                        cell_value = tree.set(child_id, col)
+                        if isinstance(cell_value, str) and cell_value:
+                            width = font.measure(cell_value)
+                            if width > max_width:
+                                max_width = width
+                        find_max_width(child_id)
+
+                find_max_width()
+
+                # Apply the new width with padding
+                tree.column(col, width=max_width + padding)
+
+        except Exception as e:
+            self.log(f"Could not adjust column widths: {e}")
 
     def log(self, message):
         """Log message to console."""
