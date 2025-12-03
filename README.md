@@ -27,3 +27,31 @@ GSynchro is a graphical user interface (GUI) tool designed for comparing and syn
     *   Delete files and directories from both local and remote locations.
 *   **Persistent Configuration**: Automatically saves your settings (SSH details, folder history, filter rules, and window size) to a `g_synchro.json` file for convenience.
 *   **Cross-Platform**: Built with Python's standard `tkinter` library, making it compatible with Windows, macOS, and Linux.
+
+## Getting Started
+
+Follow these instructions to get GSynchro running on your local machine.
+
+### Prerequisites
+
+*   Python 3.6 or higher
+
+### Installation
+
+1.  **Clone the repository:**
+    ```sh
+    git clone <repository-url>
+    cd GSynchro
+    ```
+
+2.  **Install the required dependencies using the `requirements.txt` file:**
+    ```sh
+    pip install -r requirements.txt
+    ```
+
+## Usage
+
+To run the application, execute the `g_synchro.py` script from the project's root directory:
+```sh
+python g_synchro.py
+```
