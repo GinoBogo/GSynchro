@@ -374,7 +374,7 @@ class GSynchro:
         )
         panel.columnconfigure(0, weight=0)
         panel.columnconfigure(1, weight=1)  # Make the path entry expandable
-        panel.rowconfigure(3, weight=1)
+        panel.rowconfigure(4, weight=1)
 
         # SSH settings widgets
         ttk.Frame(panel)
@@ -452,12 +452,17 @@ class GSynchro:
 
         # Tree view
         tree = self._create_tree_view(panel)
-        tree.grid(row=3, column=0, columnspan=5, pady=(10, 0), sticky=tk.NSEW)
+        tree.grid(row=4, column=0, columnspan=5, pady=(10, 0), sticky=tk.NSEW)
 
-        # Scrollbar
-        scrollbar = ttk.Scrollbar(panel, orient=tk.VERTICAL, command=tree.yview)
-        tree.configure(yscrollcommand=scrollbar.set)
-        scrollbar.grid(row=3, column=5, pady=(10, 0), sticky=tk.NS)
+        # Vertical Scrollbar
+        v_scrollbar = ttk.Scrollbar(panel, orient=tk.VERTICAL, command=tree.yview)
+        tree.configure(yscrollcommand=v_scrollbar.set)
+        v_scrollbar.grid(row=4, column=5, pady=(10, 0), sticky=tk.NS)
+
+        # Horizontal Scrollbar
+        h_scrollbar = ttk.Scrollbar(panel, orient=tk.HORIZONTAL, command=tree.xview)
+        tree.configure(xscrollcommand=h_scrollbar.set)
+        h_scrollbar.grid(row=5, column=0, columnspan=5, sticky=tk.EW)
 
         # Bind events
         tree.bind("<Button-1>", self._on_tree_click)
@@ -1522,22 +1527,29 @@ class GSynchro:
     def _get_files_to_copy(self, source_files_dict):
         """Get list of files to copy based on sync states."""
         files_to_sync = []
+        # Iterate over a copy of items to avoid issues with dictionary changes
+        # if any
         for rel_path, is_checked in self.sync_states.items():
             if not is_checked:
                 continue
 
-            # If it's a file in the source, add it
-            if (
-                rel_path in source_files_dict
-                and source_files_dict[rel_path].get("type") == "file"
-            ):
-                files_to_sync.append(rel_path)
+            # Check if the path exists in the source dictionary
+            source_item = source_files_dict.get(rel_path)
 
-            # If it's a directory, find all source files within it
-            elif source_files_dict.get(rel_path, {}).get("type") == "dir":
-                for file_path in source_files_dict:
-                    if file_path.startswith(rel_path + os.sep):
-                        files_to_sync.append(file_path)
+            if source_item:
+                # If it's a file in the source, add it
+                if source_item.get("type") == "file":
+                    files_to_sync.append(rel_path)
+                # If it's a directory, find all source files within it
+                elif source_item.get("type") == "dir":
+                    # Ensure directory path ends with a separator for correct
+                    # prefix matching
+                    dir_prefix = rel_path.rstrip(os.sep) + os.sep
+                    for file_path, file_info in source_files_dict.items():
+                        if file_info.get("type") == "file" and file_path.startswith(
+                            dir_prefix
+                        ):
+                            files_to_sync.append(file_path)
         return sorted(list(set(files_to_sync)))
 
     def _perform_sync(
