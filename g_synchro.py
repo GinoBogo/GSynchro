@@ -2230,11 +2230,12 @@ class GSynchro:
 
     def _adjust_tree_column_widths(self, tree: ttk.Treeview):
         """Adjust column widths to fit content."""
-        self.log("Adjusting column widths for tree...")
+        panel_name = "A" if tree is self.tree_a else "B"
+        self.log(f"Adjusting column widths for folder {panel_name} tree...")
         try:
             # Use a default font for measuring if a specific one isn't set
             font = tkfont.Font()
-            padding = 20  # Extra space for padding
+            padding = 10  # Extra space for padding
 
             # Adjust data columns
             columns = tree["columns"]
