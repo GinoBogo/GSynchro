@@ -542,6 +542,11 @@ class GSynchro:
         self.tree_context_menu.add_command(
             label="Delete", command=self._delete_selected_item
         )
+        self.tree_context_menu.add_separator()
+        self.tree_context_menu.add_command(label="Select All", command=self._select_all)
+        self.tree_context_menu.add_command(
+            label="Deselect All", command=self._deselect_all
+        )
 
     # ==========================================================================
     # FOLDER BROWSING METHODS
@@ -2008,6 +2013,60 @@ class GSynchro:
     # ==========================================================================
     # CONTEXT MENU ACTIONS
     # ==========================================================================
+
+    def _select_all(self):
+        """Select all items that are different or contain differences (deep selection)."""
+        tree = self.root.focus_get()
+        if not isinstance(tree, ttk.Treeview) or tree not in (self.tree_a, self.tree_b):
+            return
+
+        diff_statuses = {
+            "Different",
+            "Only in Folder A",
+            "Only in Folder B",
+            "Contains differences",
+        }
+
+        def traverse_and_select(item_id=""):
+            for child_id in tree.get_children(item_id):
+                status = tree.item(child_id, "values")[3]
+                if status in diff_statuses:
+                    rel_path = self._get_relative_path(tree, child_id)
+                    if rel_path is not None:
+                        self.sync_states[rel_path] = True
+                        current_values = list(tree.item(child_id, "values"))
+                        current_values[0] = self.CHECKED_CHAR
+                        tree.item(child_id, values=tuple(current_values))
+
+                # Recurse into children
+                if tree.get_children(child_id):
+                    traverse_and_select(child_id)
+
+        traverse_and_select()
+
+    def _deselect_all(self):
+        """Deselect all items in the tree."""
+        tree = self.root.focus_get()
+        if not isinstance(tree, ttk.Treeview) or tree not in (self.tree_a, self.tree_b):
+            return
+
+        def traverse_and_deselect(item_id=""):
+            for child_id in tree.get_children(item_id):
+                rel_path = self._get_relative_path(tree, child_id)
+                if rel_path is not None:
+                    # Check if the item is in sync_states before trying to
+                    # modify it
+                    if rel_path in self.sync_states:
+                        self.sync_states[rel_path] = False
+                    current_values = list(tree.item(child_id, "values"))
+                    current_values[0] = self.UNCHECKED_CHAR
+                    tree.item(child_id, values=tuple(current_values))
+
+                # Recurse into children
+                if tree.get_children(child_id):
+                    traverse_and_deselect(child_id)
+
+        traverse_and_deselect()
 
     def _open_selected_item(self):
         """Open the selected file with the default application."""
