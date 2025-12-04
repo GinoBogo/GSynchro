@@ -1922,9 +1922,14 @@ class GSynchro:
                 context_menu.entryconfig("Edit Rule", state="disabled")
             context_menu.post(event.x_root, event.y_root)
 
+        def hide_context_menu_on_escape(event=None):
+            """Hide the context menu when Escape is pressed."""
+            context_menu.unpost()
+
         # Bind events
         filter_tree.bind("<Button-1>", on_tree_click)
         filter_tree.bind("<Button-3>", show_context_menu)
+        dialog.bind("<Escape>", hide_context_menu_on_escape)
 
         # Initial population
         populate_tree()
