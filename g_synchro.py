@@ -10,6 +10,9 @@ License: MIT
 Version: 1.0
 """
 
+from __future__ import annotations
+
+
 import fnmatch
 import json
 import os
@@ -26,6 +29,7 @@ import paramiko
 from scp import SCPClient
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
+
 
 CONFIG_FILE = "g_synchro.json"
 HISTORY_LENGTH = 10
@@ -178,6 +182,7 @@ class GSynchro:
         """Save configuration to file."""
         # Update folder A history
         current_folder_a = self.folder_a.get()
+
         if current_folder_a:
             if current_folder_a in self.folder_a_history:
                 self.folder_a_history.remove(current_folder_a)
@@ -186,6 +191,7 @@ class GSynchro:
 
         # Update folder B history
         current_folder_b = self.folder_b.get()
+
         if current_folder_b:
             if current_folder_b in self.folder_b_history:
                 self.folder_b_history.remove(current_folder_b)
@@ -193,6 +199,7 @@ class GSynchro:
             self.folder_b_history = self.folder_b_history[:HISTORY_LENGTH]
 
         self.filter_rules.sort(key=lambda item: item["rule"])
+
         config = {
             "WINDOW": {"geometry": self.root.geometry()},
             "SSH_A": {
@@ -894,7 +901,7 @@ class GSynchro:
                         )
                     rules = self._get_active_filters()
                     files = self._scan_folder(
-                        folder_path, use_ssh, self.ssh_client_a, "A"
+                        folder_path, use_ssh, self.ssh_client_a, "A", rules
                     )
                     self.files_a = files
                     self._update_status("A", files)
@@ -909,7 +916,7 @@ class GSynchro:
                         )
                     rules = self._get_active_filters()
                     files = self._scan_folder(
-                        folder_path, use_ssh, self.ssh_client_b, "B"
+                        folder_path, use_ssh, self.ssh_client_b, "B", rules
                     )
                     self.files_b = files
                     self._update_status("B", files)
@@ -937,12 +944,15 @@ class GSynchro:
         thread.start()
         return thread
 
-    def _scan_folder(self, folder_path, use_ssh, ssh_client, panel_name):
+    def _scan_folder(self, folder_path, use_ssh, ssh_client, panel_name, rules=None):
         """Scan folder (local or remote)."""
+        if rules is None:
+            rules = []
+
         if use_ssh:
             self.log(f"Using SSH for folder {panel_name} scan")
             try:
-                files = self._scan_remote(folder_path, ssh_client)
+                files = self._scan_remote(folder_path, ssh_client, rules)
                 self.log(f"Found {len(files)} files in folder {panel_name}")
                 return files
             except Exception as e:
@@ -950,32 +960,43 @@ class GSynchro:
                 return {}
         else:
             self.log(f"Using local folder scan for folder {panel_name}")
-            files = self._scan_local(folder_path)
+            files = self._scan_local(folder_path, rules)
             self.log(f"Found {len(files)} files in folder {panel_name}")
             return files
 
-    def _scan_local(self, folder_path):
+    def _scan_local(self, folder_path, rules=None):
         """Scan a local folder."""
         files = {}
+        if rules is None:
+            rules = []
+
         try:
             for root, dirs, filenames in os.walk(folder_path, topdown=True):
                 # Filter directories
                 dirs[:] = [
                     d
                     for d in dirs
-                    if not any(fnmatch.fnmatch(d, pattern) for pattern in [])
+                    if not any(
+                        fnmatch.fnmatch(
+                            os.path.relpath(os.path.join(root, d), folder_path), pattern
+                        )
+                        for pattern in rules
+                    )
                 ]
 
                 # Add directories
                 for dirname in dirs:
                     full_path = os.path.join(root, dirname)
                     rel_path = os.path.relpath(full_path, folder_path)
-                    files[rel_path] = {"type": "dir"}
+                    files[rel_path.replace(os.sep, "/")] = {"type": "dir"}
 
                 # Add files
                 for filename in filenames:
                     full_path = os.path.join(root, filename)
                     rel_path = os.path.relpath(full_path, folder_path)
+
+                    if any(fnmatch.fnmatch(rel_path, r) for r in rules):
+                        continue
 
                     try:
                         stat = os.stat(full_path)
@@ -993,9 +1014,12 @@ class GSynchro:
         self.log(f"Local folder scan ended for {folder_path}")
         return files
 
-    def _scan_remote(self, folder_path, ssh_client):
+    def _scan_remote(self, folder_path, ssh_client, rules=None):
         """Scan remote folder using SSH."""
         files = {}
+        if rules is None:
+            rules = []
+
         try:
             stdin, stdout, stderr = ssh_client.exec_command(
                 f"find '{folder_path}' -mindepth 1 -exec stat -c '%n|%F|%s|%Y' {{}} \\; 2>/dev/null"
@@ -1011,6 +1035,10 @@ class GSynchro:
                             rel_path = filepath[len(folder_path) :].lstrip("/")
                         else:
                             continue
+
+                        if any(fnmatch.fnmatch(rel_path, r) for r in rules):
+                            continue
+
                         if "directory" in filetype:
                             files[rel_path] = {"type": "dir"}
                         else:
