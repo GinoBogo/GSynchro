@@ -2448,9 +2448,25 @@ class GSynchro:
         dialog.geometry(f"+{x}+{y}")
 
     def _get_mono_font(self):
-        """Returns monospace font family and size."""
-        mono_font_family = "Consolas" if "Consolas" in tkfont.families() else "Courier"
-        return (mono_font_family, 10)
+        """Returns a suitable monospace font family based on the current OS."""
+        font_families = tkfont.families()
+
+        if sys.platform == "win32":
+            # Windows
+            preferred_fonts = ["Consolas", "Courier New", "Lucida Console"]
+        elif sys.platform == "darwin":
+            # macOS
+            preferred_fonts = ["Menlo", "Monaco", "Courier New"]
+        else:
+            # Linux and other Unix-like systems
+            preferred_fonts = ["DejaVu Sans Mono", "Liberation Mono", "Courier New"]
+
+        for font in preferred_fonts:
+            if font in font_families:
+                return (font, 11)
+
+        # Fallback to a generic monospace font
+        return ("Courier", 11)
 
     def _refresh_ui_after_sync(self, use_ssh_a, use_ssh_b):
         """Refreshes both tree views and runs comparison after sync."""
