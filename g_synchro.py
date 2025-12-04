@@ -11,7 +11,6 @@ Version: 1.0
 """
 
 import fnmatch
-import hashlib
 import json
 import os
 import shutil
@@ -30,6 +29,7 @@ from tkinter import ttk, filedialog, messagebox
 
 CONFIG_FILE = "g_synchro.json"
 HISTORY_LENGTH = 10
+CHUNK_SIZE = 4096
 
 
 class GSynchro:
@@ -1239,11 +1239,13 @@ class GSynchro:
             is_file_in_b = file_b_info and file_b_info.get("type") == "file"
 
             if is_file_in_a or is_file_in_b:
-                status, status_color = self._compare_files(
+                status, status_color = self._compare_files(  # type: ignore
                     file_a_info if is_file_in_a else None,
                     file_b_info if is_file_in_b else None,
                     use_ssh_a,
                     use_ssh_b,
+                    self.ssh_client_a,
+                    self.ssh_client_b,
                 )
                 file_item_statuses[rel_path] = (status, status_color)
 
@@ -1346,62 +1348,61 @@ class GSynchro:
         if self.tree_b:
             self._adjust_tree_column_widths(self.tree_b)
 
-    def _compare_files(self, file_a, file_b, use_ssh_a, use_ssh_b):
+    def _compare_files(
+        self, file_a, file_b, use_ssh_a, use_ssh_b, ssh_client_a, ssh_client_b
+    ):
         """Compare two files and return status."""
         if file_a and file_b:
             if file_a["size"] == file_b["size"]:
-                # Compare file hashes
-                hash_a = self._get_file_hash(
-                    file_a["full_path"], use_ssh_a, self.ssh_client_a
-                )
-                hash_b = self._get_file_hash(
-                    file_b["full_path"], use_ssh_b, self.ssh_client_b
-                )
+                # Files have same size, proceed with chunked comparison
+                file_a_handle = None
+                file_b_handle = None
+                sftp_a = None
+                sftp_b = None
 
-                if hash_a and hash_b and hash_a == hash_b:
-                    return "Identical", "green"
-                else:
-                    return "Different", "orange"
+                try:
+                    # Open file A
+                    if use_ssh_a:
+                        sftp_a = ssh_client_a.open_sftp()
+                        file_a_handle = sftp_a.open(file_a["full_path"], "rb")
+                    else:
+                        file_a_handle = open(file_a["full_path"], "rb")
+
+                    # Open file B
+                    if use_ssh_b:
+                        sftp_b = ssh_client_b.open_sftp()
+                        file_b_handle = sftp_b.open(file_b["full_path"], "rb")
+                    else:
+                        file_b_handle = open(file_b["full_path"], "rb")
+
+                    while True:
+                        chunk_a = file_a_handle.read(CHUNK_SIZE)
+                        chunk_b = file_b_handle.read(CHUNK_SIZE)
+
+                        if chunk_a != chunk_b:
+                            return "Different", "orange"
+
+                        if not chunk_a:  # Both chunks are empty, files are identical
+                            return "Identical", "green"
+
+                except Exception as e:
+                    self.log(f"Error during chunked file comparison: {e}")
+                    return "Error", "black"  # Indicate an error occurred
+                finally:
+                    if file_a_handle:
+                        file_a_handle.close()
+                    if file_b_handle:
+                        file_b_handle.close()
+                    if sftp_a:
+                        sftp_a.close()
+                    if sftp_b:
+                        sftp_b.close()
             else:
                 return "Different", "orange"
         elif file_a:
             return "Only in Folder A", "blue"
         else:
             return "Only in Folder B", "red"
-
-    # ==========================================================================
-    # FILE HASHING METHODS
-    # ==========================================================================
-
-    def _get_file_hash(self, filepath, use_ssh, ssh_client):
-        """Calculate file hash (local or remote)."""
-        if use_ssh:
-            return self._get_remote_hash(filepath, ssh_client)
-        else:
-            return self._get_local_hash(filepath)
-
-    def _get_local_hash(self, filepath):
-        """Calculate MD5 hash of local file."""
-        try:
-            hash_md5 = hashlib.md5()
-            with open(filepath, "rb") as f:
-                for chunk in iter(lambda: f.read(4096), b""):
-                    hash_md5.update(chunk)
-            return hash_md5.hexdigest()
-        except Exception as e:
-            self.log(f"Error hashing file {filepath}: {str(e)}")
-            return None
-
-    def _get_remote_hash(self, filepath, ssh_client):
-        """Calculate MD5 hash of remote file."""
-        try:
-            stdin, stdout, stderr = ssh_client.exec_command(f"md5sum '{filepath}'")
-            output = stdout.read().decode().strip()
-            if output:
-                return output.split()[0]
-        except Exception as e:
-            self.log(f"Error hashing remote file {filepath}: {str(e)}")
-        return None
 
     # ==========================================================================
     # SYNCHRONIZATION METHODS
