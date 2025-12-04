@@ -1257,7 +1257,7 @@ class GSynchro:
         # Collect all unique relative paths
         all_visible_paths = set(tree_a_map.keys()) | set(tree_b_map.keys())
 
-        # First pass: Determine file status
+        # First pass: Determine file and unique directory statuses
         file_item_statuses = {}
         for rel_path in sorted(all_visible_paths):
             file_a_info = files_a.get(rel_path)
@@ -1266,8 +1266,11 @@ class GSynchro:
             is_file_in_a = file_a_info and file_a_info.get("type") == "file"
             is_file_in_b = file_b_info and file_b_info.get("type") == "file"
 
+            is_dir_in_a = file_a_info and file_a_info.get("type") == "dir"
+            is_dir_in_b = file_b_info and file_b_info.get("type") == "dir"
+
             if is_file_in_a or is_file_in_b:
-                status, status_color = self._compare_files(  # type: ignore
+                status, status_color = self._compare_files(
                     file_a_info if is_file_in_a else None,
                     file_b_info if is_file_in_b else None,
                     use_ssh_a,
@@ -1297,44 +1300,40 @@ class GSynchro:
                         dirty_folders.add(current_parent)
                         current_parent = os.path.dirname(current_parent)
 
-        # Second pass: Determine dir status
+            elif is_dir_in_a and not is_dir_in_b:
+                status, status_color = "Only in Folder A", "blue"
+                self.sync_states[rel_path] = True
+                current_parent = os.path.dirname(rel_path)
+                while current_parent and current_parent not in dirty_folders:
+                    dirty_folders.add(current_parent)
+                    current_parent = os.path.dirname(current_parent)
+                file_item_statuses[rel_path] = (status, status_color)
+
+            elif is_dir_in_b and not is_dir_in_a:
+                status, status_color = "Only in Folder B", "red"
+                self.sync_states[rel_path] = True
+                current_parent = os.path.dirname(rel_path)
+                while current_parent and current_parent not in dirty_folders:
+                    dirty_folders.add(current_parent)
+                    current_parent = os.path.dirname(current_parent)
+                file_item_statuses[rel_path] = (status, status_color)
+
+        # Second pass: Determine status for shared dirs and update Treeview
         final_item_statuses = {}
         for rel_path in sorted(all_visible_paths):
             self.root.after(0, self.update_progress, 1)
 
-            file_a_info = files_a.get(rel_path)
-            file_b_info = files_b.get(rel_path)
-
+            file_a_info = files_a.get(rel_path, {})
+            file_b_info = files_b.get(rel_path, {})
             is_dir_in_a = file_a_info and file_a_info.get("type") == "dir"
             is_dir_in_b = file_b_info and file_b_info.get("type") == "dir"
 
-            if is_dir_in_a or is_dir_in_b:
-                # Directory logic
-                if is_dir_in_a and not is_dir_in_b:
-                    # Mark parent directories as dirty
-                    current_parent = os.path.dirname(rel_path)
-                    while current_parent and current_parent not in dirty_folders:
-                        dirty_folders.add(current_parent)
-                        current_parent = os.path.dirname(current_parent)
-                    status, status_color = "Only in Folder A", "blue"
+            if is_dir_in_a and is_dir_in_b:
+                if rel_path in dirty_folders:
+                    status, status_color = "Contains differences", "orange"
                     self.sync_states[rel_path] = True
-                elif is_dir_in_b and not is_dir_in_a:
-                    # Mark parent directories as dirty
-                    current_parent = os.path.dirname(rel_path)
-                    while current_parent and current_parent not in dirty_folders:
-                        dirty_folders.add(current_parent)
-                        current_parent = os.path.dirname(current_parent)
-                    status, status_color = "Only in Folder B", "red"
-                    self.sync_states[rel_path] = True
-                elif is_dir_in_a and is_dir_in_b:
-                    if rel_path in dirty_folders:
-                        status, status_color = "Contains differences", "orange"
-                        self.sync_states[rel_path] = True
-                    else:
-                        status, status_color = "Identical", "green"
-                        self.sync_states[rel_path] = False
                 else:
-                    status, status_color = "Unknown (Dir)", "black"
+                    status, status_color = "Identical", "green"
                     self.sync_states[rel_path] = False
                 final_item_statuses[rel_path] = (status, status_color)
             else:
@@ -1343,8 +1342,8 @@ class GSynchro:
                     rel_path, ("Unknown (File)", "black")
                 )
 
-        # Third pass: Update Treeview items
-        for rel_path in sorted(all_visible_paths):
+        # Third pass: Update UI
+        for rel_path, (status, status_color) in final_item_statuses.items():
             self.root.after(0, self.update_progress, 1)
 
             status, status_color = final_item_statuses.get(
