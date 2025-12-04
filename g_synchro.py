@@ -1280,18 +1280,19 @@ class GSynchro:
 
             if is_dir_in_a or is_dir_in_b:
                 # Directory logic
-                if rel_path in dirty_folders:
-                    status, status_color = "Contains differences", "orange"
-                    self.sync_states[rel_path] = True
-                elif is_dir_in_a and is_dir_in_b:
-                    status, status_color = "Identical", "green"
-                    self.sync_states[rel_path] = False
-                elif is_dir_in_a:
+                if is_dir_in_a and not is_dir_in_b:
                     status, status_color = "Only in Folder A", "blue"
                     self.sync_states[rel_path] = True
-                elif is_dir_in_b:
+                elif is_dir_in_b and not is_dir_in_a:
                     status, status_color = "Only in Folder B", "red"
                     self.sync_states[rel_path] = True
+                elif is_dir_in_a and is_dir_in_b:
+                    if rel_path in dirty_folders:
+                        status, status_color = "Contains differences", "orange"
+                        self.sync_states[rel_path] = True
+                    else:
+                        status, status_color = "Identical", "green"
+                        self.sync_states[rel_path] = False
                 else:
                     status, status_color = "Unknown (Dir)", "black"
                     self.sync_states[rel_path] = False
