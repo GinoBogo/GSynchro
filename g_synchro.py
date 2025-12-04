@@ -1498,18 +1498,9 @@ class GSynchro:
                     use_ssh_b,
                 )
 
-                # Re-establish SSH clients for comparison
-                if use_ssh_a:
-                    self.ssh_client_a = self._create_ssh_for_panel("A")
-                if use_ssh_b:
-                    self.ssh_client_b = self._create_ssh_for_panel("B")
-
-                # Update UI
-                self._update_trees_with_comparison(
-                    self.files_a,
-                    self.files_b,
-                    use_ssh_a,
-                    use_ssh_b,
+                # Trigger UI refresh on the main thread
+                self.root.after(
+                    0, lambda: self._refresh_ui_after_sync(use_ssh_a, use_ssh_b)
                 )
 
                 self.log("Synchronization completed")
@@ -2399,6 +2390,35 @@ class GSynchro:
         """Returns monospace font family and size."""
         mono_font_family = "Consolas" if "Consolas" in tkfont.families() else "Courier"
         return (mono_font_family, 10)
+
+    def _refresh_ui_after_sync(self, use_ssh_a, use_ssh_b):
+        """Refreshes both tree views and runs comparison after sync."""
+        rules = self._get_active_filters()
+
+        # Clear existing trees
+        self._batch_populate_tree(self.tree_a, {})
+        self._batch_populate_tree(self.tree_b, {})
+
+        # Re-populate both trees with the latest data
+        tree_structure_a = self._build_tree_structure(self.files_a)
+        self._batch_populate_tree(self.tree_a, tree_structure_a, rules)
+
+        tree_structure_b = self._build_tree_structure(self.files_b)
+        self._batch_populate_tree(self.tree_b, tree_structure_b, rules)
+
+        # Re-establish SSH clients for comparison (if they were closed during sync)
+        if use_ssh_a:
+            self.ssh_client_a = self._create_ssh_for_panel("A")
+        if use_ssh_b:
+            self.ssh_client_b = self._create_ssh_for_panel("B")
+
+        # Re-run comparison to apply correct statuses and adjust column widths
+        self._update_trees_with_comparison(
+            self.files_a,
+            self.files_b,
+            use_ssh_a,
+            use_ssh_b,
+        )
 
 
 def main():
