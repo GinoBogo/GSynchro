@@ -162,7 +162,7 @@ class GSynchro:
             self.log(f"Warning: Could not parse {CONFIG_FILE}. Using defaults.")
 
     def _load_filter_rules(self, rules_data):
-        """Load and validate filter rules from configuration."""
+        """Load and validate filter rules."""
         processed_rules = []
         for item in rules_data:
             if isinstance(item, str):
@@ -271,8 +271,17 @@ class GSynchro:
             relief="flat",
         )
 
+        # Configure Treeview heading font
+        style.configure(
+            "TTreeview.Heading", font=(self._get_mono_font()[0], 10, "bold")
+        )
+
+        # Explicitly set font for tags
+        style.configure("TTreeview", rowheight=20)  # Adjust row height
+        style.map("TTreeview")  # Reset map to avoid conflicts
+
     def _create_main_frame(self):
-        """Create main application frame."""
+        """Create the main application frame."""
         main_frame = ttk.Frame(self.root, padding="10")
         main_frame.grid(row=0, column=0, sticky=tk.NSEW)
 
@@ -290,7 +299,7 @@ class GSynchro:
         return control_frame
 
     def _create_control_buttons(self, control_frame):
-        """Create main control buttons."""
+        """Create the main control buttons."""
         buttons_config = [
             ("Compare", self.compare_folders, None),
             ("Sync  ▶", lambda: self.synchronize("left_to_right"), "lightgreen"),
@@ -316,7 +325,7 @@ class GSynchro:
             )
 
     def _create_panels_frame(self, main_frame):
-        """Create panels frame for folder displays."""
+        """Create panels frame for displays."""
         panels_frame = ttk.Frame(main_frame)
         panels_frame.grid(row=1, column=0, columnspan=3, sticky=tk.NSEW)
 
@@ -364,7 +373,7 @@ class GSynchro:
         self._create_panel(panels_frame, panel_b_config)
 
     def _create_panel(self, parent, config):
-        """Create individual folder panel."""
+        """Create an individual folder panel."""
         panel = ttk.LabelFrame(parent, text=config["title"], padding="5")
         panel.grid(
             row=0,
@@ -373,7 +382,7 @@ class GSynchro:
             padx=config["padx"],
         )
         panel.columnconfigure(0, weight=0)
-        panel.columnconfigure(1, weight=1)  # Make the path entry expandable
+        panel.columnconfigure(1, weight=1)  # Make path entry expandable
         panel.rowconfigure(4, weight=1)
 
         # SSH settings widgets
@@ -499,11 +508,19 @@ class GSynchro:
             tree.heading(col, text=text)
             tree.column(col, width=width, anchor=tk.E)
 
+        # Define a monospace font
+        font_tuple = self._get_mono_font()
+
         # Configure tags for different status colors
-        tree.tag_configure("green", foreground="green")
-        tree.tag_configure("orange", foreground="orange")
-        tree.tag_configure("blue", foreground="blue")
-        tree.tag_configure("red", foreground="red")
+        colors = {
+            "green": "green",
+            "orange": "orange",
+            "blue": "blue",
+            "red": "red",
+            "black": "black",
+        }
+        for tag, color in colors.items():
+            tree.tag_configure(tag, foreground=color, font=font_tuple)
 
         return tree
 
@@ -594,7 +611,7 @@ class GSynchro:
     # ==========================================================================
 
     def test_ssh(self, panel_name):
-        """Test SSH connection for specified panel."""
+        """Test SSH connection for panel."""
         if panel_name == "Folder A":
             host_var, user_var, pass_var, port_var = (
                 self.remote_host_a,
@@ -641,14 +658,14 @@ class GSynchro:
         threading.Thread(target=test_thread, daemon=True).start()
 
     def _create_ssh_client(self, host, username, password, port):
-        """Create SSH client."""
+        """Create an SSH client instance."""
         client = paramiko.SSHClient()
         client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         client.connect(host, username=username, password=password, port=port)
         return client
 
     def _create_ssh_for_panel(self, panel_name) -> paramiko.SSHClient:
-        """Create SSH client for specified panel."""
+        """Create SSH client for a panel."""
         if panel_name == "A":
             return self._create_ssh_client(
                 self.remote_host_a.get(),
@@ -687,7 +704,7 @@ class GSynchro:
         )
 
     def _close_ssh(self):
-        """Close SSH connections."""
+        """Close any open SSH connections."""
         if self.ssh_client_a:
             self.ssh_client_a.close()
             self.ssh_client_a = None
@@ -700,7 +717,7 @@ class GSynchro:
     # ==========================================================================
 
     def _browse_remote(self, folder_var, panel_name, initial_path=""):
-        """Browse remote folder using SSH."""
+        """Browse remote folder via SSH."""
         try:
             if panel_name == "Panel A":
                 ssh_client = self._create_ssh_client(
@@ -844,7 +861,7 @@ class GSynchro:
         listbox.bind("<Double-Button-1>", on_select)
         load_folders(current_path)
 
-        # Center dialog and wait for it to close
+        # Center dialog and wait
         self._center_dialog(dialog)
         self.root.wait_window(dialog)
 
@@ -938,7 +955,7 @@ class GSynchro:
             return files
 
     def _scan_local(self, folder_path):
-        """Scan local folder."""
+        """Scan a local folder."""
         files = {}
         try:
             for root, dirs, filenames in os.walk(folder_path, topdown=True):
@@ -1016,7 +1033,7 @@ class GSynchro:
     # ==========================================================================
 
     def _build_tree_structure(self, files):
-        """Build hierarchical dictionary from flat file paths."""
+        """Build hierarchical dictionary."""
         tree_structure = {}
         for filepath in sorted(files.keys()):
             parts = filepath.replace(os.sep, "/").split("/")
@@ -1036,7 +1053,7 @@ class GSynchro:
         return tree_structure
 
     def _batch_populate_tree(self, tree, structure, filter_rules=None):
-        """Populate treeview from nested structure."""
+        """Populate treeview from structure."""
         if not tree:
             return
 
@@ -1117,7 +1134,7 @@ class GSynchro:
         return path_map
 
     def _update_tree_item(self, tree, item_id, rel_path, status, status_color):
-        """Update a tree item with status information."""
+        """Update tree item with status."""
         if tree is None:
             return
 
@@ -1200,7 +1217,7 @@ class GSynchro:
         different_count = 0
         only_a_count = 0
         only_b_count = 0
-        dirty_folders = set()  # Folders that contain differences
+        dirty_folders = set()  # Folders with differences
 
         # Build path maps for tree items
         tree_a_map = self._build_tree_map(self.tree_a)
@@ -1212,7 +1229,7 @@ class GSynchro:
         # Collect all unique relative paths
         all_visible_paths = set(tree_a_map.keys()) | set(tree_b_map.keys())
 
-        # First pass: Determine status for files
+        # First pass: Determine file status
         file_item_statuses = {}
         for rel_path in sorted(all_visible_paths):
             file_a_info = files_a.get(rel_path)
@@ -1250,7 +1267,7 @@ class GSynchro:
                         dirty_folders.add(current_parent)
                         current_parent = os.path.dirname(current_parent)
 
-        # Second pass: Determine status for directories
+        # Second pass: Determine dir status
         final_item_statuses = {}
         for rel_path in sorted(all_visible_paths):
             self.root.after(0, self.update_progress, 1)
@@ -1559,7 +1576,7 @@ class GSynchro:
             self._sync_local_to_local(files_to_copy, source_files_dict, target_path)
 
     def _rescan_target_folder(self, direction, target_path, use_ssh_a, use_ssh_b):
-        """Rescan target folder after synchronization."""
+        """Rescan target folder after sync."""
         if direction == "left_to_right":
             self.log("Rescanning Folder B...")
             self.files_b = self._scan_folder(
@@ -1659,7 +1676,7 @@ class GSynchro:
             target_dir = os.path.dirname(target_file_path)
             target_ssh.exec_command(f"mkdir -p '{target_dir}'")
 
-            # Stream through local temporary file
+            # Stream through local temp file
             with SCPClient(source_ssh.get_transport()) as scp_source:
                 with SCPClient(target_ssh.get_transport()) as scp_target:
                     self.log(f"Copying remote-to-remote: {rel_path}")
@@ -1907,6 +1924,7 @@ class GSynchro:
             apply_filters()
             dialog.destroy()
 
+        # Create dialog buttons
         button_frame = ttk.Frame(dialog)
         button_frame.grid(row=1, column=0, padx=10, pady=(0, 10), sticky=tk.EW)
 
@@ -1963,7 +1981,7 @@ class GSynchro:
     # ==========================================================================
 
     def _on_tree_click(self, event):
-        """Handle clicks on the treeview to toggle checkboxes."""
+        """Handle clicks to toggle checkboxes."""
         tree = event.widget
         region = tree.identify("region", event.x, event.y)
         if region != "cell":
@@ -1983,7 +2001,7 @@ class GSynchro:
                 tree.item(item_id, values=current_values)
 
     def _show_tree_context_menu(self, event):
-        """Show context menu on right-click in a tree view."""
+        """Show context menu on right-click."""
         tree = event.widget
         item_id = tree.identify_row(event.y)
 
@@ -2015,7 +2033,7 @@ class GSynchro:
     # ==========================================================================
 
     def _select_all(self):
-        """Select all items that are different or contain differences (deep selection)."""
+        """Select all different/new items."""
         tree = self.root.focus_get()
         if not isinstance(tree, ttk.Treeview) or tree not in (self.tree_a, self.tree_b):
             return
@@ -2054,8 +2072,7 @@ class GSynchro:
             for child_id in tree.get_children(item_id):
                 rel_path = self._get_relative_path(tree, child_id)
                 if rel_path is not None:
-                    # Check if the item is in sync_states before trying to
-                    # modify it
+                    # Check if item is in sync_states
                     if rel_path in self.sync_states:
                         self.sync_states[rel_path] = False
                     current_values = list(tree.item(child_id, "values"))
@@ -2069,7 +2086,7 @@ class GSynchro:
         traverse_and_deselect()
 
     def _open_selected_item(self):
-        """Open the selected file with the default application."""
+        """Open selected file with default app."""
         tree = self.root.focus_get()
         if tree is None or tree not in (self.tree_a, self.tree_b):
             return
@@ -2178,7 +2195,7 @@ class GSynchro:
                     if item_info:
                         is_dir = item_info.get("type") == "dir"
                     else:
-                        # Fallback: check if it's a directory on the remote system
+                        # Fallback: check remote system
                         stdin, stdout, stderr = ssh_client.exec_command(
                             f"if [ -d '{full_path}' ]; then echo 'dir'; fi"
                         )
@@ -2223,7 +2240,7 @@ class GSynchro:
     # ==========================================================================
 
     def _update_folder_history(self, panel_name, folder_var, new_path):
-        """Update and save the history for a given folder path."""
+        """Update and save folder history."""
         if not new_path:
             return
 
@@ -2245,7 +2262,7 @@ class GSynchro:
         self.save_config()
 
     def _get_relative_path(self, tree, item_id):
-        """Construct the relative path for a given treeview item ID."""
+        """Construct relative path for item."""
         path_parts = []
         while item_id:
             text = tree.item(item_id, "text")
@@ -2258,16 +2275,21 @@ class GSynchro:
 
     def _adjust_tree_column_widths(self, tree: ttk.Treeview):
         """Adjust column widths to fit content."""
-        panel_name = "A" if tree is self.tree_a else "B"
-        self.log(f"Adjusting column widths for folder {panel_name} tree...")
         try:
-            # Use a default font for measuring if a specific one isn't set
-            font = tkfont.Font()
-            padding = 10  # Extra space for padding
+            # Ensure we measure with the same font
+            font_family, font_size = self._get_mono_font()
+            font = tkfont.Font(family=font_family, size=font_size)
+
+            # Log message after font is determined
+            panel_name = "A" if tree is self.tree_a else "B"
+            self.log(
+                f"Adjusting column widths for folder {panel_name} tree using "
+                f"font: {font_family}, size: {font_size}..."
+            )
 
             # Adjust data columns
             columns = list(tree["columns"])
-            columns.insert(0, "#0")  # Add the 'Name' column to be processed
+            columns.insert(0, "#0")  # Add 'Name' column to be processed
             for col in columns:
                 # Start with the heading width
                 heading_text = tree.heading(col, "text")
@@ -2277,7 +2299,7 @@ class GSynchro:
                     nonlocal max_width
                     for child_id in tree.get_children(item_id):
                         if col == "#0":
-                            # For the 'Name' column, get the item's text
+                            # For 'Name' column, get item's text
                             cell_value = tree.item(child_id, "text")
                         else:
                             # For other columns, use tree.set()
@@ -2290,7 +2312,7 @@ class GSynchro:
                 find_max_width()
 
                 # Apply the new width with padding
-                tree.column(col, width=max_width + padding)
+                tree.column(col, width=max_width + 10)
 
         except Exception as e:
             self.log(f"Could not adjust column widths: {e}")
@@ -2300,7 +2322,7 @@ class GSynchro:
         print(f"[{datetime.now().strftime('%H:%M:%S')}] {message}")
 
     def start_progress(self, panel=None, max_value=0, text=""):
-        """Show progress bar."""
+        """Show the progress bar."""
         self.status_label_a.grid_remove()
         self.status_label_b.grid_remove()
         self.progress_bar.grid()
@@ -2322,18 +2344,18 @@ class GSynchro:
             status_var.set("Scanning...")
 
     def update_progress(self, step=1):
-        """Update progress bar."""
+        """Update the progress bar."""
         self.progress_bar.step(step)
 
     def stop_progress(self):
-        """Hide progress bar."""
+        """Hide the progress bar."""
         self.progress_bar.stop()
         self.progress_bar.grid_remove()
         self.status_label_a.grid()
         self.status_label_b.grid()
 
     def _update_status(self, panel, files):
-        """Update status bar."""
+        """Update the status bar text."""
         num_files = len(files)
         total_size = sum(f.get("size", 0) for f in files.values())
         status_text = f"{num_files} files, {self._format_size(total_size)}"
@@ -2344,7 +2366,7 @@ class GSynchro:
             self.status_b.set(status_text)
 
     def _format_size(self, size_bytes):
-        """Format file size human readable."""
+        """Format file size to be readable."""
         for unit in ["B", "KB", "MB", "GB"]:
             if size_bytes < 1024.0:
                 return f"{size_bytes:.1f} {unit}"
@@ -2352,11 +2374,11 @@ class GSynchro:
         return f"{size_bytes:.1f} TB"
 
     def _format_time(self, timestamp):
-        """Format timestamp to date."""
+        """Format timestamp to a date string."""
         return datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M:%S")
 
     def _center_dialog(self, dialog, relative_to=None):
-        """Center a dialog on a parent window or the main root window."""
+        """Center a dialog on a parent window."""
         parent = relative_to or self.root
         dialog.update_idletasks()
 
@@ -2372,9 +2394,14 @@ class GSynchro:
         y = parent_y + (parent_height // 2) - (dialog_height // 2)
         dialog.geometry(f"+{x}+{y}")
 
+    def _get_mono_font(self):
+        """Returns monospace font family and size."""
+        mono_font_family = "Consolas" if "Consolas" in tkfont.families() else "Courier"
+        return (mono_font_family, 10)
+
 
 def main():
-    """Main entry point."""
+    """Main entry point for the application."""
     root = tk.Tk()
     GSynchro(root)
     root.mainloop()
