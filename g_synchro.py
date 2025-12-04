@@ -980,6 +980,13 @@ class GSynchro:
                         fnmatch.fnmatch(
                             os.path.relpath(os.path.join(root, d), folder_path), pattern
                         )
+                        or (
+                            pattern.endswith("/")
+                            and fnmatch.fnmatch(
+                                os.path.relpath(os.path.join(root, d), folder_path),
+                                pattern.rstrip("/"),
+                            )
+                        )
                         for pattern in rules
                     )
                 ]
@@ -1361,7 +1368,17 @@ class GSynchro:
     def _compare_files(self, file_a, file_b, use_ssh_a, use_ssh_b):
         """Compare two files and return status."""
         if file_a and file_b:
-            if file_a["size"] == file_b["size"]:
+            is_a_file = file_a.get("type") == "file"
+            is_b_file = file_b.get("type") == "file"
+
+            if not is_a_file or not is_b_file:
+                return "Type conflict", "orange"
+            elif (
+                isinstance(file_a, dict)
+                and "size" in file_a
+                and isinstance(file_b, dict)
+                and "size" in file_b
+            ):
                 # Files have same size, proceed with chunked comparison
                 file_a_handle = None
                 file_b_handle = None
