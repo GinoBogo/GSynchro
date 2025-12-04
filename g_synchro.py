@@ -1238,129 +1238,110 @@ class GSynchro:
 
         threading.Thread(target=compare_thread, daemon=True).start()
 
-    def _update_trees_with_comparison(self, files_a, files_b, use_ssh_a, use_ssh_b):
-        """Update tree views with comparison results."""
-        # Statistics
-        identical_count = 0
-        different_count = 0
-        only_a_count = 0
-        only_b_count = 0
-        dirty_folders = set()  # Folders with differences
-
-        # Build path maps for tree items
+    def _prepare_comparison_data(self):
+        """Prepare data structures needed for comparison."""
         tree_a_map = self._build_tree_map(self.tree_a)
         tree_b_map = self._build_tree_map(self.tree_b)
-
-        # Clear sync states
-        self.sync_states.clear()
-
-        # Collect all unique relative paths
         all_visible_paths = set(tree_a_map.keys()) | set(tree_b_map.keys())
+        self.sync_states.clear()
+        return tree_a_map, tree_b_map, all_visible_paths
+
+    def _calculate_item_statuses(
+        self, all_visible_paths, files_a, files_b, use_ssh_a, use_ssh_b
+    ):
+        """Calculate the status of all files and directories."""
+        item_statuses = {}
+        dirty_folders = set()
+        stats = {"identical": 0, "different": 0, "only_a": 0, "only_b": 0}
 
         # First pass: Determine file and unique directory statuses
-        file_item_statuses = {}
         for rel_path in sorted(all_visible_paths):
             file_a_info = files_a.get(rel_path)
             file_b_info = files_b.get(rel_path)
+            is_file = (file_a_info and file_a_info.get("type") == "file") or (
+                file_b_info and file_b_info.get("type") == "file"
+            )
 
-            is_file_in_a = file_a_info and file_a_info.get("type") == "file"
-            is_file_in_b = file_b_info and file_b_info.get("type") == "file"
-
-            is_dir_in_a = file_a_info and file_a_info.get("type") == "dir"
-            is_dir_in_b = file_b_info and file_b_info.get("type") == "dir"
-
-            if is_file_in_a or is_file_in_b:
+            if is_file:
                 status, status_color = self._compare_files(
-                    file_a_info if is_file_in_a else None,
-                    file_b_info if is_file_in_b else None,
-                    use_ssh_a,
-                    use_ssh_b,
-                    self.ssh_client_a,
-                    self.ssh_client_b,
+                    file_a_info, file_b_info, use_ssh_a, use_ssh_b
                 )
-                file_item_statuses[rel_path] = (status, status_color)
+                item_statuses[rel_path] = (status, status_color)
 
-                # Update statistics
                 if status == "Identical":
-                    identical_count += 1
+                    stats["identical"] += 1
                     self.sync_states[rel_path] = False
                 else:
                     if status == "Different":
-                        different_count += 1
+                        stats["different"] += 1
                     elif status == "Only in Folder A":
-                        only_a_count += 1
+                        stats["only_a"] += 1
                     elif status == "Only in Folder B":
-                        only_b_count += 1
-
+                        stats["only_b"] += 1
                     self.sync_states[rel_path] = True
-
                     # Mark parent directories as dirty
                     current_parent = os.path.dirname(rel_path)
                     while current_parent and current_parent not in dirty_folders:
                         dirty_folders.add(current_parent)
                         current_parent = os.path.dirname(current_parent)
+            else:  # It's a directory
+                is_dir_in_a = file_a_info and file_a_info.get("type") == "dir"
+                is_dir_in_b = file_b_info and file_b_info.get("type") == "dir"
 
-            elif is_dir_in_a and not is_dir_in_b:
-                status, status_color = "Only in Folder A", "blue"
-                self.sync_states[rel_path] = True
-                current_parent = os.path.dirname(rel_path)
-                while current_parent and current_parent not in dirty_folders:
-                    dirty_folders.add(current_parent)
-                    current_parent = os.path.dirname(current_parent)
-                file_item_statuses[rel_path] = (status, status_color)
+                if is_dir_in_a and not is_dir_in_b:
+                    item_statuses[rel_path] = ("Only in Folder A", "blue")
+                    self.sync_states[rel_path] = True
+                    dirty_folders.add(os.path.dirname(rel_path))
+                elif is_dir_in_b and not is_dir_in_a:
+                    item_statuses[rel_path] = ("Only in Folder B", "red")
+                    self.sync_states[rel_path] = True
+                    dirty_folders.add(os.path.dirname(rel_path))
 
-            elif is_dir_in_b and not is_dir_in_a:
-                status, status_color = "Only in Folder B", "red"
-                self.sync_states[rel_path] = True
-                current_parent = os.path.dirname(rel_path)
-                while current_parent and current_parent not in dirty_folders:
-                    dirty_folders.add(current_parent)
-                    current_parent = os.path.dirname(current_parent)
-                file_item_statuses[rel_path] = (status, status_color)
-
-        # Second pass: Determine status for shared dirs and update Treeview
-        final_item_statuses = {}
+        # Second pass: Determine status for shared directories
         for rel_path in sorted(all_visible_paths):
-            self.root.after(0, self.update_progress, 1)
-
-            file_a_info = files_a.get(rel_path, {})
-            file_b_info = files_b.get(rel_path, {})
-            is_dir_in_a = file_a_info and file_a_info.get("type") == "dir"
-            is_dir_in_b = file_b_info and file_b_info.get("type") == "dir"
-
-            if is_dir_in_a and is_dir_in_b:
+            if (
+                files_a.get(rel_path, {}).get("type") == "dir"
+                and files_b.get(rel_path, {}).get("type") == "dir"
+            ):
                 if rel_path in dirty_folders:
                     status, status_color = "Contains differences", "orange"
                     self.sync_states[rel_path] = True
                 else:
                     status, status_color = "Identical", "green"
                     self.sync_states[rel_path] = False
-                final_item_statuses[rel_path] = (status, status_color)
-            else:
-                # File status from first pass
-                final_item_statuses[rel_path] = file_item_statuses.get(
-                    rel_path, ("Unknown (File)", "black")
-                )
+                item_statuses[rel_path] = (status, status_color)
 
-        # Third pass: Update UI
-        for rel_path, (status, status_color) in final_item_statuses.items():
+        return item_statuses, stats
+
+    def _apply_comparison_to_ui(self, item_statuses, stats, tree_a_map, tree_b_map):
+        """Update the UI with the results of the comparison."""
+        for rel_path, (status, status_color) in item_statuses.items():
             self.root.after(0, self.update_progress, 1)
-
-            status, status_color = final_item_statuses.get(
-                rel_path, ("Unknown", "black")
-            )
-
-            # Update tree A
             if rel_path in tree_a_map:
                 self._update_tree_item(
                     self.tree_a, tree_a_map[rel_path], rel_path, status, status_color
                 )
-
-            # Update tree B
             if rel_path in tree_b_map:
                 self._update_tree_item(
                     self.tree_b, tree_b_map[rel_path], rel_path, status, status_color
                 )
+
+        status_summary = f"Identical: {stats['identical']}, "
+        status_summary += f"Different: {stats['different']}, "
+        status_summary += f"Only in A: {stats['only_a']}, "
+        status_summary += f"Only in B: {stats['only_b']}"
+        self.status_a.set(status_summary)
+        self.status_b.set("")
+
+    def _update_trees_with_comparison(self, files_a, files_b, use_ssh_a, use_ssh_b):
+        """Update tree views with comparison results."""
+        tree_a_map, tree_b_map, all_visible_paths = self._prepare_comparison_data()
+
+        item_statuses, stats = self._calculate_item_statuses(
+            all_visible_paths, files_a, files_b, use_ssh_a, use_ssh_b
+        )
+
+        self._apply_comparison_to_ui(item_statuses, stats, tree_a_map, tree_b_map)
 
         # Configure tags
         for tree in [self.tree_a, self.tree_b]:
@@ -1371,23 +1352,13 @@ class GSynchro:
                 tree.tag_configure("blue", foreground="blue")
                 tree.tag_configure("red", foreground="red")
 
-        # Update status summary
-        status_summary = (
-            f"Identical: {identical_count}, Different: {different_count}, "
-            f"Only in A: {only_a_count}, Only in B: {only_b_count}"
-        )
-        self.status_a.set(status_summary)
-        self.status_b.set("")
-
         # Adjust column widths
         if self.tree_a:
             self._adjust_tree_column_widths(self.tree_a)
         if self.tree_b:
             self._adjust_tree_column_widths(self.tree_b)
 
-    def _compare_files(
-        self, file_a, file_b, use_ssh_a, use_ssh_b, ssh_client_a, ssh_client_b
-    ):
+    def _compare_files(self, file_a, file_b, use_ssh_a, use_ssh_b):
         """Compare two files and return status."""
         if file_a and file_b:
             if file_a["size"] == file_b["size"]:
@@ -1400,14 +1371,22 @@ class GSynchro:
                 try:
                     # Open file A
                     if use_ssh_a:
-                        sftp_a = ssh_client_a.open_sftp()
+                        if not self.ssh_client_a:
+                            raise ConnectionError(
+                                "SSH client for Panel A is not connected."
+                            )
+                        sftp_a = self.ssh_client_a.open_sftp()  # type: ignore
                         file_a_handle = sftp_a.open(file_a["full_path"], "rb")
                     else:
                         file_a_handle = open(file_a["full_path"], "rb")
 
                     # Open file B
                     if use_ssh_b:
-                        sftp_b = ssh_client_b.open_sftp()
+                        if not self.ssh_client_b:
+                            raise ConnectionError(
+                                "SSH client for Panel B is not connected."
+                            )
+                        sftp_b = self.ssh_client_b.open_sftp()  # type: ignore
                         file_b_handle = sftp_b.open(file_b["full_path"], "rb")
                     else:
                         file_b_handle = open(file_b["full_path"], "rb")
