@@ -1311,9 +1311,19 @@ class GSynchro:
             if is_dir_in_a or is_dir_in_b:
                 # Directory logic
                 if is_dir_in_a and not is_dir_in_b:
+                    # Mark parent directories as dirty
+                    current_parent = os.path.dirname(rel_path)
+                    while current_parent and current_parent not in dirty_folders:
+                        dirty_folders.add(current_parent)
+                        current_parent = os.path.dirname(current_parent)
                     status, status_color = "Only in Folder A", "blue"
                     self.sync_states[rel_path] = True
                 elif is_dir_in_b and not is_dir_in_a:
+                    # Mark parent directories as dirty
+                    current_parent = os.path.dirname(rel_path)
+                    while current_parent and current_parent not in dirty_folders:
+                        dirty_folders.add(current_parent)
+                        current_parent = os.path.dirname(current_parent)
                     status, status_color = "Only in Folder B", "red"
                     self.sync_states[rel_path] = True
                 elif is_dir_in_a and is_dir_in_b:
