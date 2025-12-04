@@ -1759,34 +1759,9 @@ class GSynchro:
                 )
                 filter_tree.insert("", "end", iid=i, values=(check_char, item["rule"]))
 
-        # Context menu functions
-        def insert_rule():
-            input_dialog = tk.Toplevel(dialog)
-            input_dialog.transient(dialog)
-            input_dialog.grab_set()
-            input_dialog.title("Insert Rule")
-            input_dialog.minsize(300, 120)
-            input_dialog.maxsize(300, 120)
-            input_dialog.configure(bg=dialog_bg)
-
-            # Layout
-            input_dialog.rowconfigure(0, weight=1)
-            input_dialog.columnconfigure(0, weight=1)
-
-            # Content Frame
-            content_frame = ttk.Frame(input_dialog, padding=10)
-            content_frame.grid(row=0, column=0, sticky=tk.NSEW)
-            content_frame.columnconfigure(0, weight=1)
-
-            ttk.Label(content_frame, text="Enter new filter pattern:").grid(
-                row=0, column=0, sticky=tk.W, pady=(0, 5)
-            )
-
-            entry_var = tk.StringVar()
-            entry = ttk.Entry(content_frame, textvariable=entry_var)
-            entry.grid(row=1, column=0, sticky=tk.EW)
-            entry.focus_set()
-
+        def _create_rule_input_dialog(title, prompt_text, initial_value=""):
+            """Create a dialog to get a filter rule from the user."""
+            entry_var = tk.StringVar(value=initial_value)
             result = None
 
             def on_ok():
@@ -1794,11 +1769,31 @@ class GSynchro:
                 result = entry_var.get()
                 input_dialog.destroy()
 
-            # Button Frame
+            input_dialog = tk.Toplevel(dialog)
+            input_dialog.transient(dialog)
+            input_dialog.grab_set()
+            input_dialog.title(title)
+            input_dialog.minsize(300, 120)
+            input_dialog.maxsize(300, 120)
+            input_dialog.configure(bg=dialog_bg)
+            input_dialog.rowconfigure(0, weight=1)
+            input_dialog.columnconfigure(0, weight=1)
+
+            content_frame = ttk.Frame(input_dialog, padding=10)
+            content_frame.grid(row=0, column=0, sticky=tk.NSEW)
+            content_frame.columnconfigure(0, weight=1)
+
+            ttk.Label(content_frame, text=prompt_text).grid(
+                row=0, column=0, sticky=tk.W, pady=(0, 5)
+            )
+
+            entry = ttk.Entry(content_frame, textvariable=entry_var)
+            entry.grid(row=1, column=0, sticky=tk.EW)
+            entry.focus_set()
+            entry.select_range(0, "end")
+
             button_frame = ttk.Frame(input_dialog, padding=(10, 0, 10, 10))
             button_frame.grid(row=1, column=0, sticky=tk.EW)
-
-            # Configure columns within button_frame
             button_frame.columnconfigure(0, weight=1)
             button_frame.columnconfigure(1, weight=0)
             button_frame.columnconfigure(2, weight=0)
@@ -1816,8 +1811,32 @@ class GSynchro:
 
             self._center_dialog(input_dialog, relative_to=dialog)
             input_dialog.wait_window()
-            if result and result.strip():
-                temp_filters.append({"rule": result.strip(), "active": True})
+            return result
+
+        # Context menu functions
+        def insert_rule():
+            new_rule = _create_rule_input_dialog(
+                "Insert Rule", "Enter new filter pattern:"
+            )
+            if new_rule and new_rule.strip():
+                temp_filters.append({"rule": new_rule.strip(), "active": True})
+                temp_filters.sort(key=lambda item: item["rule"])
+                populate_tree()
+
+        def edit_rule():
+            selected_item = filter_tree.focus()
+            if not selected_item:
+                return
+
+            index = int(selected_item)
+            current_rule = temp_filters[index]["rule"]
+
+            edited_rule = _create_rule_input_dialog(
+                "Edit Rule", "Edit filter pattern:", initial_value=current_rule
+            )
+
+            if edited_rule and edited_rule.strip():
+                temp_filters[index]["rule"] = edited_rule.strip()
                 temp_filters.sort(key=lambda item: item["rule"])
                 populate_tree()
 
@@ -1871,6 +1890,7 @@ class GSynchro:
 
         # Add commands to context menu
         context_menu.add_command(label="Insert Rule", command=insert_rule)
+        context_menu.add_command(label="Edit Rule", command=edit_rule)
         context_menu.add_command(label="Remove Rule", command=remove_rule)
         context_menu.add_separator()
         context_menu.add_command(label="Select All", command=select_all)
@@ -1896,8 +1916,10 @@ class GSynchro:
                 filter_tree.selection_set(item_id)
                 filter_tree.focus(item_id)
                 context_menu.entryconfig("Remove Rule", state="normal")
+                context_menu.entryconfig("Edit Rule", state="normal")
             else:
                 context_menu.entryconfig("Remove Rule", state="disabled")
+                context_menu.entryconfig("Edit Rule", state="disabled")
             context_menu.post(event.x_root, event.y_root)
 
         # Bind events
