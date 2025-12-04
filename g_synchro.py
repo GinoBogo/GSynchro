@@ -2266,7 +2266,8 @@ class GSynchro:
             padding = 10  # Extra space for padding
 
             # Adjust data columns
-            columns = tree["columns"]
+            columns = list(tree["columns"])
+            columns.insert(0, "#0")  # Add the 'Name' column to be processed
             for col in columns:
                 # Start with the heading width
                 heading_text = tree.heading(col, "text")
@@ -2275,12 +2276,16 @@ class GSynchro:
                 def find_max_width(item_id=""):
                     nonlocal max_width
                     for child_id in tree.get_children(item_id):
-                        cell_value = tree.set(child_id, col)
+                        if col == "#0":
+                            # For the 'Name' column, get the item's text
+                            cell_value = tree.item(child_id, "text")
+                        else:
+                            # For other columns, use tree.set()
+                            cell_value = tree.set(child_id, col)
                         if isinstance(cell_value, str) and cell_value:
                             width = font.measure(cell_value)
                             if width > max_width:
                                 max_width = width
-                        find_max_width(child_id)
 
                 find_max_width()
 
