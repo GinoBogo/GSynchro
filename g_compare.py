@@ -63,7 +63,7 @@ class GCompare:
 
     def _init_window(self):
         """Initialize main window properties."""
-        self.root.title("GCompare - File Comparison Tool")
+        self.root.title("GCompare - Comparison Tool")
         self.root.minsize(1024, 768)
         self.root.protocol("WM_DELETE_WINDOW", self._on_closing)
 
@@ -189,7 +189,7 @@ class GCompare:
             "content_var": self.content_a,
             "file_var": self.file_a,
             "file_history": self.file_a_history,
-            "browse_command": self._browse_file_a,
+            "open_command": self._open_file_a,
             "button_color": "lightgreen",
             "save_command": self._save_file_a,
         }
@@ -202,7 +202,7 @@ class GCompare:
             "content_var": self.content_b,
             "file_var": self.file_b,
             "file_history": self.file_b_history,
-            "browse_command": self._browse_file_b,
+            "open_command": self._open_file_b,
             "button_color": "lightblue",
             "save_command": self._save_file_b,
         }
@@ -235,8 +235,8 @@ class GCompare:
         # Load Button
         ttk.Button(
             panel,
-            text="Browse",
-            command=config["browse_command"],
+            text="Open",
+            command=config["open_command"],
             cursor="hand2",
             style=f"{config['button_color']}.TButton",
         ).grid(row=0, column=1, padx=5, pady=5, sticky=tk.E)
@@ -348,16 +348,16 @@ class GCompare:
     # ==========================================================================
 
     # File Operations
-    def _browse_file_a(self):
-        """Browse for file A."""
-        self._browse_file("A")
+    def _open_file_a(self):
+        """Open a file for panel A."""
+        self._open_file("A")
 
-    def _browse_file_b(self):
-        """Browse for file B."""
-        self._browse_file("B")
+    def _open_file_b(self):
+        """Open a file for panel B."""
+        self._open_file("B")
 
-    def _browse_file(self, panel_name):
-        """Browse for a file."""
+    def _open_file(self, panel_name):
+        """Open a file dialog and load the selected file."""
         file_path = filedialog.askopenfilename()
         if file_path:
             if panel_name == "A":
