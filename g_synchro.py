@@ -543,18 +543,18 @@ class GSynchro:
         self.status_label_a = ttk.Label(
             status_frame, textvariable=self.status_a, anchor=tk.W
         )
-        self.status_label_a.grid(row=0, column=0, sticky=tk.EW, padx=5)
+        self.status_label_a.grid(row=0, column=0, sticky=tk.EW, padx=0)
 
         self.status_label_b = ttk.Label(
             status_frame, textvariable=self.status_b, anchor=tk.W
         )
-        self.status_label_b.grid(row=0, column=1, sticky=tk.EW, padx=5)
+        self.status_label_b.grid(row=0, column=1, sticky=tk.EW, padx=0)
 
         # Progress bar
         self.progress_bar = ttk.Progressbar(
             status_frame, orient="horizontal", style="flat.Horizontal.TProgressbar"
         )
-        self.progress_bar.grid(row=0, column=0, columnspan=2, sticky=tk.EW, padx=5)
+        self.progress_bar.grid(row=0, column=0, columnspan=2, sticky=tk.EW, padx=0)
         self.progress_bar.grid_remove()
 
     def _create_tree_context_menu(self):

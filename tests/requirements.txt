@@ -1,0 +1,4 @@
+paramiko
+pytest
+scp
+termcolor

@@ -3,6 +3,7 @@ import sys
 import shutil
 import tempfile
 import tkinter as tk
+from pathlib import Path
 import pytest
 from termcolor import cprint
 
@@ -174,70 +175,49 @@ def filtering_test_environment():
     root.withdraw()
     app = GSynchro(root)
 
-    test_dir = tempfile.mkdtemp()
-    dir_a = os.path.join(test_dir, "folder_a")
-    os.makedirs(dir_a, exist_ok=True)
+    test_dir = Path(tempfile.mkdtemp())
+    dir_a = test_dir / "folder_a"
+    dir_a.mkdir(exist_ok=True)
 
     # =======================================================================
     # Create test structure for filtering
     # =======================================================================
 
     # Regular files
-    with open(os.path.join(dir_a, "file.txt"), "w") as f:
-        f.write("keep")
-    with open(os.path.join(dir_a, "file.log"), "w") as f:
-        f.write("filter")
+    (dir_a / "file.txt").write_text("keep")
+    (dir_a / "file.log").write_text("filter")
 
     # Directory to be filtered
-    os.makedirs(os.path.join(dir_a, "__pycache__"))
-    with open(os.path.join(dir_a, "__pycache__", "cache.pyc"), "w") as f:
-        f.write("cache")
+    (dir_a / "__pycache__").mkdir()
+    (dir_a / "__pycache__" / "cache.pyc").write_text("cache")
 
     # Another directory to be filtered
-    os.makedirs(os.path.join(dir_a, "build"))
-    with open(os.path.join(dir_a, "build", "app.exe"), "w") as f:
-        f.write("executable")
+    (dir_a / "build").mkdir()
+    (dir_a / "build" / "app.exe").write_text("executable")
 
     # File to be excluded by its full name
-    with open(os.path.join(dir_a, "important_doc.txt"), "w") as f:
-        f.write("This document is important.")
+    (dir_a / "important_doc.txt").write_text("This document is important.")
 
     # Files to be excluded by multiple wildcard patterns
-    with open(os.path.join(dir_a, "temp.tmp"), "w") as f:
-        f.write("Temporary file.")
-    with open(os.path.join(dir_a, "backup.bak"), "w") as f:
-        f.write("Backup file.")
-    with open(
-        os.path.join(dir_a, "keep.txt"), "w"
-    ) as f:  # Should not be filtered by new rules
-        f.write("Keep this file.")
+    (dir_a / "temp.tmp").write_text("Temporary file.")
+    (dir_a / "backup.bak").write_text("Backup file.")
+    (dir_a / "keep.txt").write_text("Keep this file.")  # Should not be filtered by new rules
 
     # Nested directory to be excluded with its contents
-    os.makedirs(os.path.join(dir_a, "data", "sensitive"), exist_ok=True)
-    with open(os.path.join(dir_a, "data", "sensitive", "private.txt"), "w") as f:
-        f.write("Private data.")
-    with open(
-        os.path.join(dir_a, "data", "public.txt"), "w"
-    ) as f:  # Should not be filtered
-        f.write("Public data.")
+    (dir_a / "data" / "sensitive").mkdir(parents=True, exist_ok=True)
+    (dir_a / "data" / "sensitive" / "private.txt").write_text("Private data.")
+    (dir_a / "data" / "public.txt").write_text("Public data.")  # Should not be filtered
 
     # Files to be excluded by pattern within a specific directory
-    os.makedirs(os.path.join(dir_a, "logs"), exist_ok=True)
-    with open(os.path.join(dir_a, "logs", "app.log"), "w") as f:
-        f.write("App log.")
-    with open(os.path.join(dir_a, "logs", "error.log"), "w") as f:
-        f.write("Error log.")
-    with open(
-        os.path.join(dir_a, "logs", "info.txt"), "w"
-    ) as f:  # Should not be filtered by *.log
-        f.write("Info text.")
+    (dir_a / "logs").mkdir(exist_ok=True)
+    (dir_a / "logs" / "app.log").write_text("App log.")
+    (dir_a / "logs" / "error.log").write_text("Error log.")
+    (dir_a / "logs" / "info.txt").write_text("Info text.")  # Should not be filtered by *.log
 
     # File named similarly to a directory pattern to test rule specificity
-    with open(os.path.join(dir_a, "my_dir"), "w") as f:
-        f.write("I am a file named my_dir")
-    os.makedirs(os.path.join(dir_a, "my_dir_folder"), exist_ok=True)
-    with open(os.path.join(dir_a, "my_dir_folder", "nested.txt"), "w") as f:
-        f.write("Nested file.")
+    (dir_a / "my_dir").write_text("I am a file named my_dir")
+    (dir_a / "my_dir_folder").mkdir(exist_ok=True)
+    (dir_a / "my_dir_folder" / "nested.txt").write_text("Nested file.")
 
     yield app, dir_a
 
