@@ -365,31 +365,71 @@ class GCompare:
         v_scrollbar_a, v_scrollbar_b = self.v_scrollbar_a, self.v_scrollbar_b
         h_scrollbar_a, h_scrollbar_b = self.h_scrollbar_a, self.h_scrollbar_b
 
-        def _sync_y_scroll(*args):
+        def _on_y_scroll(*args):
+            """Handle all vertical scroll events."""
             file_view_a.yview(*args)
             file_view_b.yview(*args)
 
-        def _update_y_scrollbars(*args):
+        def _on_y_view_change(*args):
+            """Update scrollbars when text view changes."""
             v_scrollbar_a.set(*args)
             v_scrollbar_b.set(*args)
 
-        def _sync_x_scroll(*args):
+        def _on_x_scroll(*args):
+            """Handle all horizontal scroll events."""
             file_view_a.xview(*args)
             file_view_b.xview(*args)
 
-        def _update_x_scrollbars(*args):
+        def _on_x_view_change(*args):
+            """Update scrollbars when text view's horizontal position changes."""
             h_scrollbar_a.set(*args)
             h_scrollbar_b.set(*args)
 
-        v_scrollbar_a.config(command=_sync_y_scroll)
-        v_scrollbar_b.config(command=_sync_y_scroll)
-        file_view_a.config(yscrollcommand=_update_y_scrollbars)
-        file_view_b.config(yscrollcommand=_update_y_scrollbars)
+        # Configure vertical scrolling
+        v_scrollbar_a.config(command=_on_y_scroll)
+        v_scrollbar_b.config(command=_on_y_scroll)
+        file_view_a.config(yscrollcommand=_on_y_view_change)
+        file_view_b.config(yscrollcommand=_on_y_view_change)
 
-        h_scrollbar_a.config(command=_sync_x_scroll)
-        h_scrollbar_b.config(command=_sync_x_scroll)
-        file_view_a.config(xscrollcommand=_update_x_scrollbars)
-        file_view_b.config(xscrollcommand=_update_x_scrollbars)
+        # Configure horizontal scrolling
+        h_scrollbar_a.config(command=_on_x_scroll)
+        h_scrollbar_b.config(command=_on_x_scroll)
+        file_view_a.config(xscrollcommand=_on_x_view_change)
+        file_view_b.config(xscrollcommand=_on_x_view_change)
+
+        # Bind mouse wheel to scroll both text widgets
+        def _on_mouse_wheel(event):
+            """Handle mouse wheel scrolling for both text widgets."""
+            # Determine scroll direction and amount
+            delta = -1 * (event.delta / 120) if event.delta != 0 else 0
+
+            # Handle touchpad scrolling (some systems use event.num)
+            if event.num in (4, 5):
+                delta = -1 if event.num == 4 else 1
+
+            # Scroll both text widgets
+            file_view_a.yview_scroll(int(delta), "units")
+            file_view_b.yview_scroll(int(delta), "units")
+
+            # Prevent default behavior
+            return "break"
+
+        # Bind mouse wheel events to both text widgets
+        for widget in [file_view_a, file_view_b]:
+            widget.bind("<MouseWheel>", _on_mouse_wheel, add=True)
+            widget.bind("<Button-4>", _on_mouse_wheel, add=True)  # Linux scroll up
+            widget.bind("<Button-5>", _on_mouse_wheel, add=True)  # Linux scroll down
+
+            # Also bind to the frame containing the text widget for when focus is elsewhere
+            if widget.master:
+                widget.master.bind("<MouseWheel>", _on_mouse_wheel, add=True)
+                widget.master.bind("<Button-4>", _on_mouse_wheel, add=True)
+                widget.master.bind("<Button-5>", _on_mouse_wheel, add=True)
+
+        # Bind to the main window as well to catch events anywhere in the application
+        self.root.bind("<MouseWheel>", _on_mouse_wheel, add=True)
+        self.root.bind("<Button-4>", _on_mouse_wheel, add=True)
+        self.root.bind("<Button-5>", _on_mouse_wheel, add=True)
 
     def _create_status_bar(self, parent):
         """Create status bar."""
@@ -414,7 +454,6 @@ class GCompare:
     # FILE OPERATIONS
     # ==========================================================================
 
-    # File Operations
     def _open_file_a(self):
         """Open a file for panel A."""
         self._open_file("A")
@@ -545,10 +584,9 @@ class GCompare:
             messagebox.showerror("Error", f"Failed to load file: {e}")
 
     # ==========================================================================
-    # COMPARISON & EVENT HANDLING
+    # TEXT AND COMPARISON OPERATIONS
     # ==========================================================================
 
-    # Text and Comparison Operations
     def _on_text_modified(self, event, panel_widget, original_title):
         """Handle text modification to mark file as dirty."""
         text_widget = event.widget
@@ -607,7 +645,6 @@ class GCompare:
     # UTILITY METHODS
     # ==========================================================================
 
-    # Utility Methods
     def _get_mono_font(self):
         """Returns a suitable monospace font family based on the current OS."""
         font_families = tkfont.families()
