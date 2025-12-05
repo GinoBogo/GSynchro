@@ -20,66 +20,55 @@ def comparison_test_environment():
     root.withdraw()  # Hide the main window during tests
 
     # Create a temporary directory to hold test folders
-    test_dir = tempfile.mkdtemp()
-    dir_a = os.path.join(test_dir, "folder_a")
-    dir_b = os.path.join(test_dir, "folder_b")
+    test_dir = Path(tempfile.mkdtemp())
+    dir_a = test_dir / "folder_a"
+    dir_b = test_dir / "folder_b"
 
     # Create test directories
-    os.makedirs(dir_a, exist_ok=True)
-    os.makedirs(dir_b, exist_ok=True)
+    dir_a.mkdir(exist_ok=True)
+    dir_b.mkdir(exist_ok=True)
 
     # =======================================================================
     # Create test files and directories
     # =======================================================================
 
     # Identical file (same content in both folders)
-    with open(os.path.join(dir_a, "identical.txt"), "w") as f:
-        f.write("This file is the same.")
-    with open(os.path.join(dir_b, "identical.txt"), "w") as f:
-        f.write("This file is the same.")
+    (dir_a / "identical.txt").write_text("This file is the same.")
+    (dir_b / "identical.txt").write_text("This file is the same.")
 
     # Different file (same name, different content)
-    with open(os.path.join(dir_a, "different.txt"), "w") as f:
-        f.write("Content for folder A.")
-    with open(os.path.join(dir_b, "different.txt"), "w") as f:
-        f.write("Content for folder B.")
+    (dir_a / "different.txt").write_text("Content for folder A.")
+    (dir_b / "different.txt").write_text("Content for folder B.")
 
     # File only in folder A
-    with open(os.path.join(dir_a, "only_in_a.txt"), "w") as f:
-        f.write("This file is only in A.")
+    (dir_a / "only_in_a.txt").write_text("This file is only in A.")
 
     # File only in folder B
-    with open(os.path.join(dir_b, "only_in_b.txt"), "w") as f:
-        f.write("This file is only in B.")
+    (dir_b / "only_in_b.txt").write_text("This file is only in B.")
 
     # Subdirectory structure (different in each folder)
-    os.makedirs(os.path.join(dir_a, "subdir"), exist_ok=True)
-    os.makedirs(os.path.join(dir_b, "subdir_b"), exist_ok=True)
-    with open(os.path.join(dir_a, "subdir", "subfile.txt"), "w") as f:
-        f.write("Subfile content.")
+    (dir_a / "subdir").mkdir(exist_ok=True)
+    (dir_b / "subdir_b").mkdir(exist_ok=True)
+    (dir_a / "subdir" / "subfile.txt").write_text("Subfile content.")
 
     # Shared directory with different content
-    os.makedirs(os.path.join(dir_a, "shared_dir"), exist_ok=True)
-    os.makedirs(os.path.join(dir_b, "shared_dir"), exist_ok=True)
-    with open(os.path.join(dir_a, "shared_dir", "a_only.txt"), "w") as f:
-        f.write("a")
-    with open(os.path.join(dir_b, "shared_dir", "b_only.txt"), "w") as f:
-        f.write("b")
+    (dir_a / "shared_dir").mkdir(exist_ok=True)
+    (dir_b / "shared_dir").mkdir(exist_ok=True)
+    (dir_a / "shared_dir" / "a_only.txt").write_text("a")
+    (dir_b / "shared_dir" / "b_only.txt").write_text("b")
 
     # Deeper nested structure
-    os.makedirs(os.path.join(dir_a, "deep", "a"), exist_ok=True)
-    with open(os.path.join(dir_a, "deep", "a", "deep_file.txt"), "w") as f:
-        f.write("deep")
+    (dir_a / "deep" / "a").mkdir(parents=True, exist_ok=True)
+    (dir_a / "deep" / "a" / "deep_file.txt").write_text("deep")
 
     # Type conflict (file vs. directory)
-    os.makedirs(os.path.join(dir_a, "conflict"), exist_ok=True)
-    with open(os.path.join(dir_b, "conflict"), "w") as f:
-        f.write("I am a file")
+    (dir_a / "conflict").mkdir(exist_ok=True)
+    (dir_b / "conflict").write_text("I am a file")
 
     # Initialize the application
     app = GSynchro(root)
-    app.folder_a.set(dir_a)
-    app.folder_b.set(dir_b)
+    app.folder_a.set(str(dir_a))
+    app.folder_b.set(str(dir_b))
 
     yield app, dir_a, dir_b
 
@@ -201,7 +190,9 @@ def filtering_test_environment():
     # Files to be excluded by multiple wildcard patterns
     (dir_a / "temp.tmp").write_text("Temporary file.")
     (dir_a / "backup.bak").write_text("Backup file.")
-    (dir_a / "keep.txt").write_text("Keep this file.")  # Should not be filtered by new rules
+    (dir_a / "keep.txt").write_text(
+        "Keep this file."
+    )  # Should not be filtered by new rules
 
     # Nested directory to be excluded with its contents
     (dir_a / "data" / "sensitive").mkdir(parents=True, exist_ok=True)
@@ -212,7 +203,9 @@ def filtering_test_environment():
     (dir_a / "logs").mkdir(exist_ok=True)
     (dir_a / "logs" / "app.log").write_text("App log.")
     (dir_a / "logs" / "error.log").write_text("Error log.")
-    (dir_a / "logs" / "info.txt").write_text("Info text.")  # Should not be filtered by *.log
+    (dir_a / "logs" / "info.txt").write_text(
+        "Info text."
+    )  # Should not be filtered by *.log
 
     # File named similarly to a directory pattern to test rule specificity
     (dir_a / "my_dir").write_text("I am a file named my_dir")
@@ -337,3 +330,99 @@ class TestFiltering:
         assert "my_dir_folder" not in actual_paths
         assert "my_dir_folder/nested.txt" not in actual_paths
         assert "file.txt" in actual_paths  # Ensure other files are still present
+
+
+class TestSymbolicLinks:
+    """Test suite for symbolic link handling."""
+
+    @pytest.mark.skipif(
+        sys.platform == "win32", reason="Symbolic links require admin on Windows"
+    )
+    def test_symlink_to_file_comparison(self, comparison_test_environment):
+        """Test comparison of a symlink to a file vs. a regular file."""
+        cprint(f"\n--- {self.test_symlink_to_file_comparison.__doc__}", "magenta")
+        app, dir_a, dir_b = comparison_test_environment
+
+        # Create a file in dir_a and a symlink to it in dir_b
+        (dir_a / "target_file.txt").write_text("This is the target.")
+        os.symlink(dir_a / "target_file.txt", dir_b / "symlink_to_file.txt")
+
+        # Create a regular file in dir_a with the same name as the symlink
+        (dir_a / "symlink_to_file.txt").write_text("This is a regular file.")
+
+        # Run comparison
+        actual_statuses = self._run_comparison(app, dir_a, dir_b)
+
+        # The symlink in B points to a file that is different from the regular file in A
+        assert actual_statuses.get("symlink_to_file.txt") == "Different"
+
+    @pytest.mark.skipif(
+        sys.platform == "win32", reason="Symbolic links require admin on Windows"
+    )
+    def test_symlink_to_directory_comparison(self, comparison_test_environment):
+        """Test comparison of a symlink to a directory vs. a regular directory."""
+        cprint(f"\n--- {self.test_symlink_to_directory_comparison.__doc__}", "magenta")
+        app, dir_a, dir_b = comparison_test_environment
+
+        # Create a directory in dir_a and a symlink to it in dir_b
+        (dir_a / "target_dir").mkdir()
+        (dir_a / "target_dir" / "file.txt").write_text("content")
+        os.symlink(
+            dir_a / "target_dir", dir_b / "symlink_to_dir", target_is_directory=True
+        )
+
+        # Create a regular directory in dir_a with the same name as the symlink
+        (dir_a / "symlink_to_dir").mkdir()
+        (dir_a / "symlink_to_dir" / "another_file.txt").write_text("different content")
+
+        # Run comparison
+        actual_statuses = self._run_comparison(app, dir_a, dir_b)
+
+        # The symlinked directory in B has different content than the regular directory in A
+        assert actual_statuses.get("symlink_to_dir") == "Contains differences"
+
+    @pytest.mark.skipif(
+        sys.platform == "win32", reason="Symbolic links require admin on Windows"
+    )
+    def test_symlink_pointing_to_identical_directory(self, comparison_test_environment):
+        """Test a symlink in B pointing to the identical directory in A."""
+        cprint(
+            f"\n--- {self.test_symlink_pointing_to_identical_directory.__doc__}",
+            "magenta",
+        )
+        app, dir_a, dir_b = comparison_test_environment
+
+        # Remove the pre-existing 'shared_dir' in dir_b created by the fixture
+        # to allow creating a symlink with the same name.
+        shutil.rmtree(dir_b / "shared_dir")
+        (dir_b / "shared_dir").unlink(
+            missing_ok=True
+        )  # Ensure it's gone if it was a file
+
+        # In B, create a symlink named 'shared_dir' pointing to the 'shared_dir' in A
+        os.symlink(
+            str(dir_a / "shared_dir"),
+            str(dir_b / "shared_dir"),
+            target_is_directory=True,
+        )
+
+        actual_statuses = self._run_comparison(app, dir_a, dir_b)
+
+        assert actual_statuses.get("shared_dir") == "Identical"
+
+    # ===========================================================================
+    # Helper Methods
+    # ===========================================================================
+
+    def _run_comparison(self, app, dir_a, dir_b):
+        """Helper method to scan folders and run comparison logic."""
+        app.files_a = app._scan_local(dir_a)
+        app.files_b = app._scan_local(dir_b)
+
+        all_paths = set(app.files_a.keys()) | set(app.files_b.keys())
+
+        item_statuses, stats = app._calculate_item_statuses(
+            all_paths, app.files_a, app.files_b, False, False
+        )
+
+        return {k.replace("/", os.sep): v[0] for k, v in item_statuses.items()}

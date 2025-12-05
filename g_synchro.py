@@ -971,7 +971,9 @@ class GSynchro:
             rules = []
 
         try:
-            for root, dirs, filenames in os.walk(folder_path, topdown=True):
+            for root, dirs, filenames in os.walk(
+                folder_path, topdown=True, followlinks=True
+            ):
                 # Filter directories
                 dirs[:] = [
                     d
