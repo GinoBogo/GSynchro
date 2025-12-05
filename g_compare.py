@@ -1,4 +1,17 @@
 #!/usr/bin/env python3
+"""
+GCompare - GUI File Comparison Tool
+
+A graphical tool for side-by-side comparison of text files. It highlights
+differences in a modern and graphical way, allowing for easy visualization of
+changes between two files.
+
+Author: Gino Bogo
+License: MIT
+Version: 1.0
+"""
+
+from __future__ import annotations
 
 import sys
 import tkinter as tk
@@ -8,7 +21,7 @@ import difflib
 
 
 class GCompare:
-    def __init__(self, root):
+    def __init__(self, root: tk.Tk):
         self.root = root
         self._init_window()
 
@@ -36,21 +49,25 @@ class GCompare:
         self.status_a = tk.StringVar()
         self.status_b = tk.StringVar()
 
-        self.setup_ui()
+        self._setup_ui()
 
         # Load files from command line arguments
         if len(sys.argv) > 1:
-            self.load_file_a(sys.argv[1])
+            self._load_file_a(sys.argv[1])
         if len(sys.argv) > 2:
-            self.load_file_b(sys.argv[2])
+            self._load_file_b(sys.argv[2])
+
+    # ==========================================================================
+    # INITIALIZATION & UI SETUP
+    # ==========================================================================
 
     def _init_window(self):
         """Initialize main window properties."""
-        self.root.title("GCompare - Files Comparison Tool")
+        self.root.title("GCompare - File Comparison Tool")
         self.root.minsize(1024, 768)
-        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+        self.root.protocol("WM_DELETE_WINDOW", self._on_closing)
 
-    def setup_ui(self):
+    def _setup_ui(self):
         """Set up the main user interface."""
         self._setup_styles()
 
@@ -67,8 +84,14 @@ class GCompare:
 
         # Status bar
         self._create_status_bar(main_frame)
+        # Initial status
+        self.status_a.set("by Gino Bogo")
 
         self._setup_synchronized_scrolling()
+
+    # ==========================================================================
+    # UI CREATION METHODS
+    # ==========================================================================
 
     def _setup_styles(self):
         """Configure application styles."""
@@ -126,7 +149,7 @@ class GCompare:
 
     def _create_control_buttons(self, control_frame):
         """Create the main control buttons."""
-        buttons_config = [("Compare", self.compare_files, None)]
+        buttons_config = [("Compare", self._compare_files, None)]
 
         button_container = ttk.Frame(control_frame)
         button_container.pack(expand=True)
@@ -166,9 +189,9 @@ class GCompare:
             "content_var": self.content_a,
             "file_var": self.file_a,
             "file_history": self.file_a_history,
-            "browse_command": self.browse_file_a,
+            "browse_command": self._browse_file_a,
             "button_color": "lightgreen",
-            "save_command": self.save_file_a,
+            "save_command": self._save_file_a,
         }
 
         # Panel B configuration
@@ -179,9 +202,9 @@ class GCompare:
             "content_var": self.content_b,
             "file_var": self.file_b,
             "file_history": self.file_b_history,
-            "browse_command": self.browse_file_b,
+            "browse_command": self._browse_file_b,
             "button_color": "lightblue",
-            "save_command": self.save_file_b,
+            "save_command": self._save_file_b,
         }
 
         self._create_panel(panels_frame, panel_a_config)
@@ -229,7 +252,7 @@ class GCompare:
 
         # Text Area
         text_area = tk.Text(panel, wrap=tk.WORD, state=tk.NORMAL)
-        text_area.grid(row=1, column=0, columnspan=3, sticky=tk.NSEW)
+        text_area.grid(row=1, column=0, columnspan=3, pady=(10, 0), sticky=tk.NSEW)
         text_area.bind(
             "<<Modified>>",
             lambda e, p=panel, t=config["title"]: self._on_text_modified(e, p, t),
@@ -238,7 +261,7 @@ class GCompare:
         # Scrollbars
         v_scrollbar = ttk.Scrollbar(panel, orient=tk.VERTICAL, command=text_area.yview)
         text_area.configure(yscrollcommand=v_scrollbar.set)
-        v_scrollbar.grid(row=1, column=3, sticky=tk.NS)
+        v_scrollbar.grid(row=1, column=3, pady=(10, 0), sticky=tk.NS)
 
         h_scrollbar = ttk.Scrollbar(
             panel, orient=tk.HORIZONTAL, command=text_area.xview
@@ -257,15 +280,6 @@ class GCompare:
             self.panel_b = panel
             self.v_scrollbar_b = v_scrollbar
             self.h_scrollbar_b = h_scrollbar
-
-    def _on_text_modified(self, event, panel_widget, original_title):
-        """Handle text modification to mark file as dirty."""
-        text_widget = event.widget
-        # The flag is set by Tkinter when the text is modified.
-        if panel_widget and text_widget.edit_modified():
-            panel_widget.config(text=f"{original_title}*")
-            # We must reset the flag manually to be able to catch the next change.
-            text_widget.edit_modified(False)
 
     def _setup_synchronized_scrolling(self):
         """Link the scrollbars of the two text widgets for synchronized scrolling."""
@@ -310,11 +324,35 @@ class GCompare:
         file_view_a.config(xscrollcommand=_update_x_scrollbars)
         file_view_b.config(xscrollcommand=_update_x_scrollbars)
 
-    def browse_file_a(self):
+    def _create_status_bar(self, parent):
+        """Create status bar."""
+        status_frame = ttk.Frame(parent, relief="flat", padding="2")
+        status_frame.grid(row=2, column=0, columnspan=3, sticky=tk.EW, pady=(5, 0))
+
+        status_frame.columnconfigure(0, weight=1)
+        status_frame.columnconfigure(1, weight=1)
+
+        # Status labels
+        status_label_a = ttk.Label(
+            status_frame, textvariable=self.status_a, anchor=tk.W
+        )
+        status_label_a.grid(row=0, column=0, sticky=tk.EW, padx=0)
+
+        status_label_b = ttk.Label(
+            status_frame, textvariable=self.status_b, anchor=tk.W
+        )
+        status_label_b.grid(row=0, column=1, sticky=tk.EW, padx=0)
+
+    # ==========================================================================
+    # FILE OPERATIONS
+    # ==========================================================================
+
+    # File Operations
+    def _browse_file_a(self):
         """Browse for file A."""
         self._browse_file("A")
 
-    def browse_file_b(self):
+    def _browse_file_b(self):
         """Browse for file B."""
         self._browse_file("B")
 
@@ -323,15 +361,15 @@ class GCompare:
         file_path = filedialog.askopenfilename()
         if file_path:
             if panel_name == "A":
-                self.load_file_a(file_path)
+                self._load_file_a(file_path)
             else:
-                self.load_file_b(file_path)
+                self._load_file_b(file_path)
 
-    def save_file_a(self):
+    def _save_file_a(self):
         """Save content of File A panel to its file."""
         self._save_file(self.file_a.get(), self.file_view_a, "A")
 
-    def save_file_b(self):
+    def _save_file_b(self):
         """Save content of File B panel to its file."""
         self._save_file(self.file_b.get(), self.file_view_b, "B")
 
@@ -369,7 +407,7 @@ class GCompare:
                 "Save Error", f"Failed to save file '{file_path}':\n{e}"
             )
 
-    def load_file_a(self, file_path):
+    def _load_file_a(self, file_path):
         """Load file A content into the text area."""
         try:
             with open(file_path, "r", encoding="utf-8") as file:
@@ -390,7 +428,7 @@ class GCompare:
         except Exception as e:
             messagebox.showerror("Error", f"Failed to load file: {e}")
 
-    def load_file_b(self, file_path):
+    def _load_file_b(self, file_path):
         """Load file B content into the text area."""
         try:
             with open(file_path, "r", encoding="utf-8") as file:
@@ -411,7 +449,21 @@ class GCompare:
         except Exception as e:
             messagebox.showerror("Error", f"Failed to load file: {e}")
 
-    def compare_files(self):
+    # ==========================================================================
+    # COMPARISON & EVENT HANDLING
+    # ==========================================================================
+
+    # Text and Comparison Operations
+    def _on_text_modified(self, event, panel_widget, original_title):
+        """Handle text modification to mark file as dirty."""
+        text_widget = event.widget
+        # The flag is set by Tkinter when the text is modified.
+        if panel_widget and text_widget.edit_modified():
+            panel_widget.config(text=f"{original_title}*")
+            # We must reset the flag manually to be able to catch the next change.
+            text_widget.edit_modified(False)
+
+    def _compare_files(self):
         """Compare the content of the two text areas and highlight differences."""
         if not self.file_view_a or not self.file_view_b:
             messagebox.showwarning(
@@ -456,29 +508,11 @@ class GCompare:
         self.status_a.set(f"Lines removed: {removed_lines}")
         self.status_b.set(f"Lines added: {added_lines}")
 
-    def _create_status_bar(self, parent):
-        """Create status bar."""
-        status_frame = ttk.Frame(parent, relief="flat", padding="2")
-        status_frame.grid(row=2, column=0, columnspan=3, sticky=tk.EW, pady=(5, 0))
+    # ==========================================================================
+    # UTILITY METHODS
+    # ==========================================================================
 
-        status_frame.columnconfigure(0, weight=1)
-        status_frame.columnconfigure(1, weight=1)
-
-        # Status labels
-        status_label_a = ttk.Label(
-            status_frame, textvariable=self.status_a, anchor=tk.W
-        )
-        status_label_a.grid(row=0, column=0, sticky=tk.EW, padx=0)
-
-        status_label_b = ttk.Label(
-            status_frame, textvariable=self.status_b, anchor=tk.W
-        )
-        status_label_b.grid(row=0, column=1, sticky=tk.EW, padx=0)
-
-    def on_closing(self):
-        """Handle window close event."""
-        self.root.destroy()
-
+    # Utility Methods
     def _get_mono_font(self):
         """Returns a suitable monospace font family based on the current OS."""
         font_families = tkfont.families()
@@ -501,6 +535,10 @@ class GCompare:
 
         # Fallback to a generic monospace font
         return ("Courier", 11)
+
+    def _on_closing(self):
+        """Handle window close event."""
+        self.root.destroy()
 
 
 def main():
