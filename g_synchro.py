@@ -21,14 +21,17 @@ import subprocess
 import sys
 import tempfile
 import threading
-from typing import Optional
-from datetime import datetime
+
+import tkinter as tk
 import tkinter.font as tkfont
+from tkinter import filedialog, messagebox, ttk
+
+from contextlib import contextmanager
+from datetime import datetime
+from typing import Optional
 
 import paramiko
 from scp import SCPClient
-import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
 
 
 CONFIG_FILE = "g_synchro.json"
@@ -1381,63 +1384,60 @@ class GSynchro:
                 and isinstance(file_b, dict)
                 and "size" in file_b
             ):
-                # Files have same size, proceed with chunked comparison
-                file_a_handle = None
-                file_b_handle = None
-                sftp_a = None
-                sftp_b = None
-
                 try:
-                    # Open file A
-                    if use_ssh_a:
-                        if not self.ssh_client_a:
-                            raise ConnectionError(
-                                "SSH client for Panel A is not connected."
-                            )
-                        sftp_a = self.ssh_client_a.open_sftp()  # type: ignore
-                        file_a_handle = sftp_a.open(file_a["full_path"], "rb")
-                    else:
-                        file_a_handle = open(file_a["full_path"], "rb")
+                    # Open both files using the helper context manager
+                    with self._open_file_handle(
+                        file_a, use_ssh_a, self.ssh_client_a
+                    ) as file_a_handle:
+                        with self._open_file_handle(
+                            file_b, use_ssh_b, self.ssh_client_b
+                        ) as file_b_handle:
+                            # Compare the file contents chunk by chunk
+                            if not self._are_chunks_identical(
+                                file_a_handle, file_b_handle
+                            ):
+                                return "Different", "orange"
 
-                    # Open file B
-                    if use_ssh_b:
-                        if not self.ssh_client_b:
-                            raise ConnectionError(
-                                "SSH client for Panel B is not connected."
-                            )
-                        sftp_b = self.ssh_client_b.open_sftp()  # type: ignore
-                        file_b_handle = sftp_b.open(file_b["full_path"], "rb")
-                    else:
-                        file_b_handle = open(file_b["full_path"], "rb")
-
-                    while True:
-                        chunk_a = file_a_handle.read(CHUNK_SIZE)
-                        chunk_b = file_b_handle.read(CHUNK_SIZE)
-
-                        if chunk_a != chunk_b:
-                            return "Different", "orange"
-
-                        if not chunk_a:  # Both chunks are empty, files are identical
-                            return "Identical", "green"
+                    return "Identical", "green"  # Files are identical
 
                 except Exception as e:
                     self.log(f"Error during chunked file comparison: {e}")
                     return "Error", "black"  # Indicate an error occurred
-                finally:
-                    if file_a_handle:
-                        file_a_handle.close()
-                    if file_b_handle:
-                        file_b_handle.close()
-                    if sftp_a:
-                        sftp_a.close()
-                    if sftp_b:
-                        sftp_b.close()
             else:
                 return "Different", "orange"
         elif file_a:
             return "Only in Folder A", "blue"
         else:
             return "Only in Folder B", "red"
+
+    @contextmanager
+    def _open_file_handle(self, file_info, use_ssh, ssh_client):
+        """A context manager to open a file handle, local or remote."""
+        if use_ssh:
+            if not ssh_client or not ssh_client.get_transport():
+                raise ConnectionError("SSH client is not connected.")
+            sftp = ssh_client.open_sftp()
+            file_handle = sftp.open(file_info["full_path"], "rb")
+            try:
+                yield file_handle
+            finally:
+                file_handle.close()
+                sftp.close()
+        else:
+            with open(file_info["full_path"], "rb") as file_handle:
+                yield file_handle
+
+    def _are_chunks_identical(self, file_a_handle, file_b_handle) -> bool:
+        """Compare two file handles chunk by chunk."""
+        while True:
+            chunk_a = file_a_handle.read(CHUNK_SIZE)
+            chunk_b = file_b_handle.read(CHUNK_SIZE)
+
+            if chunk_a != chunk_b:
+                return False  # Different
+
+            if not chunk_a:  # End of file, and all previous chunks matched
+                return True  # Identical
 
     # ==========================================================================
     # SYNCHRONIZATION METHODS
@@ -1651,6 +1651,9 @@ class GSynchro:
         """Sync local to remote using SCP."""
         self.log(f"Syncing local files to remote {remote_path}")
 
+        if not ssh_client or not ssh_client.get_transport():
+            raise ConnectionError("SSH client for remote sync is not connected.")
+
         with SCPClient(ssh_client.get_transport()) as scp:
             for rel_path in files_to_copy:
                 local_file = source_files_dict[rel_path]["full_path"]
@@ -1676,6 +1679,11 @@ class GSynchro:
     ):
         """Sync remote to local using SCP."""
         self.log(f"Syncing remote files to local {local_path}")
+
+        if not ssh_client or not ssh_client.get_transport():
+            raise ConnectionError(
+                "SSH client for remote-to-local sync is not connected."
+            )
 
         with SCPClient(ssh_client.get_transport()) as scp:
             for rel_path in files_to_copy:
@@ -2452,6 +2460,8 @@ class GSynchro:
     def _get_mono_font(self):
         """Returns a suitable monospace font family based on the current OS."""
         font_families = tkfont.families()
+
+        preferred_fonts = []
 
         if sys.platform == "win32":
             # Windows

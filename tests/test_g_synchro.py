@@ -1,9 +1,10 @@
 import os
-import sys
 import shutil
+import sys
 import tempfile
 import tkinter as tk
 from pathlib import Path
+
 import pytest
 from termcolor import cprint
 
