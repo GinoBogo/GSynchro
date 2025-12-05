@@ -13,17 +13,22 @@ Version: 1.0
 
 from __future__ import annotations
 
+import difflib
+import json
+import os
 import sys
 import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import ttk, filedialog, messagebox
-import difflib
+
+
+CONFIG_FILE = "g_compare.json"
+HISTORY_LENGTH = 10
 
 
 class GCompare:
     def __init__(self, root: tk.Tk):
         self.root = root
-        self._init_window()
 
         # File Paths
         self.file_a = tk.StringVar()
@@ -49,6 +54,7 @@ class GCompare:
         self.status_a = tk.StringVar()
         self.status_b = tk.StringVar()
 
+        self.load_config()
         self._setup_ui()
 
         # Load files from command line arguments
@@ -63,7 +69,7 @@ class GCompare:
 
     def _init_window(self):
         """Initialize main window properties."""
-        self.root.title("GCompare - Comparison Tool")
+        self.root.title("GCompare - File Comparison Tool")
         self.root.minsize(1024, 768)
         self.root.protocol("WM_DELETE_WINDOW", self._on_closing)
 
@@ -88,6 +94,64 @@ class GCompare:
         self.status_a.set("by Gino Bogo")
 
         self._setup_synchronized_scrolling()
+
+    # ==========================================================================
+    # CONFIGURATION METHODS
+    # ==========================================================================
+
+    def load_config(self):
+        """Load configuration from file."""
+        self._init_window()
+        if not os.path.exists(CONFIG_FILE):
+            return
+
+        try:
+            with open(CONFIG_FILE, "r") as f:
+                config = json.load(f)
+
+            # Window geometry
+            if "WINDOW" in config and "geometry" in config["WINDOW"]:
+                self.root.geometry(config["WINDOW"]["geometry"])
+
+            # File A History
+            if "FILE_A_HISTORY" in config:
+                self.file_a_history = config["FILE_A_HISTORY"]
+                if self.file_a_history:
+                    self.file_a.set(self.file_a_history[0])
+
+            # File B History
+            if "FILE_B_HISTORY" in config:
+                self.file_b_history = config["FILE_B_HISTORY"]
+                if self.file_b_history:
+                    self.file_b.set(self.file_b_history[0])
+
+        except json.JSONDecodeError:
+            print(f"Warning: Could not parse {CONFIG_FILE}. Using defaults.")
+
+    def save_config(self):
+        """Save configuration to file."""
+        # Update file history
+        self._update_file_history("A", self.file_a, self.file_a.get())
+        self._update_file_history("B", self.file_b, self.file_b.get())
+
+        config = {
+            "WINDOW": {"geometry": self.root.geometry()},
+            "FILE_A_HISTORY": self.file_a_history,
+            "FILE_B_HISTORY": self.file_b_history,
+        }
+
+        with open(CONFIG_FILE, "w") as f:
+            json.dump(config, f, indent=4)
+
+    def _update_file_history(self, panel_name, file_var, new_path):
+        """Update and save file history."""
+        if not new_path:
+            return
+
+        history_list = self.file_a_history if panel_name == "A" else self.file_b_history
+        if new_path in history_list:
+            history_list.remove(new_path)
+        history_list.insert(0, new_path)
 
     # ==========================================================================
     # UI CREATION METHODS
@@ -149,7 +213,10 @@ class GCompare:
 
     def _create_control_buttons(self, control_frame):
         """Create the main control buttons."""
-        buttons_config = [("Compare", self._compare_files, None)]
+        buttons_config = [
+            ("Compare", self._compare_files, None),
+            ("Reload", self._reload_files, None),
+        ]
 
         button_container = ttk.Frame(control_frame)
         button_container.pack(expand=True)
@@ -365,6 +432,36 @@ class GCompare:
             else:
                 self._load_file_b(file_path)
 
+    def _reload_files(self):
+        """Reload both files, prompting to save if there are changes."""
+        # Check File A for unsaved changes
+        if self.panel_a and self.panel_a.cget("text").endswith("*"):
+            response = messagebox.askyesnocancel(
+                "Unsaved Changes",
+                "File A has unsaved changes. Do you want to save them before reloading?",
+            )
+            if response is True:  # Yes
+                self._save_file_a()
+            elif response is None:  # Cancel
+                return  # Abort the entire reload operation
+
+        # Check File B for unsaved changes
+        if self.panel_b and self.panel_b.cget("text").endswith("*"):
+            response = messagebox.askyesnocancel(
+                "Unsaved Changes",
+                "File B has unsaved changes. Do you want to save them before reloading?",
+            )
+            if response is True:  # Yes
+                self._save_file_b()
+            elif response is None:  # Cancel
+                return  # Abort the entire reload operation
+
+        # Proceed with reloading the files
+        if self.file_a.get():
+            self._load_file_a(self.file_a.get())
+        if self.file_b.get():
+            self._load_file_b(self.file_b.get())
+
     def _save_file_a(self):
         """Save content of File A panel to its file."""
         self._save_file(self.file_a.get(), self.file_view_a, "A")
@@ -412,6 +509,7 @@ class GCompare:
         try:
             with open(file_path, "r", encoding="utf-8") as file:
                 content = file.read()
+                self._update_file_history("A", self.file_a, file_path)
                 self.file_a.set(file_path)
                 self.content_a.set(content)
                 if self.file_view_a:
@@ -422,9 +520,7 @@ class GCompare:
                     self.panel_a.config(text="File A")
                 line_count = len(content.splitlines())
                 char_count = len(content)
-                self.status_a.set(
-                    f"{file_path} - {line_count} lines, {char_count} characters"
-                )
+                self.status_a.set(f"{line_count} lines, {char_count} characters")
         except Exception as e:
             messagebox.showerror("Error", f"Failed to load file: {e}")
 
@@ -433,6 +529,7 @@ class GCompare:
         try:
             with open(file_path, "r", encoding="utf-8") as file:
                 content = file.read()
+                self._update_file_history("B", self.file_b, file_path)
                 self.file_b.set(file_path)
                 self.content_b.set(content)
                 if self.file_view_b:
@@ -443,9 +540,7 @@ class GCompare:
                     self.panel_b.config(text="File B")
                 line_count = len(content.splitlines())
                 char_count = len(content)
-                self.status_b.set(
-                    f"{file_path} - {line_count} lines, {char_count} characters"
-                )
+                self.status_b.set(f"{line_count} lines, {char_count} characters")
         except Exception as e:
             messagebox.showerror("Error", f"Failed to load file: {e}")
 
@@ -531,13 +626,14 @@ class GCompare:
 
         for font in preferred_fonts:
             if font in font_families:
-                return (font, 11)
+                return (font, 12)
 
         # Fallback to a generic monospace font
-        return ("Courier", 11)
+        return ("Courier", 12)
 
     def _on_closing(self):
         """Handle window close event."""
+        self.save_config()
         self.root.destroy()
 
 
