@@ -75,7 +75,7 @@ class GSynchro:
         self.temp_files_to_clean = []
 
         # Sync States
-        self.CHECKED_CHAR = "☑"
+        self.CHECKED_CHAR = "✔"
         self.UNCHECKED_CHAR = "☐"
         self.sync_states = {}
 
