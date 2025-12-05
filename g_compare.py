@@ -15,14 +15,26 @@ class GCompare:
         # File Paths
         self.file_a = tk.StringVar()
         self.file_b = tk.StringVar()
+        self.file_a_history = []
+        self.file_b_history = []
 
         # Text Content
-        self.text_a = tk.StringVar()
-        self.text_b = tk.StringVar()
+        self.content_a = tk.StringVar()
+        self.content_b = tk.StringVar()
 
         # UI Components
-        self.text_area_a = None
-        self.text_area_b = None
+        self.file_view_a = None
+        self.file_view_b = None
+        self.panel_a = None
+        self.panel_b = None
+        self.v_scrollbar_a = None
+        self.v_scrollbar_b = None
+        self.h_scrollbar_a = None
+        self.h_scrollbar_b = None
+
+        # Status Variables
+        self.status_a = tk.StringVar()
+        self.status_b = tk.StringVar()
 
         self.setup_ui()
 
@@ -34,7 +46,7 @@ class GCompare:
 
     def _init_window(self):
         """Initialize main window properties."""
-        self.root.title("GCompare - Text Comparison Tool")
+        self.root.title("GCompare - Files Comparison Tool")
         self.root.minsize(1024, 768)
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
 
@@ -51,7 +63,12 @@ class GCompare:
 
         # Text panels
         panels_frame = self._create_panels_frame(main_frame)
-        self._create_text_panels(panels_frame)
+        self._create_file_panels(panels_frame)
+
+        # Status bar
+        self._create_status_bar(main_frame)
+
+        self._setup_synchronized_scrolling()
 
     def _setup_styles(self):
         """Configure application styles."""
@@ -109,11 +126,7 @@ class GCompare:
 
     def _create_control_buttons(self, control_frame):
         """Create the main control buttons."""
-        buttons_config = [
-            ("Compare", self.compare_files, None),
-            ("Load File A", self.browse_file_a, "lightgreen"),
-            ("Load File B", self.browse_file_b, "lightblue"),
-        ]
+        buttons_config = [("Compare", self.compare_files, None)]
 
         button_container = ttk.Frame(control_frame)
         button_container.pack(expand=True)
@@ -143,15 +156,19 @@ class GCompare:
 
         return panels_frame
 
-    def _create_text_panels(self, panels_frame):
-        """Create text panels A and B."""
+    def _create_file_panels(self, panels_frame):
+        """Create file panels A and B."""
         # Panel A configuration
         panel_a_config = {
             "title": "File A",
             "column": 0,
             "padx": (0, 5),
-            "text_var": self.text_a,
+            "content_var": self.content_a,
             "file_var": self.file_a,
+            "file_history": self.file_a_history,
+            "browse_command": self.browse_file_a,
+            "button_color": "lightgreen",
+            "save_command": self.save_file_a,
         }
 
         # Panel B configuration
@@ -159,8 +176,12 @@ class GCompare:
             "title": "File B",
             "column": 1,
             "padx": (5, 0),
-            "text_var": self.text_b,
+            "content_var": self.content_b,
             "file_var": self.file_b,
+            "file_history": self.file_b_history,
+            "browse_command": self.browse_file_b,
+            "button_color": "lightblue",
+            "save_command": self.save_file_b,
         }
 
         self._create_panel(panels_frame, panel_a_config)
@@ -176,26 +197,118 @@ class GCompare:
             padx=config["padx"],
         )
         panel.columnconfigure(0, weight=1)
-        panel.rowconfigure(0, weight=1)
+        panel.columnconfigure(1, weight=0)  # For the buttons
+        panel.columnconfigure(2, weight=0)
+        panel.rowconfigure(1, weight=1)  # For the text area
+
+        # File path combobox
+        path_combobox = ttk.Combobox(
+            panel,
+            textvariable=config["file_var"],
+            values=config["file_history"],
+        )
+        path_combobox.grid(row=0, column=0, padx=5, pady=5, sticky=tk.EW)
+
+        # Load Button
+        ttk.Button(
+            panel,
+            text="Browse",
+            command=config["browse_command"],
+            cursor="hand2",
+            style=f"{config['button_color']}.TButton",
+        ).grid(row=0, column=1, padx=5, pady=5, sticky=tk.E)
+
+        # Save Button
+        ttk.Button(
+            panel,
+            text="Save",
+            command=config["save_command"],
+            cursor="hand2",
+            style=f"{config['button_color']}.TButton",
+        ).grid(row=0, column=2, padx=(0, 5), pady=5, sticky=tk.E)
 
         # Text Area
-        text_area = tk.Text(panel, wrap=tk.WORD)
-        text_area.grid(row=0, column=0, sticky=tk.NSEW)
+        text_area = tk.Text(panel, wrap=tk.WORD, state=tk.NORMAL)
+        text_area.grid(row=1, column=0, columnspan=3, sticky=tk.NSEW)
+        text_area.bind(
+            "<<Modified>>",
+            lambda e, p=panel, t=config["title"]: self._on_text_modified(e, p, t),
+        )
 
         # Scrollbars
         v_scrollbar = ttk.Scrollbar(panel, orient=tk.VERTICAL, command=text_area.yview)
         text_area.configure(yscrollcommand=v_scrollbar.set)
-        v_scrollbar.grid(row=0, column=1, sticky=tk.NS)
+        v_scrollbar.grid(row=1, column=3, sticky=tk.NS)
 
-        h_scrollbar = ttk.Scrollbar(panel, orient=tk.HORIZONTAL, command=text_area.xview)
+        h_scrollbar = ttk.Scrollbar(
+            panel, orient=tk.HORIZONTAL, command=text_area.xview
+        )
         text_area.configure(xscrollcommand=h_scrollbar.set)
-        h_scrollbar.grid(row=1, column=0, sticky=tk.EW)
+        h_scrollbar.grid(row=2, column=0, columnspan=3, sticky=tk.EW)
 
         # Store text area reference
         if config["title"] == "File A":
-            self.text_area_a = text_area
+            self.file_view_a = text_area
+            self.panel_a = panel
+            self.v_scrollbar_a = v_scrollbar
+            self.h_scrollbar_a = h_scrollbar
         else:
-            self.text_area_b = text_area
+            self.file_view_b = text_area
+            self.panel_b = panel
+            self.v_scrollbar_b = v_scrollbar
+            self.h_scrollbar_b = h_scrollbar
+
+    def _on_text_modified(self, event, panel_widget, original_title):
+        """Handle text modification to mark file as dirty."""
+        text_widget = event.widget
+        # The flag is set by Tkinter when the text is modified.
+        if panel_widget and text_widget.edit_modified():
+            panel_widget.config(text=f"{original_title}*")
+            # We must reset the flag manually to be able to catch the next change.
+            text_widget.edit_modified(False)
+
+    def _setup_synchronized_scrolling(self):
+        """Link the scrollbars of the two text widgets for synchronized scrolling."""
+        if not (
+            self.file_view_a
+            and self.file_view_b
+            and self.v_scrollbar_a
+            and self.v_scrollbar_b
+            and self.h_scrollbar_a
+            and self.h_scrollbar_b
+        ):
+            return
+
+        # Assign local variables to avoid Pylance warnings about optional members
+        file_view_a, file_view_b = self.file_view_a, self.file_view_b
+        v_scrollbar_a, v_scrollbar_b = self.v_scrollbar_a, self.v_scrollbar_b
+        h_scrollbar_a, h_scrollbar_b = self.h_scrollbar_a, self.h_scrollbar_b
+
+        def _sync_y_scroll(*args):
+            file_view_a.yview(*args)
+            file_view_b.yview(*args)
+
+        def _update_y_scrollbars(*args):
+            v_scrollbar_a.set(*args)
+            v_scrollbar_b.set(*args)
+
+        def _sync_x_scroll(*args):
+            file_view_a.xview(*args)
+            file_view_b.xview(*args)
+
+        def _update_x_scrollbars(*args):
+            h_scrollbar_a.set(*args)
+            h_scrollbar_b.set(*args)
+
+        v_scrollbar_a.config(command=_sync_y_scroll)
+        v_scrollbar_b.config(command=_sync_y_scroll)
+        file_view_a.config(yscrollcommand=_update_y_scrollbars)
+        file_view_b.config(yscrollcommand=_update_y_scrollbars)
+
+        h_scrollbar_a.config(command=_sync_x_scroll)
+        h_scrollbar_b.config(command=_sync_x_scroll)
+        file_view_a.config(xscrollcommand=_update_x_scrollbars)
+        file_view_b.config(xscrollcommand=_update_x_scrollbars)
 
     def browse_file_a(self):
         """Browse for file A."""
@@ -214,16 +327,66 @@ class GCompare:
             else:
                 self.load_file_b(file_path)
 
+    def save_file_a(self):
+        """Save content of File A panel to its file."""
+        self._save_file(self.file_a.get(), self.file_view_a, "A")
+
+    def save_file_b(self):
+        """Save content of File B panel to its file."""
+        self._save_file(self.file_b.get(), self.file_view_b, "B")
+
+    def _save_file(self, file_path, text_widget, panel_name):
+        """Save the content of a text widget to a file."""
+        if not file_path:
+            messagebox.showwarning(
+                "Save Error", f"No file path specified for Panel {panel_name}."
+            )
+            return
+
+        if not text_widget:
+            messagebox.showerror(
+                "Save Error", f"Text view for Panel {panel_name} is not available."
+            )
+            return
+
+        if not messagebox.askyesno(
+            "Confirm Save", f"Are you sure you want to overwrite '{file_path}'?"
+        ):
+            return
+
+        try:
+            content = text_widget.get("1.0", tk.END)
+            with open(file_path, "w", encoding="utf-8") as file:
+                file.write(content)
+
+            # Reset modified state
+            panel_widget = self.panel_a if panel_name == "A" else self.panel_b
+            if panel_widget:
+                panel_widget.config(text=f"File {panel_name}")
+            messagebox.showinfo("Success", f"File '{file_path}' saved successfully.")
+        except Exception as e:
+            messagebox.showerror(
+                "Save Error", f"Failed to save file '{file_path}':\n{e}"
+            )
+
     def load_file_a(self, file_path):
         """Load file A content into the text area."""
         try:
             with open(file_path, "r", encoding="utf-8") as file:
                 content = file.read()
                 self.file_a.set(file_path)
-                self.text_a.set(content)
-                if self.text_area_a:
-                    self.text_area_a.delete("1.0", tk.END)
-                    self.text_area_a.insert("1.0", content)
+                self.content_a.set(content)
+                if self.file_view_a:
+                    self.file_view_a.delete("1.0", tk.END)
+                    self.file_view_a.insert("1.0", content)
+                    self.file_view_a.edit_modified(False)
+                if self.panel_a:
+                    self.panel_a.config(text="File A")
+                line_count = len(content.splitlines())
+                char_count = len(content)
+                self.status_a.set(
+                    f"{file_path} - {line_count} lines, {char_count} characters"
+                )
         except Exception as e:
             messagebox.showerror("Error", f"Failed to load file: {e}")
 
@@ -233,29 +396,39 @@ class GCompare:
             with open(file_path, "r", encoding="utf-8") as file:
                 content = file.read()
                 self.file_b.set(file_path)
-                self.text_b.set(content)
-                if self.text_area_b:
-                    self.text_area_b.delete("1.0", tk.END)
-                    self.text_area_b.insert("1.0", content)
+                self.content_b.set(content)
+                if self.file_view_b:
+                    self.file_view_b.delete("1.0", tk.END)
+                    self.file_view_b.insert("1.0", content)
+                    self.file_view_b.edit_modified(False)
+                if self.panel_b:
+                    self.panel_b.config(text="File B")
+                line_count = len(content.splitlines())
+                char_count = len(content)
+                self.status_b.set(
+                    f"{file_path} - {line_count} lines, {char_count} characters"
+                )
         except Exception as e:
             messagebox.showerror("Error", f"Failed to load file: {e}")
 
     def compare_files(self):
         """Compare the content of the two text areas and highlight differences."""
-        if not self.text_area_a or not self.text_area_b:
-            messagebox.showwarning("Warning", "Please load both files before comparing.")
+        if not self.file_view_a or not self.file_view_b:
+            messagebox.showwarning(
+                "Warning", "Please load both files before comparing."
+            )
             return
 
-        text_a = self.text_area_a.get("1.0", tk.END)
-        text_b = self.text_area_b.get("1.0", tk.END)
+        text_a = self.file_view_a.get("1.0", tk.END)
+        text_b = self.file_view_b.get("1.0", tk.END)
 
         # Clear existing tags
-        self.text_area_a.tag_delete(*self.text_area_a.tag_names())
-        self.text_area_b.tag_delete(*self.text_area_b.tag_names())
+        self.file_view_a.tag_delete(*self.file_view_a.tag_names())
+        self.file_view_b.tag_delete(*self.file_view_b.tag_names())
 
         # Configure tags for highlighting
-        self.text_area_a.tag_configure("difference", background="lightblue")
-        self.text_area_b.tag_configure("difference", background="lightcoral")
+        self.file_view_a.tag_configure("difference", background="lightblue")
+        self.file_view_b.tag_configure("difference", background="lightcoral")
 
         # Perform comparison
         differ = difflib.Differ()
@@ -263,22 +436,44 @@ class GCompare:
 
         a_index = 1
         b_index = 1
+        added_lines = 0
+        removed_lines = 0
 
         for line in diff:
             code = line[0]
-            if code == ' ':
+            if code == " ":
                 a_index += 1
                 b_index += 1
-            elif code == '-':
-                self.text_area_a.tag_add(
-                    "difference", f"{a_index}.0", f"{a_index}.end"
-                )
+            elif code == "-":
+                removed_lines += 1
+                self.file_view_a.tag_add("difference", f"{a_index}.0", f"{a_index}.end")
                 a_index += 1
-            elif code == '+':
-                self.text_area_b.tag_add(
-                    "difference", f"{b_index}.0", f"{b_index}.end"
-                )
+            elif code == "+":
+                added_lines += 1
+                self.file_view_b.tag_add("difference", f"{b_index}.0", f"{b_index}.end")
                 b_index += 1
+
+        self.status_a.set(f"Lines removed: {removed_lines}")
+        self.status_b.set(f"Lines added: {added_lines}")
+
+    def _create_status_bar(self, parent):
+        """Create status bar."""
+        status_frame = ttk.Frame(parent, relief="flat", padding="2")
+        status_frame.grid(row=2, column=0, columnspan=3, sticky=tk.EW, pady=(5, 0))
+
+        status_frame.columnconfigure(0, weight=1)
+        status_frame.columnconfigure(1, weight=1)
+
+        # Status labels
+        status_label_a = ttk.Label(
+            status_frame, textvariable=self.status_a, anchor=tk.W
+        )
+        status_label_a.grid(row=0, column=0, sticky=tk.EW, padx=0)
+
+        status_label_b = ttk.Label(
+            status_frame, textvariable=self.status_b, anchor=tk.W
+        )
+        status_label_b.grid(row=0, column=1, sticky=tk.EW, padx=0)
 
     def on_closing(self):
         """Handle window close event."""
