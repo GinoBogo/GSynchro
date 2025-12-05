@@ -567,6 +567,9 @@ class GSynchro:
             label="Open...", command=self._open_selected_item
         )
         self.tree_context_menu.add_command(
+            label="Compare...", command=self._compare_selected_files
+        )
+        self.tree_context_menu.add_command(
             label="Delete", command=self._delete_selected_item
         )
         self.tree_context_menu.add_separator()
@@ -2091,6 +2094,15 @@ class GSynchro:
         self.tree_context_menu.entryconfig("Delete", state="normal")
         self.tree_context_menu.post(event.x_root, event.y_root)
 
+        # Enable/disable "Compare..." based on selections in both trees
+        selected_a = self.tree_a.selection() if self.tree_a else ()
+        selected_b = self.tree_b.selection() if self.tree_b else ()
+
+        if len(selected_a) == 1 and len(selected_b) == 1:
+            self.tree_context_menu.entryconfig("Compare...", state="normal")
+        else:
+            self.tree_context_menu.entryconfig("Compare...", state="disabled")
+
     # ==========================================================================
     # CONTEXT MENU ACTIONS
     # ==========================================================================
@@ -2148,6 +2160,61 @@ class GSynchro:
 
         traverse_and_deselect()
 
+    def _compare_selected_files(self):
+        """Launch g_compare.py with the two selected files."""
+        if not self.tree_a or not self.tree_b:
+            return
+
+        selected_a = self.tree_a.selection()
+        selected_b = self.tree_b.selection()
+
+        if not (len(selected_a) == 1 and len(selected_b) == 1):
+            messagebox.showwarning(
+                "Selection Error", "Please select exactly one file in each panel."
+            )
+            return
+
+        # Get file paths
+        path_a = self._get_full_path_for_item(self.tree_a, selected_a[0], "A")
+        path_b = self._get_full_path_for_item(self.tree_b, selected_b[0], "B")
+
+        if not path_a or not path_b:
+            messagebox.showerror(
+                "Error", "Could not determine file paths for comparison."
+            )
+            return
+
+        # Check if items are files
+        rel_path_a = self._get_relative_path(self.tree_a, selected_a[0])
+        rel_path_b = self._get_relative_path(self.tree_b, selected_b[0])
+
+        is_file_a = self.files_a.get(rel_path_a, {}).get("type") == "file"
+        is_file_b = self.files_b.get(rel_path_b, {}).get("type") == "file"
+
+        if not (is_file_a and is_file_b):
+            messagebox.showwarning(
+                "Selection Error", "Please select files, not directories, to compare."
+            )
+            return
+
+        # Launch g_compare.py in a new process
+        try:
+            g_compare_script_path = os.path.join(
+                os.path.dirname(__file__), "g_compare.py"
+            )
+            if not os.path.exists(g_compare_script_path):
+                messagebox.showerror(
+                    "Error", f"Could not find g_compare.py at {g_compare_script_path}"
+                )
+                return
+
+            command = [sys.executable, g_compare_script_path, path_a, path_b]
+            self.log(f"Launching comparison: {' '.join(command)}")
+            subprocess.Popen(command)
+
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to launch g_compare.py: {e}")
+
     def _open_selected_item(self):
         """Open selected file with default app."""
         tree = self.root.focus_get()
@@ -2158,47 +2225,22 @@ class GSynchro:
         if not item_id:
             return
 
-        rel_path = self._get_relative_path(tree, item_id)
-        if not rel_path:
-            return
-
-        panel = "A" if tree is self.tree_a else "B"
-        use_ssh = self._has_ssh_a() if panel == "A" else self._has_ssh_b()
-        files_dict = self.files_a if panel == "A" else self.files_b
-        full_path = files_dict.get(rel_path, {}).get("full_path")
-
-        if not full_path:
-            self.log(f"Could not determine full path for {rel_path}")
-            return
-
-        temp_ssh_client: Optional[paramiko.SSHClient] = None
         try:
-            if use_ssh:
-                self.log(f"Downloading remote file for opening: {full_path}")
-                # Create a temporary SSH client
-                temp_ssh_client = self._create_ssh_for_panel(panel)
+            # This method handles downloading remote files to a temp location
+            local_path = self._get_full_path_for_item(tree, item_id)
 
-                transport = temp_ssh_client.get_transport()
-                if transport is None:
-                    raise RuntimeError("SSH client transport is not available.")
+            if not local_path:
+                self.log("Could not get a local path for the selected item.")
+                return
 
-                with tempfile.NamedTemporaryFile(
-                    delete=False, suffix=os.path.basename(rel_path)
-                ) as tmp:
-                    with SCPClient(transport) as scp:
-                        scp.get(full_path, tmp.name)
-                    full_path = tmp.name
-                    self.temp_files_to_clean.append(full_path)
-
-            self.log(f"Opening file: {full_path}")
+            self.log(f"Opening file: {local_path}")
             if sys.platform == "win32":
-                os.startfile(full_path)
+                os.startfile(local_path)
             elif sys.platform == "darwin":  # macOS
-                subprocess.Popen(["open", full_path])
-            else:
-                # Linux and other Unix-like systems
+                subprocess.Popen(["open", local_path])
+            else:  # Linux and other Unix-like systems
                 process = subprocess.Popen(
-                    ["xdg-open", full_path],
+                    ["xdg-open", local_path],
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                 )
@@ -2207,16 +2249,48 @@ class GSynchro:
                     error_message = stderr.decode().strip()
                     self.log(f"xdg-open error: {error_message}")
                     messagebox.showwarning(
-                        "Warning",
-                        f"Could not open file. xdg-open reported:\n{error_message}",
+                        "Warning", f"Could not open file: {error_message}"
                     )
 
         except Exception as e:
             messagebox.showerror("Error", f"Could not open file: {e}")
-            self.log(f"Error opening file {full_path}: {e}")
-        finally:
-            if temp_ssh_client:
-                temp_ssh_client.close()
+
+    def _get_full_path_for_item(self, tree, item_id, panel=None):
+        """Get the full, possibly temporary, path for a tree item."""
+        rel_path = self._get_relative_path(tree, item_id)
+        if not rel_path:
+            return None
+
+        if panel is None:
+            panel = "A" if tree is self.tree_a else "B"
+
+        use_ssh = self._has_ssh_a() if panel == "A" else self._has_ssh_b()
+        files_dict = self.files_a if panel == "A" else self.files_b
+        full_path = files_dict.get(rel_path, {}).get("full_path")
+
+        if not full_path:
+            self.log(f"Could not determine full path for {rel_path}")
+            return None
+
+        if use_ssh:
+            self.log(f"Downloading remote file for external use: {full_path}")
+            try:
+                with self._create_ssh_for_panel(panel) as ssh_client:
+                    transport = ssh_client.get_transport()
+                    if transport is None:
+                        raise RuntimeError("SSH client transport is not available.")
+
+                    with tempfile.NamedTemporaryFile(
+                        delete=False, suffix=os.path.basename(rel_path)
+                    ) as tmp:
+                        with SCPClient(transport) as scp:
+                            scp.get(full_path, tmp.name)
+                        self.temp_files_to_clean.append(tmp.name)
+                        return tmp.name
+            except Exception as e:
+                self.log(f"Failed to download remote file: {e}")
+                return None
+        return full_path
 
     def _delete_selected_item(self):
         """Delete the selected file or directory."""
