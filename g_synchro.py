@@ -28,7 +28,7 @@ from tkinter import filedialog, messagebox, ttk
 
 from contextlib import contextmanager
 from datetime import datetime
-from typing import Optional
+from typing import Any, Generator, Optional
 
 import paramiko
 from scp import SCPClient
@@ -87,14 +87,8 @@ class GSynchro:
         self.setup_ui()
 
     # ==========================================================================
-    # INITIALIZATION METHODS
+    # UI SETUP & INITIALIZATION
     # ==========================================================================
-
-    def _init_window(self):
-        """Initialize main window properties."""
-        self.root.title("GSynchro - Synchronization Tool")
-        self.root.minsize(1024, 768)
-        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
 
     def setup_ui(self):
         """Set up the main user interface."""
@@ -119,6 +113,12 @@ class GSynchro:
 
         # Initial status
         self.status_a.set("by Gino Bogo")
+
+    def _init_window(self):
+        """Initialize main window properties."""
+        self.root.title("GSynchro - Synchronization Tool")
+        self.root.minsize(1024, 768)
+        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
 
     # ==========================================================================
     # CONFIGURATION METHODS
@@ -223,27 +223,12 @@ class GSynchro:
         with open(CONFIG_FILE, "w") as f:
             json.dump(config, f, indent=4)
 
-    def on_closing(self):
-        """Handle window close event."""
-        self.save_config()
-
-        # Clean up temporary files
-        for temp_file_path in self.temp_files_to_clean:
-            try:
-                os.remove(temp_file_path)
-                self.log(f"Cleaned up temporary file: {temp_file_path}")
-            except OSError as e:
-                self.log(f"Error cleaning up temporary file {temp_file_path}: {e}")
-        self.root.destroy()
-
     # ==========================================================================
     # UI CREATION METHODS
     # ==========================================================================
 
     def _setup_styles(self):
-        """Configure application styles."""
         style = ttk.Style()
-
         # Light green button style
         style.configure(
             "lightgreen.TButton",
@@ -573,6 +558,13 @@ class GSynchro:
             label="Delete", command=self._delete_selected_item
         )
         self.tree_context_menu.add_separator()
+        self.tree_context_menu.add_command(
+            label="Sync  ▶", command=self._sync_selected_left_to_right
+        )
+        self.tree_context_menu.add_command(
+            label="◀  Sync", command=self._sync_selected_right_to_left
+        )
+        self.tree_context_menu.add_separator()
         self.tree_context_menu.add_command(label="Select All", command=self._select_all)
         self.tree_context_menu.add_command(
             label="Deselect All", command=self._deselect_all
@@ -623,6 +615,58 @@ class GSynchro:
     # SSH METHODS
     # ==========================================================================
 
+    def _create_ssh_client_instance(self, host, username, password, port):
+        """Create an SSH client instance."""
+        client = paramiko.SSHClient()
+        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        client.connect(host, username=username, password=password, port=port)
+        return client
+
+    @contextmanager
+    def _create_ssh_for_panel(
+        self, panel_name, optional=False
+    ) -> Generator[Optional[paramiko.SSHClient], Any, None]:
+        """Create SSH client for a panel."""
+        use_ssh = self._has_ssh_a() if panel_name == "A" else self._has_ssh_b()
+
+        if not use_ssh:
+            if optional:
+                yield None
+                return
+            else:
+                raise ValueError(f"SSH not configured for panel {panel_name}")
+
+        host, user, password, port = (
+            (
+                self.remote_host_a.get(),
+                self.remote_user_a.get(),
+                self.remote_pass_a.get(),
+                int(self.remote_port_a.get()),
+            )
+            if panel_name == "A"
+            else (
+                self.remote_host_b.get(),
+                self.remote_user_b.get(),
+                self.remote_pass_b.get(),
+                int(self.remote_port_b.get()),
+            )
+        )
+
+        client = self._create_ssh_client_instance(host, user, password, port)
+        try:
+            yield client
+        finally:
+            client.close()
+
+    def _close_ssh(self):
+        """Close all active SSH client connections."""
+        if self.ssh_client_a:
+            self.ssh_client_a.close()
+            self.ssh_client_a = None
+        if self.ssh_client_b:
+            self.ssh_client_b.close()
+            self.ssh_client_b = None
+
     def test_ssh(self, panel_name):
         """Test SSH connection for panel."""
         if panel_name == "Folder A":
@@ -648,15 +692,9 @@ class GSynchro:
                     raise ValueError("Host, username, password, and port are required.")
 
                 self.log(f"Testing SSH connection for {panel_name}...")
-                client = paramiko.SSHClient()
-                client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-                client.connect(
-                    host_var.get(),
-                    username=user_var.get(),
-                    password=pass_var.get(),
-                    port=int(port_var.get()),
-                )
-                client.close()
+                with self._create_ssh_for_panel(panel_name.split(" ")[1]) as ssh_client:
+                    if ssh_client is None:
+                        raise ConnectionError("Failed to establish SSH connection.")
 
                 self.log(f"✓ SSH connection successful for {panel_name}")
                 messagebox.showinfo(
@@ -664,37 +702,9 @@ class GSynchro:
                 )
             except Exception as e:
                 self.log(f"✗ SSH connection failed for {panel_name}: {str(e)}")
-                messagebox.showerror(
-                    "Error", f"SSH connection failed for {panel_name}: {str(e)}"
-                )
+                messagebox.showerror("Error", f"SSH connection failed: {str(e)}")
 
         threading.Thread(target=test_thread, daemon=True).start()
-
-    def _create_ssh_client(self, host, username, password, port):
-        """Create an SSH client instance."""
-        client = paramiko.SSHClient()
-        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        client.connect(host, username=username, password=password, port=port)
-        return client
-
-    def _create_ssh_for_panel(self, panel_name) -> paramiko.SSHClient:
-        """Create SSH client for a panel."""
-        if panel_name == "A":
-            return self._create_ssh_client(
-                self.remote_host_a.get(),
-                self.remote_user_a.get(),
-                self.remote_pass_a.get(),
-                int(self.remote_port_a.get()),
-            )
-        elif panel_name == "B":
-            return self._create_ssh_client(
-                self.remote_host_b.get(),
-                self.remote_user_b.get(),
-                self.remote_pass_b.get(),
-                int(self.remote_port_b.get()),
-            )
-        else:
-            raise ValueError(f"Invalid panel name: {panel_name}")
 
     def _has_ssh_a(self):
         """Check if Panel A has SSH credentials."""
@@ -716,15 +726,6 @@ class GSynchro:
             ]
         )
 
-    def _close_ssh(self):
-        """Close any open SSH connections."""
-        if self.ssh_client_a:
-            self.ssh_client_a.close()
-            self.ssh_client_a = None
-        if self.ssh_client_b:
-            self.ssh_client_b.close()
-            self.ssh_client_b = None
-
     # ==========================================================================
     # REMOTE FOLDER BROWSING
     # ==========================================================================
@@ -732,36 +733,30 @@ class GSynchro:
     def _browse_remote(self, folder_var, panel_name, initial_path=""):
         """Browse remote folder via SSH."""
         try:
-            if panel_name == "Panel A":
-                ssh_client = self._create_ssh_client(
-                    self.remote_host_a.get(),
-                    self.remote_user_a.get(),
-                    self.remote_pass_a.get(),
-                    int(self.remote_port_a.get()),
-                )
-            else:
-                ssh_client = self._create_ssh_client(
-                    self.remote_host_b.get(),
-                    self.remote_user_b.get(),
-                    self.remote_pass_b.get(),
-                    int(self.remote_port_b.get()),
-                )
+            # Use context manager for SSH client for the duration of the dialog
+            with self._create_ssh_for_panel(
+                panel_name.split(" ")[1]
+            ) as ssh_client_for_dialog:
+                if ssh_client_for_dialog is None:
+                    raise ConnectionError(
+                        "Failed to establish SSH connection for remote browsing."
+                    )
 
-            current_path = initial_path or folder_var.get()
-            stdin, stdout, stderr = ssh_client.exec_command("pwd")
-            remote_path = stdout.read().decode().strip()
+                current_path = initial_path or folder_var.get()
+                stdin, stdout, stderr = ssh_client_for_dialog.exec_command("pwd")
+                remote_path = stdout.read().decode().strip()
 
-            if not current_path or not current_path.startswith(remote_path):
-                current_path = remote_path
+                if not current_path or not current_path.startswith(remote_path):
+                    current_path = remote_path
 
-            selected_path, keep_alive = self._show_remote_dialog(
-                ssh_client, folder_var, current_path, panel_name
-            )
-            if selected_path:
-                self._update_folder_history(
-                    panel_name.split(" ")[1], folder_var, selected_path
+                selected_path = self._show_remote_dialog(
+                    ssh_client_for_dialog, folder_var, current_path, panel_name
                 )
-            return selected_path, ssh_client if keep_alive else None
+                if selected_path:
+                    self._update_folder_history(
+                        panel_name.split(" ")[1], folder_var, selected_path
+                    )
+                return selected_path
         except Exception as e:
             messagebox.showerror(
                 "Error", f"Failed to connect to remote {panel_name}: {str(e)}"
@@ -782,7 +777,6 @@ class GSynchro:
         main_dialog_frame.pack(fill=tk.BOTH, expand=True)
 
         result = tk.StringVar()
-        keep_ssh_alive = tk.BooleanVar(value=False)
 
         # Top: Path display and entry
         path_frame = ttk.Frame(main_dialog_frame)
@@ -846,13 +840,10 @@ class GSynchro:
                     load_folders(new_path)
 
         def on_select_folder():
-            keep_ssh_alive.set(True)
             result.set(path_var.get())
             dialog.destroy()
 
         def on_cancel():
-            keep_ssh_alive.set(False)
-            ssh_client.close()
             dialog.destroy()
 
         # Bottom: Buttons
@@ -878,9 +869,7 @@ class GSynchro:
         self._center_dialog(dialog)
         self.root.wait_window(dialog)
 
-        selected_path = result.get()
-        folder_var.set(selected_path)
-        return selected_path, keep_ssh_alive.get()
+        return result.get()
 
     # ==========================================================================
     # FOLDER SCANNING METHODS
@@ -891,41 +880,46 @@ class GSynchro:
     ):
         """Populate single folder tree view."""
 
-        def populate_thread():
+        def populate_thread_func():
+            client_to_close = None
             try:
                 self.root.after(0, self.start_progress, panel)
 
                 # Determine which panel to populate
-                if panel == "A":
-                    use_ssh = self._has_ssh_a()
-                    if use_ssh:
-                        self.ssh_client_a = ssh_client or self._create_ssh_client(
-                            self.remote_host_a.get(),
-                            self.remote_user_a.get(),
-                            self.remote_pass_a.get(),
-                            int(self.remote_port_a.get()),
-                        )
-                    rules = self._get_active_filters()
-                    files = self._scan_folder(
-                        folder_path, use_ssh, self.ssh_client_a, "A", rules
+                rules = (
+                    self._get_active_filters() if active_rules is None else active_rules
+                )
+                use_ssh = self._has_ssh_a() if panel == "A" else self._has_ssh_b()
+
+                current_ssh_client = ssh_client  # Use provided client if any
+                if (
+                    use_ssh and current_ssh_client is None
+                ):  # If SSH is needed and no client provided, create one
+                    current_ssh_client = self._create_ssh_client_instance(  # This is the non-context manager version
+                        self.remote_host_a.get()
+                        if panel == "A"
+                        else self.remote_host_b.get(),
+                        self.remote_user_a.get()
+                        if panel == "A"
+                        else self.remote_user_b.get(),
+                        self.remote_pass_a.get()
+                        if panel == "A"
+                        else self.remote_pass_b.get(),
+                        int(
+                            self.remote_port_a.get()
+                            if panel == "A"
+                            else self.remote_port_b.get()
+                        ),
                     )
-                    self.files_a = files
-                    self._update_status("A", files)
-                else:
-                    use_ssh = self._has_ssh_b()
-                    if use_ssh:
-                        self.ssh_client_b = ssh_client or self._create_ssh_client(
-                            self.remote_host_b.get(),
-                            self.remote_user_b.get(),
-                            self.remote_pass_b.get(),
-                            int(self.remote_port_b.get()),
-                        )
-                    rules = self._get_active_filters()
-                    files = self._scan_folder(
-                        folder_path, use_ssh, self.ssh_client_b, "B", rules
-                    )
-                    self.files_b = files
-                    self._update_status("B", files)
+                    client_to_close = current_ssh_client  # Mark for closing
+
+                files = self._scan_folder(
+                    folder_path, use_ssh, current_ssh_client, panel, rules
+                )
+
+                target_files_dict = self.files_a if panel == "A" else self.files_b
+                target_files_dict.update(files)  # Update the instance variable
+                self.root.after(0, lambda: self._update_status(panel, files))
 
                 # Update tree view
                 tree_structure = self._build_tree_structure(files)
@@ -944,9 +938,10 @@ class GSynchro:
                 )
             finally:
                 self.root.after(0, self.stop_progress)
-                self._close_ssh()
+                if client_to_close:
+                    client_to_close.close()
 
-        thread = threading.Thread(target=populate_thread, daemon=True)
+        thread = threading.Thread(target=populate_thread_func, daemon=True)
         thread.start()
         return thread
 
@@ -1223,27 +1218,23 @@ class GSynchro:
                     0, self.start_progress, None, total_items, "Comparing..."
                 )
 
-                # Set up SSH connections if needed
-                use_ssh_a = self._has_ssh_a()
-                use_ssh_b = self._has_ssh_b()
+                # Use context managers for SSH connections during comparison
+                with self._create_ssh_for_panel("A", optional=True) as ssh_a:
+                    with self._create_ssh_for_panel("B", optional=True) as ssh_b:
+                        # Store clients for the duration of the comparison
+                        self.ssh_client_a = ssh_a
+                        self.ssh_client_b = ssh_b
 
-                # Re-establish SSH clients if closed
-                if use_ssh_a and (
-                    self.ssh_client_a is None
-                    or self.ssh_client_a.get_transport() is None
-                ):
-                    self.ssh_client_a = self._create_ssh_for_panel("A")
-                if use_ssh_b and (
-                    self.ssh_client_b is None
-                    or self.ssh_client_b.get_transport() is None
-                ):
-                    self.ssh_client_b = self._create_ssh_for_panel("B")
+                        use_ssh_a = ssh_a is not None
+                        use_ssh_b = ssh_b is not None
 
-                # Perform comparison
-                self._update_trees_with_comparison(
-                    self.files_a, self.files_b, use_ssh_a, use_ssh_b
-                )
-                self.log("Folder comparison completed")
+                        self._update_trees_with_comparison(
+                            self.files_a, self.files_b, use_ssh_a, use_ssh_b
+                        )
+
+                        # Clear the clients after comparison is done
+                        self.ssh_client_a = None
+                        self.ssh_client_b = None
 
             except Exception as e:
                 self.log(f"Error during comparison: {str(e)}")
@@ -1388,12 +1379,14 @@ class GSynchro:
                 and "size" in file_b
             ):
                 try:
+                    ssh_client_a = self.ssh_client_a
+                    ssh_client_b = self.ssh_client_b
                     # Open both files using the helper context manager
                     with self._open_file_handle(
-                        file_a, use_ssh_a, self.ssh_client_a
+                        file_a, use_ssh_a, ssh_client_a
                     ) as file_a_handle:
                         with self._open_file_handle(
-                            file_b, use_ssh_b, self.ssh_client_b
+                            file_b, use_ssh_b, ssh_client_b
                         ) as file_b_handle:
                             # Compare the file contents chunk by chunk
                             if not self._are_chunks_identical(
@@ -1417,7 +1410,11 @@ class GSynchro:
     def _open_file_handle(self, file_info, use_ssh, ssh_client):
         """A context manager to open a file handle, local or remote."""
         if use_ssh:
-            if not ssh_client or not ssh_client.get_transport():
+            if (
+                not ssh_client
+                or not ssh_client.get_transport()
+                or not ssh_client.get_transport().is_active()
+            ):
                 raise ConnectionError("SSH client is not connected.")
             sftp = ssh_client.open_sftp()
             file_handle = sftp.open(file_info["full_path"], "rb")
@@ -1474,7 +1471,7 @@ class GSynchro:
                 use_ssh_b = self._has_ssh_b()
 
                 if use_ssh_a:
-                    self.ssh_client_a = self._create_ssh_client(
+                    self.ssh_client_a = self._create_ssh_client_instance(
                         self.remote_host_a.get(),
                         self.remote_user_a.get(),
                         self.remote_pass_a.get(),
@@ -1482,7 +1479,7 @@ class GSynchro:
                     )
 
                 if use_ssh_b:
-                    self.ssh_client_b = self._create_ssh_client(
+                    self.ssh_client_b = self._create_ssh_client_instance(
                         self.remote_host_b.get(),
                         self.remote_user_b.get(),
                         self.remote_pass_b.get(),
@@ -1591,19 +1588,31 @@ class GSynchro:
     ):
         """Perform file synchronization."""
         # Determine sync type based on source and target locations
-        if source_use_ssh and target_use_ssh:
+        if source_use_ssh and target_use_ssh:  # Remote to Remote
+            if source_ssh is None or target_ssh is None:
+                raise ConnectionError(
+                    "Both source and target SSH clients must be connected for remote-to-remote sync."
+                )
             self._sync_remote_to_remote(
                 files_to_copy, source_files_dict, target_path, source_ssh, target_ssh
             )
-        elif source_use_ssh:
+        elif source_use_ssh:  # Remote to Local
+            if source_ssh is None:
+                raise ConnectionError(
+                    "Source SSH client must be connected for remote-to-local sync."
+                )
             self._sync_remote_to_local(
                 files_to_copy, source_files_dict, target_path, source_ssh
             )
-        elif target_use_ssh:
+        elif target_use_ssh:  # Local to Remote
+            if target_ssh is None:
+                raise ConnectionError(
+                    "Target SSH client must be connected for local-to-remote sync."
+                )
             self._sync_local_to_remote(
                 files_to_copy, source_files_dict, target_path, target_ssh
             )
-        else:
+        else:  # Local to Local
             self._sync_local_to_local(files_to_copy, source_files_dict, target_path)
 
     def _rescan_target_folder(self, direction, target_path, use_ssh_a, use_ssh_b):
@@ -2009,7 +2018,7 @@ class GSynchro:
 
         # Center dialog
         self._center_dialog(dialog)
-        dialog.wait_window(self.root)
+        self.root.wait_window(dialog)
 
     def _create_filter_tree(self, parent):
         """Create tree view for filter dialog."""
@@ -2041,6 +2050,13 @@ class GSynchro:
             for item in self.filter_rules
             if isinstance(item, dict) and item.get("active", True)
         ]
+
+    def on_closing(self):
+        """Handle window close event."""
+        self.save_config()
+        self._cleanup_temp_files()
+        self._close_ssh()
+        self.root.destroy()
 
     # ==========================================================================
     # UI EVENT HANDLERS
@@ -2091,21 +2107,187 @@ class GSynchro:
         else:
             self.tree_context_menu.entryconfig("Open...", state="disabled")
 
+        # Show/hide sync options based on the panel
+        if tree is self.tree_a:
+            self.tree_context_menu.entryconfig("Sync  ▶", state="normal")
+            self.tree_context_menu.entryconfig("◀  Sync", state="disabled")
+        elif tree is self.tree_b:
+            self.tree_context_menu.entryconfig("Sync  ▶", state="disabled")
+            self.tree_context_menu.entryconfig("◀  Sync", state="normal")
+        else:
+            self.tree_context_menu.entryconfig("Sync  ▶", state="disabled")
+            self.tree_context_menu.entryconfig("◀  Sync", state="disabled")
+
         self.tree_context_menu.entryconfig("Delete", state="normal")
-        self.tree_context_menu.post(event.x_root, event.y_root)
 
         # Enable/disable "Compare..." based on selections in both trees
         selected_a = self.tree_a.selection() if self.tree_a else ()
         selected_b = self.tree_b.selection() if self.tree_b else ()
+
+        # Post the menu at the cursor's location
+        self.tree_context_menu.post(event.x_root, event.y_root)
 
         if len(selected_a) == 1 and len(selected_b) == 1:
             self.tree_context_menu.entryconfig("Compare...", state="normal")
         else:
             self.tree_context_menu.entryconfig("Compare...", state="disabled")
 
+    def _cleanup_temp_files(self):
+        """Clean up temporary files created during the session."""
+        for temp_file_path in self.temp_files_to_clean:
+            try:
+                os.remove(temp_file_path)
+                self.log(f"Cleaned up temporary file: {temp_file_path}")
+            except OSError as e:
+                self.log(f"Error cleaning up temporary file {temp_file_path}: {e}")
+
+    # ==========================================================================
+    # UTILITY METHODS
+    # ==========================================================================
+
     # ==========================================================================
     # CONTEXT MENU ACTIONS
     # ==========================================================================
+
+    def _sync_selected_left_to_right(self):
+        """Sync the selected item from panel A to panel B."""
+        if not self.tree_a:
+            return
+        selected_items = self.tree_a.selection()
+        if len(selected_items) != 1:
+            messagebox.showwarning(
+                "Sync Error", "Please select exactly one item to sync."
+            )
+            return
+        rel_path = self._get_relative_path(self.tree_a, selected_items[0])
+        if rel_path:
+            self._sync_single_item(rel_path, "left_to_right")
+
+    def _sync_selected_right_to_left(self):
+        """Sync the selected item from panel B to panel A."""
+        if not self.tree_b:
+            return
+        selected_items = self.tree_b.selection()
+        if len(selected_items) != 1:
+            messagebox.showwarning(
+                "Sync Error", "Please select exactly one item to sync."
+            )
+            return
+        rel_path = self._get_relative_path(self.tree_b, selected_items[0])
+        if rel_path:
+            self._sync_single_item(rel_path, "right_to_left")
+
+    def _sync_single_item(self, rel_path: str, direction: str):
+        """Handle the synchronization of a single file or directory."""
+
+        def sync_thread():
+            try:
+                if direction == "left_to_right":
+                    source_files_dict = self.files_a
+                    target_path = self.folder_b.get()
+                    source_use_ssh, target_use_ssh = (
+                        self._has_ssh_a(),
+                        self._has_ssh_b(),
+                    )
+                else:  # right_to_left
+                    source_files_dict = self.files_b
+                    target_path = self.folder_a.get()
+                    source_use_ssh, target_use_ssh = (
+                        self._has_ssh_b(),
+                        self._has_ssh_a(),
+                    )
+
+                source_item = source_files_dict.get(rel_path)
+                if not source_item:
+                    raise ValueError(f"Source item '{rel_path}' not found.")
+
+                files_to_copy = [rel_path]
+                if source_item.get("type") == "dir":
+                    # If it's a directory, find all files within it
+                    dir_prefix = rel_path.rstrip("/") + "/"
+                    files_to_copy = [
+                        p
+                        for p, info in source_files_dict.items()
+                        if p.startswith(dir_prefix) and info.get("type") == "file"
+                    ]
+
+                self.root.after(
+                    0,
+                    self.start_progress,
+                    None,
+                    len(files_to_copy),
+                    f"Syncing {rel_path}...",
+                )
+
+                # Correctly handle SSH clients
+                with self._create_ssh_for_panel("A", optional=True) as ssh_a:
+                    with self._create_ssh_for_panel("B", optional=True) as ssh_b:
+                        if direction == "left_to_right":
+                            ssh_src, ssh_tgt = ssh_a, ssh_b
+                        else:
+                            ssh_src, ssh_tgt = ssh_b, ssh_a
+
+                        self._perform_sync(
+                            files_to_copy,
+                            source_files_dict,
+                            target_path,
+                            ssh_src,
+                            ssh_tgt,
+                            source_use_ssh,
+                            target_use_ssh,
+                        )
+
+                self.log(f"Successfully synced '{rel_path}'. Refreshing view...")
+
+                self.root.after(0, self._refresh_tree_after_sync, direction, rel_path)
+
+            except Exception as e:
+                self.log(f"Error syncing '{rel_path}': {e}")
+
+                messagebox.showerror("Sync Error", f"Failed to sync item: {e}")
+            finally:
+                self.root.after(0, self.stop_progress)
+
+        threading.Thread(target=sync_thread, daemon=True).start()
+
+    def _refresh_tree_after_sync(self, direction, synced_item_rel_path):
+        """Refresh the treeview after a single item has been synchronized."""
+        self.log(f"Updating UI for synced item: {synced_item_rel_path}")
+
+        # Determine source and destination data
+        if direction == "left_to_right":
+            source_files, dest_files = self.files_a, self.files_b
+            tree_a, tree_b = self.tree_a, self.tree_b
+        else:
+            source_files, dest_files = self.files_b, self.files_a
+            tree_a, tree_b = self.tree_b, self.tree_a
+
+        source_item_info = source_files.get(synced_item_rel_path)
+        if not source_item_info:
+            self.log(
+                f"Could not find source info for {synced_item_rel_path}, performing full refresh."
+            )
+            self.compare_folders()
+            return
+
+        # Update the destination file's metadata to match the source
+        dest_files[synced_item_rel_path] = source_item_info.copy()
+
+        # Find the item in both trees and update its status
+        tree_a_map = self._build_tree_map(tree_a)
+        tree_b_map = self._build_tree_map(tree_b)
+
+        item_id_a = tree_a_map.get(synced_item_rel_path.replace(os.sep, "/"))
+        item_id_b = tree_b_map.get(synced_item_rel_path.replace(os.sep, "/"))
+
+        if item_id_a:
+            self._update_tree_item(
+                tree_a, item_id_a, synced_item_rel_path, "Identical", "green"
+            )
+        if item_id_b:
+            self._update_tree_item(
+                tree_b, item_id_b, synced_item_rel_path, "Identical", "green"
+            )
 
     def _select_all(self):
         """Select all different/new items."""
@@ -2276,10 +2458,12 @@ class GSynchro:
             self.log(f"Downloading remote file for external use: {full_path}")
             try:
                 with self._create_ssh_for_panel(panel) as ssh_client:
-                    transport = ssh_client.get_transport()
-                    if transport is None:
-                        raise RuntimeError("SSH client transport is not available.")
-
+                    if ssh_client:
+                        transport = ssh_client.get_transport()
+                        if transport is None:
+                            raise RuntimeError("SSH client transport is not available.")
+                    else:
+                        raise ConnectionError("SSH client is not available.")
                     with tempfile.NamedTemporaryFile(
                         delete=False, suffix=os.path.basename(rel_path)
                     ) as tmp:
@@ -2323,29 +2507,34 @@ class GSynchro:
             full_path = os.path.join(base_folder, rel_path)
 
         def delete_and_refresh():
-            ssh_client = None
             try:
                 self.log(f"Deleting item: {full_path}")
                 if use_ssh:
-                    ssh_client = self._create_ssh_for_panel(panel)
-                    is_dir = False
-                    if item_info:
-                        is_dir = item_info.get("type") == "dir"
-                    else:
-                        # Fallback: check remote system
-                        stdin, stdout, stderr = ssh_client.exec_command(
-                            f"if [ -d '{full_path}' ]; then echo 'dir'; fi"
+                    with self._create_ssh_for_panel(panel) as ssh_client:
+                        if ssh_client is None:
+                            raise ConnectionError(
+                                "Failed to establish SSH connection for deletion."
+                            )
+
+                        is_dir = False
+                        if item_info:
+                            is_dir = item_info.get("type") == "dir"
+                        else:
+                            # Fallback: check remote system
+                            stdin, stdout, stderr = ssh_client.exec_command(
+                                f"if [ -d '{full_path}' ]; then echo 'dir'; fi"
+                            )
+                            if stdout.read().decode().strip() == "dir":
+                                is_dir = True
+
+                        command = (
+                            f"rm -rf '{full_path}'" if is_dir else f"rm '{full_path}'"
                         )
-                        if stdout.read().decode().strip() == "dir":
-                            is_dir = True
+                        stdin, stdout, stderr = ssh_client.exec_command(command)
+                        error = stderr.read().decode()
 
-                    command = f"rm -rf '{full_path}'" if is_dir else f"rm '{full_path}'"
-
-                    stdin, stdout, stderr = ssh_client.exec_command(command)
-                    error = stderr.read().decode()
-
-                    if error:
-                        raise Exception(error)
+                        if error:
+                            raise Exception(error)
                 else:
                     # Local deletion
                     is_dir = False
@@ -2366,15 +2555,8 @@ class GSynchro:
             except Exception as e:
                 messagebox.showerror("Error", f"Failed to delete item: {e}")
                 self.log(f"Error deleting {full_path}: {e}")
-            finally:
-                if use_ssh and ssh_client:
-                    ssh_client.close()
 
         threading.Thread(target=delete_and_refresh, daemon=True).start()
-
-    # ==========================================================================
-    # UTILITY METHODS
-    # ==========================================================================
 
     def _update_folder_history(self, panel_name, folder_var, new_path):
         """Update and save folder history."""
@@ -2559,29 +2741,64 @@ class GSynchro:
         rules = self._get_active_filters()
 
         # Clear existing trees
-        self._batch_populate_tree(self.tree_a, {})
-        self._batch_populate_tree(self.tree_b, {})
+        self.root.after(0, lambda: self._batch_populate_tree(self.tree_a, {}))
+        self.root.after(0, lambda: self._batch_populate_tree(self.tree_b, {}))
 
-        # Re-populate both trees with the latest data
-        tree_structure_a = self._build_tree_structure(self.files_a)
-        self._batch_populate_tree(self.tree_a, tree_structure_a, rules)
+        # Store original SSH clients
+        original_ssh_client_a = self.ssh_client_a
+        original_ssh_client_b = self.ssh_client_b
 
-        tree_structure_b = self._build_tree_structure(self.files_b)
-        self._batch_populate_tree(self.tree_b, tree_structure_b, rules)
+        current_ssh_client_a = None
+        current_ssh_client_b = None
 
-        # Re-establish SSH clients for comparison (if they were closed during sync)
-        if use_ssh_a:
-            self.ssh_client_a = self._create_ssh_for_panel("A")
-        if use_ssh_b:
-            self.ssh_client_b = self._create_ssh_for_panel("B")
+        try:
+            if use_ssh_a:
+                current_ssh_client_a = self._create_ssh_client_instance(
+                    self.remote_host_a.get(),
+                    self.remote_user_a.get(),
+                    self.remote_pass_a.get(),
+                    int(self.remote_port_a.get()),
+                )
+            if use_ssh_b:
+                current_ssh_client_b = self._create_ssh_client_instance(
+                    self.remote_host_b.get(),
+                    self.remote_user_b.get(),
+                    self.remote_pass_b.get(),
+                    int(self.remote_port_b.get()),
+                )
 
-        # Re-run comparison to apply correct statuses and adjust column widths
-        self._update_trees_with_comparison(
-            self.files_a,
-            self.files_b,
-            use_ssh_a,
-            use_ssh_b,
-        )
+            self.ssh_client_a = current_ssh_client_a
+            self.ssh_client_b = current_ssh_client_b
+
+            self.files_a = self._scan_folder(
+                self.folder_a.get(), use_ssh_a, self.ssh_client_a, "A", rules
+            )
+            self.files_b = self._scan_folder(
+                self.folder_b.get(), use_ssh_b, self.ssh_client_b, "B", rules
+            )
+
+            tree_structure_a = self._build_tree_structure(self.files_a)
+            self.root.after(
+                0,
+                lambda: self._batch_populate_tree(self.tree_a, tree_structure_a, rules),
+            )
+
+            tree_structure_b = self._build_tree_structure(self.files_b)
+            self.root.after(
+                0,
+                lambda: self._batch_populate_tree(self.tree_b, tree_structure_b, rules),
+            )
+
+            self._update_trees_with_comparison(
+                self.files_a, self.files_b, use_ssh_a, use_ssh_b
+            )
+        finally:
+            if current_ssh_client_a:
+                current_ssh_client_a.close()
+            if current_ssh_client_b:
+                current_ssh_client_b.close()
+            self.ssh_client_a = original_ssh_client_a
+            self.ssh_client_b = original_ssh_client_b
 
 
 def main():
