@@ -974,35 +974,36 @@ class GSynchro:
             for root, dirs, filenames in os.walk(
                 folder_path, topdown=True, followlinks=True
             ):
-                # Filter directories
-                dirs[:] = [
-                    d
-                    for d in dirs
-                    if not any(
-                        fnmatch.fnmatch(
-                            os.path.relpath(os.path.join(root, d), folder_path), pattern
-                        )
-                        or (
-                            pattern.endswith("/")
-                            and fnmatch.fnmatch(
-                                os.path.relpath(os.path.join(root, d), folder_path),
-                                pattern.rstrip("/"),
-                            )
-                        )
-                        for pattern in rules
-                    )
-                ]
+                excluded_dirs = set()
+                for d in dirs:
+                    dir_rel_path = os.path.relpath(
+                        os.path.join(root, d), folder_path
+                    ).replace(os.sep, "/")
+                    for pattern in rules:
+                        # Handle directory patterns like 'build/' or 'dist/'
+                        if pattern.endswith("/") and fnmatch.fnmatch(
+                            dir_rel_path + "/", pattern
+                        ):
+                            excluded_dirs.add(d)
+                        # Handle simple name matches like '__pycache__'
+                        elif not pattern.endswith("/") and fnmatch.fnmatch(d, pattern):
+                            excluded_dirs.add(d)
+
+                dirs[:] = [d for d in dirs if d not in excluded_dirs]
 
                 # Add directories
                 for dirname in dirs:
                     full_path = os.path.join(root, dirname)
                     rel_path = os.path.relpath(full_path, folder_path)
-                    files[rel_path.replace(os.sep, "/")] = {"type": "dir"}
+                    if dirname not in excluded_dirs:
+                        files[rel_path.replace(os.sep, "/")] = {"type": "dir"}
 
                 # Add files
                 for filename in filenames:
                     full_path = os.path.join(root, filename)
-                    rel_path = os.path.relpath(full_path, folder_path)
+                    rel_path = os.path.relpath(full_path, folder_path).replace(
+                        os.sep, "/"
+                    )
 
                     if any(fnmatch.fnmatch(rel_path, r) for r in rules):
                         continue
@@ -1045,7 +1046,22 @@ class GSynchro:
                         else:
                             continue
 
-                        if any(fnmatch.fnmatch(rel_path, r) for r in rules):
+                        # Apply filtering logic similar to _scan_local
+                        is_excluded = False
+                        for pattern in rules:
+                            # Match against the full relative path
+                            if fnmatch.fnmatch(rel_path, pattern):
+                                is_excluded = True
+                                break
+                            # Match against any part of the path for directory names
+                            if any(
+                                fnmatch.fnmatch(part, pattern)
+                                for part in rel_path.split("/")
+                            ):
+                                is_excluded = True
+                                break
+
+                        if is_excluded:
                             continue
 
                         if "directory" in filetype:
@@ -1367,9 +1383,10 @@ class GSynchro:
             is_a_file = file_a.get("type") == "file"
             is_b_file = file_b.get("type") == "file"
 
-            if not is_a_file or not is_b_file:
+            if is_a_file != is_b_file:
                 return "Type conflict", "orange"
-            elif (
+
+            if (
                 isinstance(file_a, dict)
                 and "size" in file_a
                 and isinstance(file_b, dict)
@@ -1397,6 +1414,7 @@ class GSynchro:
                     self.log(f"Error during chunked file comparison: {e}")
                     return "Error", "black"  # Indicate an error occurred
             else:
+                # Fallback for items that exist in both but aren't comparable as files
                 return "Different", "orange"
         elif file_a:
             return "Only in Folder A", "blue"
