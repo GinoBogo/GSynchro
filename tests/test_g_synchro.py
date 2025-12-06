@@ -123,7 +123,7 @@ class TestCompareFolders:
         cprint(f"\n--- {self.test_shared_directory_with_differences.__doc__}", "yellow")
         app, dir_a, dir_b = comparison_test_environment
         actual_statuses = self._run_comparison(app, dir_a, dir_b)
-        assert actual_statuses.get("shared_dir") == "Contains differences"
+        assert actual_statuses.get("shared_dir") == "Has differences"
         assert (
             actual_statuses.get(os.path.join("shared_dir", "a_only.txt"))
             == "Only in Folder A"
@@ -180,6 +180,10 @@ def filtering_test_environment():
     # Directory to be filtered
     (dir_a / "__pycache__").mkdir()
     (dir_a / "__pycache__" / "cache.pyc").write_text("cache")
+
+    # Nested folder inside a filtered directory
+    (dir_a / "__pycache__" / "folder_1").mkdir()
+    (dir_a / "__pycache__" / "folder_1" / "another.pyc").write_text("nested cache")
 
     # Another directory to be filtered
     (dir_a / "build").mkdir()
@@ -247,6 +251,19 @@ class TestFiltering:
         assert "__pycache__/cache.pyc" not in actual_paths
         assert "build" not in actual_paths
         assert "build/app.exe" not in actual_paths
+
+    def test_nested_folder_in_filtered_directory(self, filtering_test_environment):
+        """Test that a nested folder inside a filtered directory is also excluded."""
+        cprint(f"\n--- {self.test_nested_folder_in_filtered_directory.__doc__}", "cyan")
+        app, dir_a = filtering_test_environment
+        rules = ["__pycache__/"]
+        scanned_files = app._scan_local(dir_a, rules=rules)
+        actual_paths = {path.replace(os.sep, "/") for path in scanned_files.keys()}
+
+        # Assert that the entire __pycache__ directory and its contents are excluded
+        assert "__pycache__" not in actual_paths
+        assert "__pycache__/folder_1" not in actual_paths
+        assert "__pycache__/folder_1/another.pyc" not in actual_paths
 
         # Ensure new files are not accidentally filtered by old rules
         assert "important_doc.txt" in actual_paths
@@ -380,7 +397,7 @@ class TestSymbolicLinks:
         actual_statuses = self._run_comparison(app, dir_a, dir_b)
 
         # The symlinked directory in B has different content than the regular directory in A
-        assert actual_statuses.get("symlink_to_dir") == "Contains differences"
+        assert actual_statuses.get("symlink_to_dir") == "Has differences"
 
     @pytest.mark.skipif(
         sys.platform == "win32", reason="Symbolic links require admin on Windows"
