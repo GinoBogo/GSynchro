@@ -1307,7 +1307,7 @@ class GSynchro:
                 and files_b.get(rel_path, {}).get("type") == "dir"
             ):
                 if rel_path in dirty_folders:
-                    status, status_color = "Contains differences", "orange"
+                    status, status_color = "Has differences", "orange"
                     self.sync_states[rel_path] = True
                 else:
                     status, status_color = "Identical", "green"
@@ -2294,7 +2294,7 @@ class GSynchro:
             "Different",
             "Only in Folder A",
             "Only in Folder B",
-            "Contains differences",
+            "Has differences",
         }
 
         def traverse_and_select(item_id=""):
