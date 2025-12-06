@@ -37,6 +37,8 @@ from scp import SCPClient
 CONFIG_FILE = "g_synchro.json"
 HISTORY_LENGTH = 10
 CHUNK_SIZE = 4096
+CHECKED_CHAR = "✓"
+UNCHECKED_CHAR = "☐"
 
 
 class GSynchro:
@@ -75,8 +77,6 @@ class GSynchro:
         self.temp_files_to_clean = []
 
         # Sync States
-        self.CHECKED_CHAR = "✓"
-        self.UNCHECKED_CHAR = "☐"
         self.sync_states = {}
 
         # Status Variables
@@ -488,20 +488,19 @@ class GSynchro:
 
         # Configure columns
         tree.heading("#0", text="Name")
-        tree.column("#0", width=200)
+        tree.column("#0", width=200, anchor="w")
 
         tree.heading("sync", text="Sync")
         tree.column("sync", width=40, anchor="center")
 
-        headings_config = [
-            ("size", "Size", 80),
-            ("modified", "Modified", 120),
-            ("status", "Status", 100),
-        ]
+        tree.heading("size", text="Size")
+        tree.column("size", width=80, anchor="e")
 
-        for col, text, width in headings_config:
-            tree.heading(col, text=text)
-            tree.column(col, width=width, anchor=tk.E)
+        tree.heading("modified", text="Modified")
+        tree.column("modified", width=120, anchor="center")
+
+        tree.heading("status", text="Status")
+        tree.column("status", width=100, anchor="center")
 
         # Define a monospace font
         font_tuple = self._get_mono_font()
@@ -1128,7 +1127,7 @@ class GSynchro:
                         parent_node,
                         "end",
                         text=name,
-                        values=(self.UNCHECKED_CHAR, "", "", ""),
+                        values=(UNCHECKED_CHAR, "", "", ""),
                         tags=("black",),
                         open=False,
                     )
@@ -1146,7 +1145,7 @@ class GSynchro:
                             "end",
                             text=name,
                             values=(
-                                self.UNCHECKED_CHAR,
+                                UNCHECKED_CHAR,
                                 self._format_size(content["size"]),
                                 self._format_time(content["modified"]),
                                 "",
@@ -1178,9 +1177,7 @@ class GSynchro:
 
         current_values = tree.item(item_id, "values")
         check_char = (
-            self.CHECKED_CHAR
-            if self.sync_states.get(rel_path, False)
-            else self.UNCHECKED_CHAR
+            CHECKED_CHAR if self.sync_states.get(rel_path, False) else UNCHECKED_CHAR
         )
 
         tree.item(
@@ -1775,9 +1772,7 @@ class GSynchro:
                 filter_tree.delete(item)
             for i, item in enumerate(temp_filters):
                 check_char = (
-                    self.CHECKED_CHAR
-                    if item.get("active", True)
-                    else self.UNCHECKED_CHAR
+                    CHECKED_CHAR if item.get("active", True) else UNCHECKED_CHAR
                 )
                 filter_tree.insert("", "end", iid=i, values=(check_char, item["rule"]))
 
@@ -2077,7 +2072,7 @@ class GSynchro:
                 current_state = self.sync_states.get(rel_path, False)
                 new_state = not current_state
                 self.sync_states[rel_path] = new_state
-                char = self.CHECKED_CHAR if new_state else self.UNCHECKED_CHAR
+                char = CHECKED_CHAR if new_state else UNCHECKED_CHAR
                 current_values = list(tree.item(item_id, "values"))
                 current_values[0] = char
                 tree.item(item_id, values=current_values)
@@ -2310,7 +2305,7 @@ class GSynchro:
                     if rel_path is not None:
                         self.sync_states[rel_path] = True
                         current_values = list(tree.item(child_id, "values"))
-                        current_values[0] = self.CHECKED_CHAR
+                        current_values[0] = CHECKED_CHAR
                         tree.item(child_id, values=tuple(current_values))
 
                 # Recurse into children
@@ -2333,7 +2328,7 @@ class GSynchro:
                     if rel_path in self.sync_states:
                         self.sync_states[rel_path] = False
                     current_values = list(tree.item(child_id, "values"))
-                    current_values[0] = self.UNCHECKED_CHAR
+                    current_values[0] = UNCHECKED_CHAR
                     tree.item(child_id, values=tuple(current_values))
 
                 # Recurse into children
