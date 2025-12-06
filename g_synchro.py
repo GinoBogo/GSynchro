@@ -1492,6 +1492,15 @@ class GSynchro:
                     self.sync_states[rel_path] = False
                 item_statuses[rel_path] = (status, status_color)
 
+        # Third pass: Mark any remaining shared directories as identical
+        for rel_path in sorted(all_visible_paths):
+            is_dir_in_both = (
+                files_a.get(rel_path, {}).get("type") == "dir"
+                and files_b.get(rel_path, {}).get("type") == "dir"
+            )
+            if is_dir_in_both and rel_path not in item_statuses:
+                item_statuses[rel_path] = ("Identical", "green")
+
         return item_statuses, stats
 
     def _apply_comparison_to_ui(self, item_statuses, stats, tree_a_map, tree_b_map):
