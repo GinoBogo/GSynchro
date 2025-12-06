@@ -12,7 +12,6 @@ Version: 1.0
 
 from __future__ import annotations
 
-
 import fnmatch
 import json
 import os
@@ -87,8 +86,14 @@ class GSynchro:
         self.setup_ui()
 
     # ==========================================================================
-    # UI SETUP & INITIALIZATION
+    # INITIALIZATION METHODS
     # ==========================================================================
+
+    def _init_window(self):
+        """Initialize main window properties."""
+        self.root.title("GSynchro - Synchronization Tool")
+        self.root.minsize(1024, 768)
+        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
 
     def setup_ui(self):
         """Set up the main user interface."""
@@ -113,12 +118,6 @@ class GSynchro:
 
         # Initial status
         self.status_a.set("by Gino Bogo")
-
-    def _init_window(self):
-        """Initialize main window properties."""
-        self.root.title("GSynchro - Synchronization Tool")
-        self.root.minsize(1024, 768)
-        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
 
     # ==========================================================================
     # CONFIGURATION METHODS
@@ -185,7 +184,6 @@ class GSynchro:
         """Save configuration to file."""
         # Update folder A history
         current_folder_a = self.folder_a.get()
-
         if current_folder_a:
             if current_folder_a in self.folder_a_history:
                 self.folder_a_history.remove(current_folder_a)
@@ -194,7 +192,6 @@ class GSynchro:
 
         # Update folder B history
         current_folder_b = self.folder_b.get()
-
         if current_folder_b:
             if current_folder_b in self.folder_b_history:
                 self.folder_b_history.remove(current_folder_b)
@@ -228,6 +225,7 @@ class GSynchro:
     # ==========================================================================
 
     def _setup_styles(self):
+        """Set up Tkinter styles."""
         style = ttk.Style()
         # Light green button style
         style.configure(
@@ -272,7 +270,7 @@ class GSynchro:
         )
 
         # Explicitly set font for tags
-        style.configure("TTreeview", rowheight=20)  # Adjust row height
+        style.configure("TTreeview", rowheight=20)
         style.map("TTreeview")  # Reset map to avoid conflicts
 
     def _create_main_frame(self):
@@ -470,7 +468,7 @@ class GSynchro:
 
         # Bind events
         tree.bind("<Button-1>", self._on_tree_click)
-        tree.bind("<Button-3>", self._show_tree_context_menu)
+        tree.bind("<Button-3>", self._on_tree_right_click)
 
         # Store tree reference
         if config["tree_attr"] == "tree_a":
@@ -2072,7 +2070,7 @@ class GSynchro:
         self.root.destroy()
 
     # ==========================================================================
-    # UI EVENT HANDLERS
+    # TREE EVENT HANDLERS
     # ==========================================================================
 
     def _on_tree_click(self, event):
@@ -2095,7 +2093,7 @@ class GSynchro:
                 current_values[0] = char
                 tree.item(item_id, values=current_values)
 
-    def _show_tree_context_menu(self, event):
+    def _on_tree_right_click(self, event):
         """Show context menu on right-click."""
         tree = event.widget
         item_id = tree.identify_row(event.y)
@@ -2144,19 +2142,6 @@ class GSynchro:
             self.tree_context_menu.entryconfig("Compare...", state="normal")
         else:
             self.tree_context_menu.entryconfig("Compare...", state="disabled")
-
-    def _cleanup_temp_files(self):
-        """Clean up temporary files created during the session."""
-        for temp_file_path in self.temp_files_to_clean:
-            try:
-                os.remove(temp_file_path)
-                self.log(f"Cleaned up temporary file: {temp_file_path}")
-            except OSError as e:
-                self.log(f"Error cleaning up temporary file {temp_file_path}: {e}")
-
-    # ==========================================================================
-    # UTILITY METHODS
-    # ==========================================================================
 
     # ==========================================================================
     # CONTEXT MENU ACTIONS
@@ -2450,45 +2435,6 @@ class GSynchro:
         except Exception as e:
             messagebox.showerror("Error", f"Could not open file: {e}")
 
-    def _get_full_path_for_item(self, tree, item_id, panel=None):
-        """Get the full, possibly temporary, path for a tree item."""
-        rel_path = self._get_relative_path(tree, item_id)
-        if not rel_path:
-            return None
-
-        if panel is None:
-            panel = "A" if tree is self.tree_a else "B"
-
-        use_ssh = self._has_ssh_a() if panel == "A" else self._has_ssh_b()
-        files_dict = self.files_a if panel == "A" else self.files_b
-        full_path = files_dict.get(rel_path, {}).get("full_path")
-
-        if not full_path:
-            self.log(f"Could not determine full path for {rel_path}")
-            return None
-
-        if use_ssh:
-            self.log(f"Downloading remote file for external use: {full_path}")
-            try:
-                with self._create_ssh_for_panel(panel) as ssh_client:
-                    if ssh_client:
-                        transport = ssh_client.get_transport()
-                        if transport is None:
-                            raise RuntimeError("SSH client transport is not available.")
-                    else:
-                        raise ConnectionError("SSH client is not available.")
-                    with tempfile.NamedTemporaryFile(
-                        delete=False, suffix=os.path.basename(rel_path)
-                    ) as tmp:
-                        with SCPClient(transport) as scp:
-                            scp.get(full_path, tmp.name)
-                        self.temp_files_to_clean.append(tmp.name)
-                        return tmp.name
-            except Exception as e:
-                self.log(f"Failed to download remote file: {e}")
-                return None
-        return full_path
-
     def _delete_selected_item(self):
         """Delete the selected file or directory."""
         tree = self.root.focus_get()
@@ -2571,6 +2517,19 @@ class GSynchro:
 
         threading.Thread(target=delete_and_refresh, daemon=True).start()
 
+    # ==========================================================================
+    # UTILITY METHODS
+    # ==========================================================================
+
+    def _cleanup_temp_files(self):
+        """Clean up temporary files created during the session."""
+        for temp_file_path in self.temp_files_to_clean:
+            try:
+                os.remove(temp_file_path)
+                self.log(f"Cleaned up temporary file: {temp_file_path}")
+            except OSError as e:
+                self.log(f"Error cleaning up temporary file {temp_file_path}: {e}")
+
     def _update_folder_history(self, panel_name, folder_var, new_path):
         """Update and save folder history."""
         if not new_path:
@@ -2604,6 +2563,45 @@ class GSynchro:
         if path_parts:
             return os.path.sep.join(path_parts)
         return None
+
+    def _get_full_path_for_item(self, tree, item_id, panel=None):
+        """Get the full, possibly temporary, path for a tree item."""
+        rel_path = self._get_relative_path(tree, item_id)
+        if not rel_path:
+            return None
+
+        if panel is None:
+            panel = "A" if tree is self.tree_a else "B"
+
+        use_ssh = self._has_ssh_a() if panel == "A" else self._has_ssh_b()
+        files_dict = self.files_a if panel == "A" else self.files_b
+        full_path = files_dict.get(rel_path, {}).get("full_path")
+
+        if not full_path:
+            self.log(f"Could not determine full path for {rel_path}")
+            return None
+
+        if use_ssh:
+            self.log(f"Downloading remote file for external use: {full_path}")
+            try:
+                with self._create_ssh_for_panel(panel) as ssh_client:
+                    if ssh_client:
+                        transport = ssh_client.get_transport()
+                        if transport is None:
+                            raise RuntimeError("SSH client transport is not available.")
+                    else:
+                        raise ConnectionError("SSH client is not available.")
+                    with tempfile.NamedTemporaryFile(
+                        delete=False, suffix=os.path.basename(rel_path)
+                    ) as tmp:
+                        with SCPClient(transport) as scp:
+                            scp.get(full_path, tmp.name)
+                        self.temp_files_to_clean.append(tmp.name)
+                        return tmp.name
+            except Exception as e:
+                self.log(f"Failed to download remote file: {e}")
+                return None
+        return full_path
 
     def _adjust_tree_column_widths(self, tree: ttk.Treeview):
         """Adjust column widths to fit content."""
@@ -2649,9 +2647,16 @@ class GSynchro:
         except Exception as e:
             self.log(f"Could not adjust column widths: {e}")
 
-    def log(self, message):
-        """Log message to console."""
-        print(f"[{datetime.now().strftime('%H:%M:%S')}] {message}")
+    def _update_status(self, panel, files):
+        """Update the status bar text."""
+        num_files = len(files)
+        total_size = sum(f.get("size", 0) for f in files.values())
+        status_text = f"{num_files} files, {self._format_size(total_size)}"
+
+        if panel == "A":
+            self.status_a.set(status_text)
+        else:
+            self.status_b.set(status_text)
 
     def start_progress(self, panel=None, max_value=0, text=""):
         """Show the progress bar."""
@@ -2685,69 +2690,6 @@ class GSynchro:
         self.progress_bar.grid_remove()
         self.status_label_a.grid()
         self.status_label_b.grid()
-
-    def _update_status(self, panel, files):
-        """Update the status bar text."""
-        num_files = len(files)
-        total_size = sum(f.get("size", 0) for f in files.values())
-        status_text = f"{num_files} files, {self._format_size(total_size)}"
-
-        if panel == "A":
-            self.status_a.set(status_text)
-        else:
-            self.status_b.set(status_text)
-
-    def _format_size(self, size_bytes):
-        """Format file size to be readable."""
-        for unit in ["B", "KB", "MB", "GB"]:
-            if size_bytes < 1024.0:
-                return f"{size_bytes:.1f} {unit}"
-            size_bytes /= 1024.0
-        return f"{size_bytes:.1f} TB"
-
-    def _format_time(self, timestamp):
-        """Format timestamp to a date string."""
-        return datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M:%S")
-
-    def _center_dialog(self, dialog, relative_to=None):
-        """Center a dialog on a parent window."""
-        parent = relative_to or self.root
-        dialog.update_idletasks()
-
-        parent_x = parent.winfo_x()
-        parent_y = parent.winfo_y()
-        parent_width = parent.winfo_width()
-        parent_height = parent.winfo_height()
-
-        dialog_width = dialog.winfo_width()
-        dialog_height = dialog.winfo_height()
-
-        x = parent_x + (parent_width // 2) - (dialog_width // 2)
-        y = parent_y + (parent_height // 2) - (dialog_height // 2)
-        dialog.geometry(f"+{x}+{y}")
-
-    def _get_mono_font(self):
-        """Returns a suitable monospace font family based on the current OS."""
-        font_families = tkfont.families()
-
-        preferred_fonts = []
-
-        if sys.platform == "win32":
-            # Windows
-            preferred_fonts = ["Consolas", "Courier New", "Lucida Console"]
-        elif sys.platform == "darwin":
-            # macOS
-            preferred_fonts = ["Menlo", "Monaco", "Courier New"]
-        else:
-            # Linux and other Unix-like systems
-            preferred_fonts = ["DejaVu Sans Mono", "Liberation Mono", "Courier New"]
-
-        for font in preferred_fonts:
-            if font in font_families:
-                return (font, 11)
-
-        # Fallback to a generic monospace font
-        return ("Courier", 11)
 
     def _refresh_ui_after_sync(self, use_ssh_a, use_ssh_b):
         """Refreshes both tree views and runs comparison after sync."""
@@ -2812,6 +2754,66 @@ class GSynchro:
                 current_ssh_client_b.close()
             self.ssh_client_a = original_ssh_client_a
             self.ssh_client_b = original_ssh_client_b
+
+    # ==========================================================================
+    # HELPER METHODS
+    # ==========================================================================
+
+    def log(self, message):
+        """Log message to console."""
+        print(f"[{datetime.now().strftime('%H:%M:%S')}] {message}")
+
+    def _format_size(self, size_bytes):
+        """Format file size to be readable."""
+        for unit in ["B", "KB", "MB", "GB"]:
+            if size_bytes < 1024.0:
+                return f"{size_bytes:.1f} {unit}"
+            size_bytes /= 1024.0
+        return f"{size_bytes:.1f} TB"
+
+    def _format_time(self, timestamp):
+        """Format timestamp to a date string."""
+        return datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M:%S")
+
+    def _center_dialog(self, dialog, relative_to=None):
+        """Center a dialog on a parent window."""
+        parent = relative_to or self.root
+        dialog.update_idletasks()
+
+        parent_x = parent.winfo_x()
+        parent_y = parent.winfo_y()
+        parent_width = parent.winfo_width()
+        parent_height = parent.winfo_height()
+
+        dialog_width = dialog.winfo_width()
+        dialog_height = dialog.winfo_height()
+
+        x = parent_x + (parent_width // 2) - (dialog_width // 2)
+        y = parent_y + (parent_height // 2) - (dialog_height // 2)
+        dialog.geometry(f"+{x}+{y}")
+
+    def _get_mono_font(self):
+        """Returns a suitable monospace font family based on the current OS."""
+        font_families = tkfont.families()
+
+        preferred_fonts = []
+
+        if sys.platform == "win32":
+            # Windows
+            preferred_fonts = ["Consolas", "Courier New", "Lucida Console"]
+        elif sys.platform == "darwin":
+            # macOS
+            preferred_fonts = ["Menlo", "Monaco", "Courier New"]
+        else:
+            # Linux and other Unix-like systems
+            preferred_fonts = ["DejaVu Sans Mono", "Liberation Mono", "Courier New"]
+
+        for font in preferred_fonts:
+            if font in font_families:
+                return (font, 11)
+
+        # Fallback to a generic monospace font
+        return ("Courier", 11)
 
 
 def main():
