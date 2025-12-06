@@ -951,7 +951,11 @@ class GSynchro:
             self.log(f"Using SSH for folder {panel_name} scan")
             try:
                 files = self._scan_remote(folder_path, ssh_client, rules)
-                self.log(f"Found {len(files)} files in folder {panel_name}")
+                num_dirs = sum(1 for f in files.values() if f.get("type") == "dir")
+                num_files = sum(1 for f in files.values() if f.get("type") == "file")
+                self.log(
+                    f"Found {num_dirs} folders and {num_files} files in folder {panel_name}"
+                )
                 return files
             except Exception as e:
                 self.log(f"SSH connection failed for Folder {panel_name}: {str(e)}")
@@ -959,7 +963,11 @@ class GSynchro:
         else:
             self.log(f"Using local folder scan for folder {panel_name}")
             files = self._scan_local(folder_path, rules)
-            self.log(f"Found {len(files)} files in folder {panel_name}")
+            num_dirs = sum(1 for f in files.values() if f.get("type") == "dir")
+            num_files = sum(1 for f in files.values() if f.get("type") == "file")
+            self.log(
+                f"Found {num_dirs} folders and {num_files} files in folder {panel_name}"
+            )
             return files
 
     def _scan_local(self, folder_path, rules=None):
@@ -2651,9 +2659,10 @@ class GSynchro:
 
     def _update_status(self, panel, files):
         """Update the status bar text."""
-        num_files = len(files)
+        num_dirs = sum(1 for f in files.values() if f.get("type") == "dir")
+        num_files = sum(1 for f in files.values() if f.get("type") == "file")
         total_size = sum(f.get("size", 0) for f in files.values())
-        status_text = f"{num_files} files, {self._format_size(total_size)}"
+        status_text = f"Folders: {num_dirs}, Files: {num_files}, Size: {self._format_size(total_size)}"
 
         if panel == "A":
             self.status_a.set(status_text)
