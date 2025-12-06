@@ -1301,21 +1301,23 @@ class GSynchro:
                     while current_parent and current_parent not in dirty_folders:
                         dirty_folders.add(current_parent)
                         current_parent = os.path.dirname(current_parent)
-            else:  # It's a directory
+            elif not is_file:  # It's a directory
                 is_dir_in_a = file_a_info and file_a_info.get("type") == "dir"
                 is_dir_in_b = file_b_info and file_b_info.get("type") == "dir"
 
                 if is_dir_in_a and not is_dir_in_b:
-                    item_statuses[rel_path] = ("Only in Folder A", "blue")
+                    item_statuses[rel_path] = ("Only in A", "blue")
+                    stats["only_a"] += 1
                     self.sync_states[rel_path] = True
                     dirty_folders.add(os.path.dirname(rel_path))
                 elif is_dir_in_b and not is_dir_in_a:
-                    item_statuses[rel_path] = ("Only in Folder B", "red")
+                    item_statuses[rel_path] = ("Only in B", "red")
+                    stats["only_b"] += 1
                     self.sync_states[rel_path] = True
                     dirty_folders.add(os.path.dirname(rel_path))
 
         # Second pass: Determine status for shared directories
-        for rel_path in sorted(all_visible_paths):
+        for rel_path in sorted(dirty_folders):
             if (
                 files_a.get(rel_path, {}).get("type") == "dir"
                 and files_b.get(rel_path, {}).get("type") == "dir"
@@ -1415,9 +1417,9 @@ class GSynchro:
                 # Fallback for items that exist in both but aren't comparable as files
                 return "Different", "orange"
         elif file_a:
-            return "Only in Folder A", "blue"
+            return "Only in A", "blue"
         else:
-            return "Only in Folder B", "red"
+            return "Only in B", "red"
 
     @contextmanager
     def _open_file_handle(self, file_info, use_ssh, ssh_client):
@@ -2295,8 +2297,8 @@ class GSynchro:
 
         diff_statuses = {
             "Different",
-            "Only in Folder A",
-            "Only in Folder B",
+            "Only in A",
+            "Only in B",
             "Has differences",
         }
 

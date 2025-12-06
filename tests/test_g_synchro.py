@@ -98,24 +98,21 @@ class TestCompareFolders:
         cprint(f"\n--- {self.test_unique_files_and_folders.__doc__}", "yellow")
         app, dir_a, dir_b = comparison_test_environment
         actual_statuses = self._run_comparison(app, dir_a, dir_b)
-        assert actual_statuses.get("only_in_a.txt") == "Only in Folder A"
-        assert actual_statuses.get("only_in_b.txt") == "Only in Folder B"
-        assert actual_statuses.get("subdir") == "Only in Folder A"
-        assert (
-            actual_statuses.get(os.path.join("subdir", "subfile.txt"))
-            == "Only in Folder A"
-        )
-        assert actual_statuses.get("subdir_b") == "Only in Folder B"
+        assert actual_statuses.get("only_in_a.txt") == "Only in A"
+        assert actual_statuses.get("only_in_b.txt") == "Only in B"
+        assert actual_statuses.get("subdir") == "Only in A"
+        assert actual_statuses.get(os.path.join("subdir", "subfile.txt")) == "Only in A"
+        assert actual_statuses.get("subdir_b") == "Only in B"
 
     def test_deeply_nested_structure(self, comparison_test_environment):
         """Test deeply nested unique items."""
         cprint(f"\n--- {self.test_deeply_nested_structure.__doc__}", "yellow")
         app, dir_a, dir_b = comparison_test_environment
         actual_statuses = self._run_comparison(app, dir_a, dir_b)
-        assert actual_statuses.get("deep") == "Only in Folder A"
+        assert actual_statuses.get("deep") == "Only in A"
         assert (
             actual_statuses.get(os.path.join("deep", "a", "deep_file.txt"))
-            == "Only in Folder A"
+            == "Only in A"
         )
 
     def test_shared_directory_with_differences(self, comparison_test_environment):
@@ -125,12 +122,10 @@ class TestCompareFolders:
         actual_statuses = self._run_comparison(app, dir_a, dir_b)
         assert actual_statuses.get("shared_dir") == "Has differences"
         assert (
-            actual_statuses.get(os.path.join("shared_dir", "a_only.txt"))
-            == "Only in Folder A"
+            actual_statuses.get(os.path.join("shared_dir", "a_only.txt")) == "Only in A"
         )
         assert (
-            actual_statuses.get(os.path.join("shared_dir", "b_only.txt"))
-            == "Only in Folder B"
+            actual_statuses.get(os.path.join("shared_dir", "b_only.txt")) == "Only in B"
         )
 
     def test_type_conflict(self, comparison_test_environment):
