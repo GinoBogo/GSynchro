@@ -95,7 +95,7 @@ def _run_comparison(app, panel_a_dir, panel_b_dir):
     all_paths = set(app.files_a.keys()) | set(app.files_b.keys())
 
     item_statuses, stats = app._calculate_item_statuses(
-        all_paths, app.files_a, app.files_b, False, False
+        all_paths, app.files_a, app.files_b, False, False, None, None
     )
 
     return {k.replace("/", os.sep): v[0] for k, v in item_statuses.items()}

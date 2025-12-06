@@ -40,6 +40,55 @@ CHECKED_CHAR = "✓"
 UNCHECKED_CHAR = "☐"
 
 
+class ConnectionManager:
+    """Manages SSH connections with pooling."""
+
+    def __init__(self, logger_func):
+        """Initialize the ConnectionManager.
+
+        Args:
+            logger_func: A function to call for logging messages.
+        """
+        self._connections = {}
+        self._lock = threading.Lock()
+        self.log = logger_func
+
+    def get_connection(self, host, user, password, port):
+        """Get an active SSH connection from the pool or create a new one.
+
+        Args:
+            host: SSH host.
+            user: SSH username.
+            password: SSH password.
+            port: SSH port.
+
+        Returns:
+            An active paramiko.SSHClient instance.
+        """
+        key = f"{user}@{host}:{port}"
+        with self._lock:
+            conn = self._connections.get(key)
+            if conn and conn.get_transport() and conn.get_transport().is_active():
+                self.log(f"Reusing existing SSH connection for {key}")
+                return conn
+
+            self.log(f"Creating new SSH connection for {key}")
+            client = paramiko.SSHClient()
+            client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            client.connect(host, username=user, password=password, port=port)
+            self._connections[key] = client
+            return client
+
+    def close_all(self):
+        """Close all managed SSH connections."""
+        with self._lock:
+            for key, conn in self._connections.items():
+                self.log(f"Closing SSH connection for {key}")
+                if conn:
+                    conn.close()
+            self._connections.clear()
+
+
 class GSynchro:
     """Main application class for GSynchro file synchronization tool."""
 
@@ -52,10 +101,8 @@ class GSynchro:
         self.root = root
         self._init_window()
 
-        # SSH Configuration
-        self.ssh_client_a = None
-        self.ssh_client_b = None
-
+        # Connection Manager
+        self.connection_manager = ConnectionManager(self.log)
         self.remote_host_a = tk.StringVar()
         self.remote_user_a = tk.StringVar()
         self.remote_pass_a = tk.StringVar()
@@ -641,23 +688,6 @@ class GSynchro:
     # SSH METHODS
     # ==========================================================================
 
-    def _create_ssh_client_instance(self, host, username, password, port):
-        """Create an SSH client instance.
-
-        Args:
-            host: SSH host
-            username: SSH username
-            password: SSH password
-            port: SSH port
-
-        Returns:
-            Connected paramiko SSHClient
-        """
-        client = paramiko.SSHClient()
-        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        client.connect(host, username=username, password=password, port=port)
-        return client
-
     @contextmanager
     def _create_ssh_for_panel(
         self, panel_name, optional=False
@@ -696,20 +726,13 @@ class GSynchro:
             )
         )
 
-        client = self._create_ssh_client_instance(host, user, password, port)
+        client = self.connection_manager.get_connection(host, user, password, port)
         try:
             yield client
         finally:
-            client.close()
-
-    def _close_ssh(self):
-        """Close all active SSH client connections."""
-        if self.ssh_client_a:
-            self.ssh_client_a.close()
-            self.ssh_client_a = None
-        if self.ssh_client_b:
-            self.ssh_client_b.close()
-            self.ssh_client_b = None
+            # With pooling, we no longer close the connection here.
+            # The ConnectionManager handles the lifecycle.
+            pass
 
     def test_ssh(self, panel_name):
         """Test SSH connection for specified panel.
@@ -965,7 +988,7 @@ class GSynchro:
         """
 
         def populate_thread_func():
-            client_to_close = None
+            ssh_client = None  # Initialize to None
             try:
                 self.root.after(0, self.start_progress, panel)
 
@@ -973,30 +996,15 @@ class GSynchro:
                 rules = (
                     self._get_active_filters() if active_rules is None else active_rules
                 )
-                use_ssh = self._has_ssh_a() if panel == "A" else self._has_ssh_b()
+                use_ssh = (panel == "A" and self._has_ssh_a()) or (
+                    panel == "B" and self._has_ssh_b()
+                )
 
-                current_ssh_client = ssh_client
-                if use_ssh and current_ssh_client is None:
-                    current_ssh_client = self._create_ssh_client_instance(
-                        self.remote_host_a.get()
-                        if panel == "A"
-                        else self.remote_host_b.get(),
-                        self.remote_user_a.get()
-                        if panel == "A"
-                        else self.remote_user_b.get(),
-                        self.remote_pass_a.get()
-                        if panel == "A"
-                        else self.remote_pass_b.get(),
-                        int(
-                            self.remote_port_a.get()
-                            if panel == "A"
-                            else self.remote_port_b.get()
-                        ),
-                    )
-                    client_to_close = current_ssh_client
+                if use_ssh:
+                    ssh_client = self._get_ssh_client_for_panel(panel)
 
                 files = self._scan_folder(
-                    folder_path, use_ssh, current_ssh_client, panel, rules
+                    folder_path, use_ssh, ssh_client, panel, rules
                 )
 
                 target_files_dict = self.files_a if panel == "A" else self.files_b
@@ -1020,8 +1028,6 @@ class GSynchro:
                 )
             finally:
                 self.root.after(0, self.stop_progress)
-                if client_to_close:
-                    client_to_close.close()
 
         thread = threading.Thread(target=populate_thread_func, daemon=True)
         thread.start()
@@ -1379,26 +1385,16 @@ class GSynchro:
                 # Use context managers for SSH connections during comparison
                 with self._create_ssh_for_panel("A", optional=True) as ssh_a:
                     with self._create_ssh_for_panel("B", optional=True) as ssh_b:
-                        # Store clients for the duration of the comparison
-                        self.ssh_client_a = ssh_a
-                        self.ssh_client_b = ssh_b
-
                         use_ssh_a = ssh_a is not None
                         use_ssh_b = ssh_b is not None
 
                         self._update_trees_with_comparison(
                             self.files_a, self.files_b, use_ssh_a, use_ssh_b
                         )
-
-                        # Clear the clients after comparison is done
-                        self.ssh_client_a = None
-                        self.ssh_client_b = None
-
             except Exception as e:
                 self.log(f"Error during comparison: {str(e)}")
             finally:
                 self.root.after(0, self.stop_progress)
-                self._close_ssh()
 
         threading.Thread(target=compare_thread, daemon=True).start()
 
@@ -1415,7 +1411,14 @@ class GSynchro:
         return tree_a_map, tree_b_map, all_visible_paths
 
     def _calculate_item_statuses(
-        self, all_visible_paths, files_a, files_b, use_ssh_a, use_ssh_b
+        self,
+        all_visible_paths,
+        files_a,
+        files_b,
+        use_ssh_a,
+        use_ssh_b,
+        ssh_client_a=None,
+        ssh_client_b=None,
     ):
         """Calculate the status of all files and directories.
 
@@ -1425,6 +1428,8 @@ class GSynchro:
             files_b: Files in Panel B
             use_ssh_a: Whether Panel A uses SSH
             use_ssh_b: Whether Panel B uses SSH
+            ssh_client_a: The SSH client for panel A
+            ssh_client_b: The SSH client for panel B
 
         Returns:
             Tuple of (item_statuses, stats)
@@ -1443,7 +1448,12 @@ class GSynchro:
 
             if is_file:
                 status, status_color = self._compare_files(
-                    file_a_info, file_b_info, use_ssh_a, use_ssh_b
+                    file_a_info,
+                    file_b_info,
+                    use_ssh_a,
+                    use_ssh_b,
+                    ssh_client_a,
+                    ssh_client_b,
                 )
                 item_statuses[rel_path] = (status, status_color)
 
@@ -1542,7 +1552,13 @@ class GSynchro:
         tree_a_map, tree_b_map, all_visible_paths = self._prepare_comparison_data()
 
         item_statuses, stats = self._calculate_item_statuses(
-            all_visible_paths, files_a, files_b, use_ssh_a, use_ssh_b
+            all_visible_paths,
+            files_a,
+            files_b,
+            use_ssh_a,
+            use_ssh_b,
+            self._get_ssh_client_for_panel("A") if use_ssh_a else None,
+            self._get_ssh_client_for_panel("B") if use_ssh_b else None,
         )
 
         self._apply_comparison_to_ui(item_statuses, stats, tree_a_map, tree_b_map)
@@ -1562,7 +1578,9 @@ class GSynchro:
         if self.tree_b:
             self._adjust_tree_column_widths(self.tree_b)
 
-    def _compare_files(self, file_a, file_b, use_ssh_a, use_ssh_b):
+    def _compare_files(
+        self, file_a, file_b, use_ssh_a, use_ssh_b, ssh_client_a, ssh_client_b
+    ):
         """Compare two files and return status.
 
         Args:
@@ -1570,6 +1588,8 @@ class GSynchro:
             file_b: File info from Panel B
             use_ssh_a: Whether Panel A uses SSH
             use_ssh_b: Whether Panel B uses SSH
+            ssh_client_a: The SSH client for panel A
+            ssh_client_b: The SSH client for panel B
 
         Returns:
             Tuple of (status_text, color)
@@ -1588,20 +1608,16 @@ class GSynchro:
                 and "size" in file_b
             ):
                 try:
-                    ssh_client_a = self.ssh_client_a
-                    ssh_client_b = self.ssh_client_b
-                    # Open both files using the helper context manager
-                    with self._open_file_handle(
-                        file_a, use_ssh_a, ssh_client_a
-                    ) as file_a_handle:
-                        with self._open_file_handle(
+                    with (
+                        self._open_file_handle(
+                            file_a, use_ssh_a, ssh_client_a
+                        ) as file_a_handle,
+                        self._open_file_handle(
                             file_b, use_ssh_b, ssh_client_b
-                        ) as file_b_handle:
-                            # Compare the file contents chunk by chunk
-                            if not self._are_chunks_identical(
-                                file_a_handle, file_b_handle
-                            ):
-                                return "Different", "orange"
+                        ) as file_b_handle,
+                    ):
+                        if not self._are_chunks_identical(file_a_handle, file_b_handle):
+                            return "Different", "orange"
 
                     return "Identical", "green"
 
@@ -1700,22 +1716,6 @@ class GSynchro:
                 use_ssh_a = self._has_ssh_a()
                 use_ssh_b = self._has_ssh_b()
 
-                if use_ssh_a:
-                    self.ssh_client_a = self._create_ssh_client_instance(
-                        self.remote_host_a.get(),
-                        self.remote_user_a.get(),
-                        self.remote_pass_a.get(),
-                        int(self.remote_port_a.get()),
-                    )
-
-                if use_ssh_b:
-                    self.ssh_client_b = self._create_ssh_client_instance(
-                        self.remote_host_b.get(),
-                        self.remote_user_b.get(),
-                        self.remote_pass_b.get(),
-                        int(self.remote_port_b.get()),
-                    )
-
                 # Get files to copy
                 files_to_copy = self._get_files_to_copy(source_files_dict)
 
@@ -1738,10 +1738,16 @@ class GSynchro:
 
                 # Determine source and target SSH connections
                 if direction == "a_to_b":
-                    source_ssh, target_ssh = self.ssh_client_a, self.ssh_client_b
+                    source_ssh, target_ssh = (
+                        self._get_ssh_client_for_panel("A"),
+                        self._get_ssh_client_for_panel("B"),
+                    )
                     source_use_ssh, target_use_ssh = use_ssh_a, use_ssh_b
                 else:
-                    source_ssh, target_ssh = self.ssh_client_b, self.ssh_client_a
+                    source_ssh, target_ssh = (
+                        self._get_ssh_client_for_panel("B"),
+                        self._get_ssh_client_for_panel("A"),
+                    )
                     source_use_ssh, target_use_ssh = use_ssh_b, use_ssh_a
 
                 # Perform synchronization
@@ -1780,7 +1786,6 @@ class GSynchro:
                 messagebox.showerror("Error", f"Synchronization failed: {str(e)}")
             finally:
                 self.root.after(0, self.stop_progress)
-                self._close_ssh()
 
         threading.Thread(target=sync_thread, daemon=True).start()
 
@@ -1874,19 +1879,13 @@ class GSynchro:
         if direction == "a_to_b":
             self.log("Rescanning Panel B...")
             self.files_b = self._scan_folder(
-                target_path,
-                use_ssh_b,
-                self.ssh_client_b,
-                "B",
+                target_path, use_ssh_b, self._get_ssh_client_for_panel("B"), "B"
             )
             self._update_status("B", self.files_b)
         else:
             self.log("Rescanning Panel A...")
             self.files_a = self._scan_folder(
-                target_path,
-                use_ssh_a,
-                self.ssh_client_a,
-                "A",
+                target_path, use_ssh_a, self._get_ssh_client_for_panel("A"), "A"
             )
             self._update_status("A", self.files_a)
 
@@ -2355,7 +2354,7 @@ class GSynchro:
         """Handle window close event."""
         self.save_config()
         self._cleanup_temp_files()
-        self._close_ssh()
+        self.connection_manager.close_all()
         self.root.destroy()
 
     # ==========================================================================
@@ -3046,37 +3045,20 @@ class GSynchro:
         self.root.after(0, lambda: self._batch_populate_tree(self.tree_a, {}))
         self.root.after(0, lambda: self._batch_populate_tree(self.tree_b, {}))
 
-        # Store original SSH clients
-        original_ssh_client_a = self.ssh_client_a
-        original_ssh_client_b = self.ssh_client_b
-
-        current_ssh_client_a = None
-        current_ssh_client_b = None
-
         try:
-            if use_ssh_a:
-                current_ssh_client_a = self._create_ssh_client_instance(
-                    self.remote_host_a.get(),
-                    self.remote_user_a.get(),
-                    self.remote_pass_a.get(),
-                    int(self.remote_port_a.get()),
-                )
-            if use_ssh_b:
-                current_ssh_client_b = self._create_ssh_client_instance(
-                    self.remote_host_b.get(),
-                    self.remote_user_b.get(),
-                    self.remote_pass_b.get(),
-                    int(self.remote_port_b.get()),
-                )
-
-            self.ssh_client_a = current_ssh_client_a
-            self.ssh_client_b = current_ssh_client_b
-
             self.files_a = self._scan_folder(
-                self.folder_a.get(), use_ssh_a, self.ssh_client_a, "A", rules
+                self.folder_a.get(),
+                use_ssh_a,
+                self._get_ssh_client_for_panel("A"),
+                "A",
+                rules,
             )
             self.files_b = self._scan_folder(
-                self.folder_b.get(), use_ssh_b, self.ssh_client_b, "B", rules
+                self.folder_b.get(),
+                use_ssh_b,
+                self._get_ssh_client_for_panel("B"),
+                "B",
+                rules,
             )
 
             tree_structure_a = self._build_tree_structure(self.files_a)
@@ -3095,12 +3077,7 @@ class GSynchro:
                 self.files_a, self.files_b, use_ssh_a, use_ssh_b
             )
         finally:
-            if current_ssh_client_a:
-                current_ssh_client_a.close()
-            if current_ssh_client_b:
-                current_ssh_client_b.close()
-            self.ssh_client_a = original_ssh_client_a
-            self.ssh_client_b = original_ssh_client_b
+            pass  # Connections are now managed by the ConnectionManager
 
     # ==========================================================================
     # HELPER METHODS
@@ -3188,6 +3165,31 @@ class GSynchro:
 
         # Fallback to a generic monospace font
         return ("Courier", 11)
+
+    def _get_ssh_client_for_panel(self, panel_name):
+        """Get an SSH client for a panel using the connection manager.
+
+        Args:
+            panel_name: "A" or "B".
+
+        Returns:
+            A paramiko.SSHClient instance or None if not configured.
+        """
+        if panel_name == "A" and self._has_ssh_a():
+            return self.connection_manager.get_connection(
+                self.remote_host_a.get(),
+                self.remote_user_a.get(),
+                self.remote_pass_a.get(),
+                int(self.remote_port_a.get()),
+            )
+        if panel_name == "B" and self._has_ssh_b():
+            return self.connection_manager.get_connection(
+                self.remote_host_b.get(),
+                self.remote_user_b.get(),
+                self.remote_pass_b.get(),
+                int(self.remote_port_b.get()),
+            )
+        return None
 
 
 def main():
