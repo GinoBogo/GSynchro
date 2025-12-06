@@ -41,7 +41,14 @@ UNCHECKED_CHAR = "☐"
 
 
 class GSynchro:
+    """Main application class for GSynchro file synchronization tool."""
+
     def __init__(self, root: tk.Tk):
+        """Initialize the GSynchro application.
+
+        Args:
+            root: The main Tkinter root window
+        """
         self.root = root
         self._init_window()
 
@@ -108,7 +115,8 @@ class GSynchro:
 
         # Folder panels
         panels_frame = self._create_panels_frame(main_frame)
-        self._create_folder_panels(panels_frame)
+        self._create_panel_a(panels_frame)
+        self._create_panel_b(panels_frame)
 
         # Status bar
         self._create_status_bar(main_frame)
@@ -136,13 +144,13 @@ class GSynchro:
             if "WINDOW" in config and "geometry" in config["WINDOW"]:
                 self.root.geometry(config["WINDOW"]["geometry"])
 
-            # SSH Panel A
+            # Panel A SSH
             if "SSH_A" in config:
                 self.remote_host_a.set(config["SSH_A"].get("host", ""))
                 self.remote_port_a.set(config["SSH_A"].get("port", "22"))
                 self.remote_user_a.set(config["SSH_A"].get("username", ""))
 
-            # SSH Panel B
+            # Panel B SSH
             if "SSH_B" in config:
                 self.remote_host_b.set(config["SSH_B"].get("host", ""))
                 self.remote_port_b.set(config["SSH_B"].get("port", "22"))
@@ -152,13 +160,13 @@ class GSynchro:
             if "FILTERS" in config and "rules" in config["FILTERS"]:
                 self._load_filter_rules(config["FILTERS"]["rules"])
 
-            # Folder A History
+            # Panel A History
             if "FOLDER_A_HISTORY" in config:
                 self.folder_a_history = config["FOLDER_A_HISTORY"]
                 if self.folder_a_history:
                     self.folder_a.set(self.folder_a_history[0])
 
-            # Folder B History
+            # Panel B History
             if "FOLDER_B_HISTORY" in config:
                 self.folder_b_history = config["FOLDER_B_HISTORY"]
                 if self.folder_b_history:
@@ -168,7 +176,11 @@ class GSynchro:
             self.log(f"Warning: Could not parse {CONFIG_FILE}. Using defaults.")
 
     def _load_filter_rules(self, rules_data):
-        """Load and validate filter rules."""
+        """Load and validate filter rules.
+
+        Args:
+            rules_data: List of filter rules from config file
+        """
         processed_rules = []
         for item in rules_data:
             if isinstance(item, str):
@@ -182,7 +194,7 @@ class GSynchro:
 
     def save_config(self):
         """Save configuration to file."""
-        # Update folder A history
+        # Update Panel A history
         current_folder_a = self.folder_a.get()
         if current_folder_a:
             if current_folder_a in self.folder_a_history:
@@ -190,7 +202,7 @@ class GSynchro:
             self.folder_a_history.insert(0, current_folder_a)
             self.folder_a_history = self.folder_a_history[:HISTORY_LENGTH]
 
-        # Update folder B history
+        # Update Panel B history
         current_folder_b = self.folder_b.get()
         if current_folder_b:
             if current_folder_b in self.folder_b_history:
@@ -227,6 +239,7 @@ class GSynchro:
     def _setup_styles(self):
         """Set up Tkinter styles."""
         style = ttk.Style()
+
         # Light green button style
         style.configure(
             "lightgreen.TButton",
@@ -295,8 +308,8 @@ class GSynchro:
         """Create the main control buttons."""
         buttons_config = [
             ("Compare", self.compare_folders, None),
-            ("Sync  ▶", lambda: self.synchronize("left_to_right"), "lightgreen"),
-            ("◀  Sync", lambda: self.synchronize("right_to_left"), "lightblue"),
+            ("Sync  ▶", lambda: self.synchronize("a_to_b"), "lightgreen"),
+            ("◀  Sync", lambda: self.synchronize("b_to_a"), "lightblue"),
             ("Filters", self.show_filters_dialog, None),
         ]
 
@@ -328,16 +341,15 @@ class GSynchro:
 
         return panels_frame
 
-    def _create_folder_panels(self, panels_frame):
-        """Create folder panels A and B."""
-        # Panel A configuration
-        panel_a_config = {
-            "title": "Folder A",
+    def _create_panel_a(self, panels_frame):
+        """Create Panel A (left panel)."""
+        panel_config = {
+            "title": "Panel A",
             "column": 0,
             "padx": (0, 5),
             "button_color": "lightgreen",
             "folder_var": self.folder_a,
-            "browse_command": self.browse_folder_a,
+            "browse_command": self.browse_panel_a,
             "host_var": self.remote_host_a,
             "port_var": self.remote_port_a,
             "user_var": self.remote_user_a,
@@ -345,15 +357,17 @@ class GSynchro:
             "tree_attr": "tree_a",
             "folder_history": self.folder_a_history,
         }
+        self._create_panel(panels_frame, panel_config)
 
-        # Panel B configuration
-        panel_b_config = {
-            "title": "Folder B",
+    def _create_panel_b(self, panels_frame):
+        """Create Panel B (right panel)."""
+        panel_config = {
+            "title": "Panel B",
             "column": 1,
             "padx": (5, 0),
             "button_color": "lightblue",
             "folder_var": self.folder_b,
-            "browse_command": self.browse_folder_b,
+            "browse_command": self.browse_panel_b,
             "host_var": self.remote_host_b,
             "port_var": self.remote_port_b,
             "user_var": self.remote_user_b,
@@ -361,12 +375,15 @@ class GSynchro:
             "tree_attr": "tree_b",
             "folder_history": self.folder_b_history,
         }
-
-        self._create_panel(panels_frame, panel_a_config)
-        self._create_panel(panels_frame, panel_b_config)
+        self._create_panel(panels_frame, panel_config)
 
     def _create_panel(self, parent, config):
-        """Create an individual folder panel."""
+        """Create an individual folder panel.
+
+        Args:
+            parent: Parent widget
+            config: Configuration dictionary for the panel
+        """
         panel = ttk.LabelFrame(parent, text=config["title"], padding="5")
         panel.grid(
             row=0,
@@ -432,7 +449,7 @@ class GSynchro:
             panel_name = config["title"].split(" ")[1]
             folder_path = config["folder_var"].get()
             if folder_path:
-                self._populate_single_folder(panel_name, folder_path)
+                self._populate_single_panel(panel_name, folder_path)
 
         ttk.Button(
             panel,
@@ -477,7 +494,14 @@ class GSynchro:
             self.tree_b = tree
 
     def _create_tree_view(self, parent):
-        """Create file tree view."""
+        """Create file tree view.
+
+        Args:
+            parent: Parent widget
+
+        Returns:
+            Configured Treeview widget
+        """
         tree = ttk.Treeview(
             parent,
             columns=("sync", "size", "modified", "status"),
@@ -558,10 +582,10 @@ class GSynchro:
         )
         self.tree_context_menu.add_separator()
         self.tree_context_menu.add_command(
-            label="Sync  ▶", command=self._sync_selected_left_to_right
+            label="Sync  ▶", command=self._sync_selected_a_to_b
         )
         self.tree_context_menu.add_command(
-            label="◀  Sync", command=self._sync_selected_right_to_left
+            label="◀  Sync", command=self._sync_selected_b_to_a
         )
         self.tree_context_menu.add_separator()
         self.tree_context_menu.add_command(label="Select All", command=self._select_all)
@@ -570,20 +594,23 @@ class GSynchro:
         )
 
     # ==========================================================================
-    # FOLDER BROWSING METHODS
+    # PANEL BROWSING METHODS
     # ==========================================================================
 
-    def browse_folder_a(self):
-        """Browse for folder A."""
-        self._browse_folder("A")
+    def browse_panel_a(self):
+        """Browse for folder in Panel A."""
+        self._browse_panel("A")
 
-    def browse_folder_b(self):
-        """Browse for folder B."""
-        self._browse_folder("B")
+    def browse_panel_b(self):
+        """Browse for folder in Panel B."""
+        self._browse_panel("B")
 
-    def _browse_folder(self, panel_name):
-        """Browse for folder (local or remote)."""
-        # Determine if remote browsing is needed
+    def _browse_panel(self, panel_name):
+        """Browse for folder in specified panel.
+
+        Args:
+            panel_name: Either "A" or "B" for the panel to browse
+        """
         if panel_name == "A":
             is_remote = self._has_ssh_a()
             folder_var = self.folder_a
@@ -598,24 +625,34 @@ class GSynchro:
             initial_path = folder_history[0]
 
         if is_remote:
-            selected_path, ssh_client = self._browse_remote(
+            selected_path = self._browse_remote(
                 folder_var, f"Panel {panel_name}", initial_path
             )
             if selected_path:
-                self._populate_single_folder(panel_name, selected_path, ssh_client)
+                self._populate_single_panel(panel_name, selected_path)
         else:
             folder = filedialog.askdirectory(initialdir=initial_path)
             if folder:
-                self._update_folder_history(panel_name, folder_var, folder)
+                self._update_panel_history(panel_name, folder_var, folder)
                 folder_var.set(folder)
-                self._populate_single_folder(panel_name, folder)
+                self._populate_single_panel(panel_name, folder)
 
     # ==========================================================================
     # SSH METHODS
     # ==========================================================================
 
     def _create_ssh_client_instance(self, host, username, password, port):
-        """Create an SSH client instance."""
+        """Create an SSH client instance.
+
+        Args:
+            host: SSH host
+            username: SSH username
+            password: SSH password
+            port: SSH port
+
+        Returns:
+            Connected paramiko SSHClient
+        """
         client = paramiko.SSHClient()
         client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         client.connect(host, username=username, password=password, port=port)
@@ -625,7 +662,15 @@ class GSynchro:
     def _create_ssh_for_panel(
         self, panel_name, optional=False
     ) -> Generator[Optional[paramiko.SSHClient], Any, None]:
-        """Create SSH client for a panel."""
+        """Create SSH client for a panel.
+
+        Args:
+            panel_name: Either "A" or "B"
+            optional: If True, don't raise error when SSH not configured
+
+        Yields:
+            SSH client or None if optional=True and SSH not configured
+        """
         use_ssh = self._has_ssh_a() if panel_name == "A" else self._has_ssh_b()
 
         if not use_ssh:
@@ -667,8 +712,12 @@ class GSynchro:
             self.ssh_client_b = None
 
     def test_ssh(self, panel_name):
-        """Test SSH connection for panel."""
-        if panel_name == "Folder A":
+        """Test SSH connection for specified panel.
+
+        Args:
+            panel_name: Panel name like "Panel A" or "Panel B"
+        """
+        if panel_name == "Panel A":
             host_var, user_var, pass_var, port_var = (
                 self.remote_host_a,
                 self.remote_user_a,
@@ -706,7 +755,11 @@ class GSynchro:
         threading.Thread(target=test_thread, daemon=True).start()
 
     def _has_ssh_a(self):
-        """Check if Panel A has SSH credentials."""
+        """Check if Panel A has SSH credentials.
+
+        Returns:
+            True if all SSH credentials for Panel A are set
+        """
         return all(
             [
                 self.remote_host_a.get(),
@@ -716,7 +769,11 @@ class GSynchro:
         )
 
     def _has_ssh_b(self):
-        """Check if Panel B has SSH credentials."""
+        """Check if Panel B has SSH credentials.
+
+        Returns:
+            True if all SSH credentials for Panel B are set
+        """
         return all(
             [
                 self.remote_host_b.get(),
@@ -726,13 +783,21 @@ class GSynchro:
         )
 
     # ==========================================================================
-    # REMOTE FOLDER BROWSING
+    # REMOTE PANEL BROWSING
     # ==========================================================================
 
     def _browse_remote(self, folder_var, panel_name, initial_path=""):
-        """Browse remote folder via SSH."""
+        """Browse remote folder via SSH.
+
+        Args:
+            folder_var: StringVar for the folder path
+            panel_name: Name of the panel
+            initial_path: Initial path to show
+
+        Returns:
+            Selected remote path or None if cancelled
+        """
         try:
-            # Use context manager for SSH client for the duration of the dialog
             with self._create_ssh_for_panel(
                 panel_name.split(" ")[1]
             ) as ssh_client_for_dialog:
@@ -752,7 +817,7 @@ class GSynchro:
                     ssh_client_for_dialog, folder_var, current_path, panel_name
                 )
                 if selected_path:
-                    self._update_folder_history(
+                    self._update_panel_history(
                         panel_name.split(" ")[1], folder_var, selected_path
                     )
                 return selected_path
@@ -760,10 +825,20 @@ class GSynchro:
             messagebox.showerror(
                 "Error", f"Failed to connect to remote {panel_name}: {str(e)}"
             )
-            return None, None
+            return None
 
     def _show_remote_dialog(self, ssh_client, folder_var, current_path, panel_name):
-        """Show remote folder browser dialog."""
+        """Show remote folder browser dialog.
+
+        Args:
+            ssh_client: SSH client to use
+            folder_var: StringVar for the folder path
+            current_path: Current remote path
+            panel_name: Name of the panel
+
+        Returns:
+            Selected path or empty string if cancelled
+        """
         dialog = tk.Toplevel(self.root)
         dialog.title(f"Browse Remote Folder - {panel_name}")
         dialog.geometry("500x400")
@@ -874,10 +949,20 @@ class GSynchro:
     # FOLDER SCANNING METHODS
     # ==========================================================================
 
-    def _populate_single_folder(
+    def _populate_single_panel(
         self, panel, folder_path, ssh_client=None, active_rules=None
     ):
-        """Populate single folder tree view."""
+        """Populate single panel tree view.
+
+        Args:
+            panel: Panel identifier ("A" or "B")
+            folder_path: Path to scan
+            ssh_client: Optional SSH client for remote scanning
+            active_rules: Optional filter rules to apply
+
+        Returns:
+            Thread object that performs the scanning
+        """
 
         def populate_thread_func():
             client_to_close = None
@@ -890,11 +975,9 @@ class GSynchro:
                 )
                 use_ssh = self._has_ssh_a() if panel == "A" else self._has_ssh_b()
 
-                current_ssh_client = ssh_client  # Use provided client if any
-                if (
-                    use_ssh and current_ssh_client is None
-                ):  # If SSH is needed and no client provided, create one
-                    current_ssh_client = self._create_ssh_client_instance(  # This is the non-context manager version
+                current_ssh_client = ssh_client
+                if use_ssh and current_ssh_client is None:
+                    current_ssh_client = self._create_ssh_client_instance(
                         self.remote_host_a.get()
                         if panel == "A"
                         else self.remote_host_b.get(),
@@ -910,19 +993,19 @@ class GSynchro:
                             else self.remote_port_b.get()
                         ),
                     )
-                    client_to_close = current_ssh_client  # Mark for closing
+                    client_to_close = current_ssh_client
 
                 files = self._scan_folder(
                     folder_path, use_ssh, current_ssh_client, panel, rules
                 )
 
                 target_files_dict = self.files_a if panel == "A" else self.files_b
-                target_files_dict.update(files)  # Update the instance variable
+                target_files_dict.update(files)
                 self.root.after(0, lambda: self._update_status(panel, files))
 
                 # Update tree view
                 tree_structure = self._build_tree_structure(files)
-                tree = getattr(self, f"tree_{panel.lower()}")  # type: ignore
+                tree = getattr(self, f"tree_{panel.lower()}")
 
                 def populate_and_adjust():
                     self._batch_populate_tree(tree, tree_structure, rules)
@@ -931,9 +1014,9 @@ class GSynchro:
                 self.root.after(0, populate_and_adjust)
 
             except Exception as e:
-                self.log(f"Error populating {panel} folder: {str(e)}")
+                self.log(f"Error populating panel {panel}: {str(e)}")
                 messagebox.showerror(
-                    "Error", f"Failed to populate {panel} folder: {str(e)}"
+                    "Error", f"Failed to populate panel {panel}: {str(e)}"
                 )
             finally:
                 self.root.after(0, self.stop_progress)
@@ -945,35 +1028,54 @@ class GSynchro:
         return thread
 
     def _scan_folder(self, folder_path, use_ssh, ssh_client, panel_name, rules=None):
-        """Scan folder (local or remote)."""
+        """Scan folder (local or remote).
+
+        Args:
+            folder_path: Path to scan
+            use_ssh: Whether to use SSH
+            ssh_client: SSH client for remote scanning
+            panel_name: Panel identifier
+            rules: Filter rules to apply
+
+        Returns:
+            Dictionary of scanned files
+        """
         if rules is None:
             rules = []
 
         if use_ssh:
-            self.log(f"Using SSH for folder {panel_name} scan")
+            self.log(f"Using SSH for panel {panel_name} scan")
             try:
                 files = self._scan_remote(folder_path, ssh_client, rules)
                 num_dirs = sum(1 for f in files.values() if f.get("type") == "dir")
                 num_files = sum(1 for f in files.values() if f.get("type") == "file")
                 self.log(
-                    f"Found {num_dirs} folders and {num_files} files in folder {panel_name}"
+                    f"Found {num_dirs} folders and {num_files} files in panel {panel_name}"
                 )
                 return files
             except Exception as e:
-                self.log(f"SSH connection failed for Folder {panel_name}: {str(e)}")
+                self.log(f"SSH connection failed for Panel {panel_name}: {str(e)}")
                 return {}
         else:
-            self.log(f"Using local folder scan for folder {panel_name}")
+            self.log(f"Using local folder scan for panel {panel_name}")
             files = self._scan_local(folder_path, rules)
             num_dirs = sum(1 for f in files.values() if f.get("type") == "dir")
             num_files = sum(1 for f in files.values() if f.get("type") == "file")
             self.log(
-                f"Found {num_dirs} folders and {num_files} files in folder {panel_name}"
+                f"Found {num_dirs} folders and {num_files} files in panel {panel_name}"
             )
             return files
 
     def _scan_local(self, folder_path, rules=None):
-        """Scan a local folder."""
+        """Scan a local folder.
+
+        Args:
+            folder_path: Path to scan
+            rules: Filter rules to apply
+
+        Returns:
+            Dictionary of scanned files
+        """
         files = {}
         if rules is None:
             rules = []
@@ -988,12 +1090,10 @@ class GSynchro:
                         os.path.join(root, d), folder_path
                     ).replace(os.sep, "/")
                     for pattern in rules:
-                        # Handle directory patterns like 'build/' or 'dist/'
                         if pattern.endswith("/") and fnmatch.fnmatch(
                             dir_rel_path + "/", pattern
                         ):
                             excluded_dirs.add(d)
-                        # Handle simple name matches like '__pycache__'
                         elif not pattern.endswith("/") and fnmatch.fnmatch(d, pattern):
                             excluded_dirs.add(d)
 
@@ -1033,7 +1133,16 @@ class GSynchro:
         return files
 
     def _scan_remote(self, folder_path, ssh_client, rules=None):
-        """Scan remote folder using SSH."""
+        """Scan remote folder using SSH.
+
+        Args:
+            folder_path: Remote path to scan
+            ssh_client: SSH client to use
+            rules: Filter rules to apply
+
+        Returns:
+            Dictionary of scanned files
+        """
         files = {}
         if rules is None:
             rules = []
@@ -1054,14 +1163,12 @@ class GSynchro:
                         else:
                             continue
 
-                        # Apply filtering logic similar to _scan_local
+                        # Apply filtering logic
                         is_excluded = False
                         for pattern in rules:
-                            # Match against the full relative path
                             if fnmatch.fnmatch(rel_path, pattern):
                                 is_excluded = True
                                 break
-                            # Match against any part of the path for directory names
                             if any(
                                 fnmatch.fnmatch(part, pattern)
                                 for part in rel_path.split("/")
@@ -1094,7 +1201,14 @@ class GSynchro:
     # ==========================================================================
 
     def _build_tree_structure(self, files):
-        """Build hierarchical dictionary."""
+        """Build hierarchical dictionary from flat file list.
+
+        Args:
+            files: Dictionary of files
+
+        Returns:
+            Hierarchical tree structure
+        """
         tree_structure = {}
         for filepath in sorted(files.keys()):
             parts = filepath.replace(os.sep, "/").split("/")
@@ -1114,7 +1228,13 @@ class GSynchro:
         return tree_structure
 
     def _batch_populate_tree(self, tree, structure, filter_rules=None):
-        """Populate treeview from structure."""
+        """Populate treeview from hierarchical structure.
+
+        Args:
+            tree: Treeview widget to populate
+            structure: Hierarchical file structure
+            filter_rules: Filter rules to apply
+        """
         if not tree:
             return
 
@@ -1180,7 +1300,16 @@ class GSynchro:
         insert_items("", structure, current_filter_rules, "")
 
     def _build_tree_map(self, tree, parent_item="", path=""):
-        """Build path to item ID map for a tree."""
+        """Build path to item ID map for a tree.
+
+        Args:
+            tree: Treeview widget
+            parent_item: Parent item ID
+            path: Current path
+
+        Returns:
+            Dictionary mapping paths to item IDs
+        """
         path_map = {}
         if not tree:
             return path_map
@@ -1195,7 +1324,15 @@ class GSynchro:
         return path_map
 
     def _update_tree_item(self, tree, item_id, rel_path, status, status_color):
-        """Update tree item with status."""
+        """Update tree item with status.
+
+        Args:
+            tree: Treeview widget
+            item_id: Item ID to update
+            rel_path: Relative path of the item
+            status: Status text to display
+            status_color: Color for the status
+        """
         if tree is None:
             return
 
@@ -1220,7 +1357,7 @@ class GSynchro:
     # ==========================================================================
 
     def compare_folders(self, active_rules=None):
-        """Compare files between folders."""
+        """Compare files between panels."""
 
         def compare_thread():
             self.log("Starting folder comparison...")
@@ -1266,7 +1403,11 @@ class GSynchro:
         threading.Thread(target=compare_thread, daemon=True).start()
 
     def _prepare_comparison_data(self):
-        """Prepare data structures needed for comparison."""
+        """Prepare data structures needed for comparison.
+
+        Returns:
+            Tuple of (tree_a_map, tree_b_map, all_visible_paths)
+        """
         tree_a_map = self._build_tree_map(self.tree_a)
         tree_b_map = self._build_tree_map(self.tree_b)
         all_visible_paths = set(tree_a_map.keys()) | set(tree_b_map.keys())
@@ -1276,7 +1417,18 @@ class GSynchro:
     def _calculate_item_statuses(
         self, all_visible_paths, files_a, files_b, use_ssh_a, use_ssh_b
     ):
-        """Calculate the status of all files and directories."""
+        """Calculate the status of all files and directories.
+
+        Args:
+            all_visible_paths: Set of all visible paths
+            files_a: Files in Panel A
+            files_b: Files in Panel B
+            use_ssh_a: Whether Panel A uses SSH
+            use_ssh_b: Whether Panel B uses SSH
+
+        Returns:
+            Tuple of (item_statuses, stats)
+        """
         item_statuses = {}
         dirty_folders = set()
         stats = {"identical": 0, "different": 0, "only_a": 0, "only_b": 0}
@@ -1301,9 +1453,9 @@ class GSynchro:
                 else:
                     if status == "Different":
                         stats["different"] += 1
-                    elif status == "Only in Folder A":
+                    elif status == "Only in A":
                         stats["only_a"] += 1
-                    elif status == "Only in Folder B":
+                    elif status == "Only in B":
                         stats["only_b"] += 1
                     self.sync_states[rel_path] = True
                     # Mark parent directories as dirty
@@ -1343,7 +1495,14 @@ class GSynchro:
         return item_statuses, stats
 
     def _apply_comparison_to_ui(self, item_statuses, stats, tree_a_map, tree_b_map):
-        """Update the UI with the results of the comparison."""
+        """Update the UI with the results of the comparison.
+
+        Args:
+            item_statuses: Dictionary of item statuses
+            stats: Statistics dictionary
+            tree_a_map: Panel A tree map
+            tree_b_map: Panel B tree map
+        """
         for rel_path, (status, status_color) in item_statuses.items():
             self.root.after(0, self.update_progress, 1)
             if rel_path in tree_a_map:
@@ -1363,7 +1522,14 @@ class GSynchro:
         self.status_b.set("")
 
     def _update_trees_with_comparison(self, files_a, files_b, use_ssh_a, use_ssh_b):
-        """Update tree views with comparison results."""
+        """Update tree views with comparison results.
+
+        Args:
+            files_a: Files in Panel A
+            files_b: Files in Panel B
+            use_ssh_a: Whether Panel A uses SSH
+            use_ssh_b: Whether Panel B uses SSH
+        """
         tree_a_map, tree_b_map, all_visible_paths = self._prepare_comparison_data()
 
         item_statuses, stats = self._calculate_item_statuses(
@@ -1388,7 +1554,17 @@ class GSynchro:
             self._adjust_tree_column_widths(self.tree_b)
 
     def _compare_files(self, file_a, file_b, use_ssh_a, use_ssh_b):
-        """Compare two files and return status."""
+        """Compare two files and return status.
+
+        Args:
+            file_a: File info from Panel A
+            file_b: File info from Panel B
+            use_ssh_a: Whether Panel A uses SSH
+            use_ssh_b: Whether Panel B uses SSH
+
+        Returns:
+            Tuple of (status_text, color)
+        """
         if file_a and file_b:
             is_a_file = file_a.get("type") == "file"
             is_b_file = file_b.get("type") == "file"
@@ -1418,11 +1594,11 @@ class GSynchro:
                             ):
                                 return "Different", "orange"
 
-                    return "Identical", "green"  # Files are identical
+                    return "Identical", "green"
 
                 except Exception as e:
                     self.log(f"Error during chunked file comparison: {e}")
-                    return "Error", "black"  # Indicate an error occurred
+                    return "Error", "black"
             else:
                 # Fallback for items that exist in both but aren't comparable as files
                 return "Different", "orange"
@@ -1433,14 +1609,22 @@ class GSynchro:
 
     @contextmanager
     def _open_file_handle(self, file_info, use_ssh, ssh_client):
-        """A context manager to open a file handle, local or remote."""
+        """A context manager to open a file handle, local or remote.
+
+        Args:
+            file_info: File information dictionary
+            use_ssh: Whether to use SSH
+            ssh_client: SSH client for remote access
+
+        Yields:
+            File handle object
+        """
         if use_ssh:
-            if (
-                not ssh_client
-                or not ssh_client.get_transport()
-                or not ssh_client.get_transport().is_active()
-            ):
+            if not ssh_client:
                 raise ConnectionError("SSH client is not connected.")
+            transport = ssh_client.get_transport()
+            if not transport or not transport.is_active():
+                raise ConnectionError("SSH client transport is not active.")
             sftp = ssh_client.open_sftp()
             file_handle = sftp.open(file_info["full_path"], "rb")
             try:
@@ -1453,29 +1637,41 @@ class GSynchro:
                 yield file_handle
 
     def _are_chunks_identical(self, file_a_handle, file_b_handle) -> bool:
-        """Compare two file handles chunk by chunk."""
+        """Compare two file handles chunk by chunk.
+
+        Args:
+            file_a_handle: First file handle
+            file_b_handle: Second file handle
+
+        Returns:
+            True if files are identical, False otherwise
+        """
         while True:
             chunk_a = file_a_handle.read(CHUNK_SIZE)
             chunk_b = file_b_handle.read(CHUNK_SIZE)
 
             if chunk_a != chunk_b:
-                return False  # Different
+                return False
 
             if not chunk_a:  # End of file, and all previous chunks matched
-                return True  # Identical
+                return True
 
     # ==========================================================================
     # SYNCHRONIZATION METHODS
     # ==========================================================================
 
     def synchronize(self, direction):
-        """Synchronize files between folders."""
+        """Synchronize files between panels.
+
+        Args:
+            direction: Either "a_to_b" or "b_to_a"
+        """
 
         def sync_thread():
             self.log(f"Starting synchronization: {direction}")
 
             # Determine source and target
-            if direction == "left_to_right":
+            if direction == "a_to_b":
                 source_path = self.folder_a.get()
                 target_path = self.folder_b.get()
                 source_files_dict = self.files_a
@@ -1532,7 +1728,7 @@ class GSynchro:
                 )
 
                 # Determine source and target SSH connections
-                if direction == "left_to_right":
+                if direction == "a_to_b":
                     source_ssh, target_ssh = self.ssh_client_a, self.ssh_client_b
                     source_use_ssh, target_use_ssh = use_ssh_a, use_ssh_b
                 else:
@@ -1552,7 +1748,7 @@ class GSynchro:
 
                 # Rescan target folder
                 self.log("Synchronization completed. Refreshing view...")
-                self._rescan_target_folder(
+                self._rescan_target_panel(
                     direction,
                     target_path,
                     use_ssh_a,
@@ -1580,7 +1776,14 @@ class GSynchro:
         threading.Thread(target=sync_thread, daemon=True).start()
 
     def _get_files_to_copy(self, source_files_dict):
-        """Get list of files to copy based on sync states."""
+        """Get list of files to copy based on sync states.
+
+        Args:
+            source_files_dict: Dictionary of source files
+
+        Returns:
+            List of file paths to copy
+        """
         files_to_sync = []
         for rel_path, is_checked in self.sync_states.items():
             if not is_checked:
@@ -1611,7 +1814,17 @@ class GSynchro:
         source_use_ssh,
         target_use_ssh,
     ):
-        """Perform file synchronization."""
+        """Perform file synchronization.
+
+        Args:
+            files_to_copy: List of files to copy
+            source_files_dict: Dictionary of source files
+            target_path: Target folder path
+            source_ssh: Source SSH client
+            target_ssh: Target SSH client
+            source_use_ssh: Whether source uses SSH
+            target_use_ssh: Whether target uses SSH
+        """
         # Determine sync type based on source and target locations
         if source_use_ssh and target_use_ssh:  # Remote to Remote
             if source_ssh is None or target_ssh is None:
@@ -1640,10 +1853,17 @@ class GSynchro:
         else:  # Local to Local
             self._sync_local_to_local(files_to_copy, source_files_dict, target_path)
 
-    def _rescan_target_folder(self, direction, target_path, use_ssh_a, use_ssh_b):
-        """Rescan target folder after sync."""
-        if direction == "left_to_right":
-            self.log("Rescanning Folder B...")
+    def _rescan_target_panel(self, direction, target_path, use_ssh_a, use_ssh_b):
+        """Rescan target panel after sync.
+
+        Args:
+            direction: Sync direction
+            target_path: Target folder path
+            use_ssh_a: Whether Panel A uses SSH
+            use_ssh_b: Whether Panel B uses SSH
+        """
+        if direction == "a_to_b":
+            self.log("Rescanning Panel B...")
             self.files_b = self._scan_folder(
                 target_path,
                 use_ssh_b,
@@ -1652,7 +1872,7 @@ class GSynchro:
             )
             self._update_status("B", self.files_b)
         else:
-            self.log("Rescanning Folder A...")
+            self.log("Rescanning Panel A...")
             self.files_a = self._scan_folder(
                 target_path,
                 use_ssh_a,
@@ -1662,7 +1882,13 @@ class GSynchro:
             self._update_status("A", self.files_a)
 
     def _sync_local_to_local(self, files_to_copy, source_files_dict, target_path):
-        """Sync between local folders."""
+        """Sync between local folders.
+
+        Args:
+            files_to_copy: List of files to copy
+            source_files_dict: Dictionary of source files
+            target_path: Target folder path
+        """
         self.log(f"Syncing local files to {target_path}")
 
         for rel_path in files_to_copy:
@@ -1685,7 +1911,14 @@ class GSynchro:
     def _sync_local_to_remote(
         self, files_to_copy, source_files_dict, remote_path, ssh_client
     ):
-        """Sync local to remote using SCP."""
+        """Sync local to remote using SCP.
+
+        Args:
+            files_to_copy: List of files to copy
+            source_files_dict: Dictionary of source files
+            remote_path: Remote target path
+            ssh_client: SSH client for remote access
+        """
         self.log(f"Syncing local files to remote {remote_path}")
 
         if not ssh_client or not ssh_client.get_transport():
@@ -1714,7 +1947,14 @@ class GSynchro:
     def _sync_remote_to_local(
         self, files_to_copy, source_files_dict, local_path, ssh_client
     ):
-        """Sync remote to local using SCP."""
+        """Sync remote to local using SCP.
+
+        Args:
+            files_to_copy: List of files to copy
+            source_files_dict: Dictionary of source files
+            local_path: Local target path
+            ssh_client: SSH client for remote access
+        """
         self.log(f"Syncing remote files to local {local_path}")
 
         if not ssh_client or not ssh_client.get_transport():
@@ -1738,7 +1978,15 @@ class GSynchro:
     def _sync_remote_to_remote(
         self, files_to_copy, source_files_dict, target_path, source_ssh, target_ssh
     ):
-        """Sync between remote folders."""
+        """Sync between remote folders.
+
+        Args:
+            files_to_copy: List of files to copy
+            source_files_dict: Dictionary of source files
+            target_path: Target remote path
+            source_ssh: Source SSH client
+            target_ssh: Target SSH client
+        """
         self.log(f"Syncing remote files to remote {target_path}")
 
         for rel_path in files_to_copy:
@@ -1805,7 +2053,16 @@ class GSynchro:
                 filter_tree.insert("", "end", iid=i, values=(check_char, item["rule"]))
 
         def _create_rule_input_dialog(title, prompt_text, initial_value=""):
-            """Create a dialog to get a filter rule from the user."""
+            """Create a dialog to get a filter rule from the user.
+
+            Args:
+                title: Dialog title
+                prompt_text: Prompt text for the user
+                initial_value: Initial value for the input field
+
+            Returns:
+                User input or None if cancelled
+            """
             entry_var = tk.StringVar(value=initial_value)
             result = None
 
@@ -1997,12 +2254,12 @@ class GSynchro:
             def run_scans_and_compare():
                 scan_threads = []
                 if self.folder_a.get():
-                    thread_a = self._populate_single_folder(
+                    thread_a = self._populate_single_panel(
                         "A", self.folder_a.get(), active_rules=active_rules
                     )
                     scan_threads.append(thread_a)
                 if self.folder_b.get():
-                    thread_b = self._populate_single_folder(
+                    thread_b = self._populate_single_panel(
                         "B", self.folder_b.get(), active_rules=active_rules
                     )
                     scan_threads.append(thread_b)
@@ -2044,7 +2301,14 @@ class GSynchro:
         self.root.wait_window(dialog)
 
     def _create_filter_tree(self, parent):
-        """Create tree view for filter dialog."""
+        """Create tree view for filter dialog.
+
+        Args:
+            parent: Parent widget
+
+        Returns:
+            Tuple of (tree_frame, filter_tree)
+        """
         tree_frame = ttk.Frame(parent)
         tree_frame.rowconfigure(0, weight=1)
         tree_frame.columnconfigure(0, weight=1)
@@ -2067,7 +2331,11 @@ class GSynchro:
         return tree_frame, filter_tree
 
     def _get_active_filters(self):
-        """Get active filter rule strings."""
+        """Get active filter rule strings.
+
+        Returns:
+            List of active filter rules
+        """
         return [
             item["rule"]
             for item in self.filter_rules
@@ -2159,8 +2427,8 @@ class GSynchro:
     # CONTEXT MENU ACTIONS
     # ==========================================================================
 
-    def _sync_selected_left_to_right(self):
-        """Sync the selected item from panel A to panel B."""
+    def _sync_selected_a_to_b(self):
+        """Sync the selected item from Panel A to Panel B."""
         if not self.tree_a:
             return
         selected_items = self.tree_a.selection()
@@ -2171,10 +2439,10 @@ class GSynchro:
             return
         rel_path = self._get_relative_path(self.tree_a, selected_items[0])
         if rel_path:
-            self._sync_single_item(rel_path, "left_to_right")
+            self._sync_single_item(rel_path, "a_to_b")
 
-    def _sync_selected_right_to_left(self):
-        """Sync the selected item from panel B to panel A."""
+    def _sync_selected_b_to_a(self):
+        """Sync the selected item from Panel B to Panel A."""
         if not self.tree_b:
             return
         selected_items = self.tree_b.selection()
@@ -2185,21 +2453,26 @@ class GSynchro:
             return
         rel_path = self._get_relative_path(self.tree_b, selected_items[0])
         if rel_path:
-            self._sync_single_item(rel_path, "right_to_left")
+            self._sync_single_item(rel_path, "b_to_a")
 
     def _sync_single_item(self, rel_path: str, direction: str):
-        """Handle the synchronization of a single file or directory."""
+        """Handle the synchronization of a single file or directory.
+
+        Args:
+            rel_path: Relative path of the item
+            direction: Sync direction ("a_to_b" or "b_to_a")
+        """
 
         def sync_thread():
             try:
-                if direction == "left_to_right":
+                if direction == "a_to_b":
                     source_files_dict = self.files_a
                     target_path = self.folder_b.get()
                     source_use_ssh, target_use_ssh = (
                         self._has_ssh_a(),
                         self._has_ssh_b(),
                     )
-                else:  # right_to_left
+                else:  # b_to_a
                     source_files_dict = self.files_b
                     target_path = self.folder_a.get()
                     source_use_ssh, target_use_ssh = (
@@ -2232,7 +2505,7 @@ class GSynchro:
                 # Correctly handle SSH clients
                 with self._create_ssh_for_panel("A", optional=True) as ssh_a:
                     with self._create_ssh_for_panel("B", optional=True) as ssh_b:
-                        if direction == "left_to_right":
+                        if direction == "a_to_b":
                             ssh_src, ssh_tgt = ssh_a, ssh_b
                         else:
                             ssh_src, ssh_tgt = ssh_b, ssh_a
@@ -2261,11 +2534,16 @@ class GSynchro:
         threading.Thread(target=sync_thread, daemon=True).start()
 
     def _refresh_tree_after_sync(self, direction, synced_item_rel_path):
-        """Refresh the treeview after a single item has been synchronized."""
+        """Refresh the treeview after a single item has been synchronized.
+
+        Args:
+            direction: Sync direction
+            synced_item_rel_path: Path of the synchronized item
+        """
         self.log(f"Updating UI for synced item: {synced_item_rel_path}")
 
         # Determine source and destination data
-        if direction == "left_to_right":
+        if direction == "a_to_b":
             source_files, dest_files = self.files_a, self.files_b
             tree_a, tree_b = self.tree_a, self.tree_b
         else:
@@ -2520,7 +2798,7 @@ class GSynchro:
                         os.remove(full_path)
 
                 self.log(f"Successfully deleted. Refreshing panel {panel}.")
-                self._populate_single_folder(
+                self._populate_single_panel(
                     panel, self.folder_a.get() if panel == "A" else self.folder_b.get()
                 )
             except Exception as e:
@@ -2542,8 +2820,14 @@ class GSynchro:
             except OSError as e:
                 self.log(f"Error cleaning up temporary file {temp_file_path}: {e}")
 
-    def _update_folder_history(self, panel_name, folder_var, new_path):
-        """Update and save folder history."""
+    def _update_panel_history(self, panel_name, folder_var, new_path):
+        """Update and save panel history.
+
+        Args:
+            panel_name: Panel identifier ("A" or "B")
+            folder_var: StringVar for the folder path
+            new_path: New path to add to history
+        """
         if not new_path:
             return
 
@@ -2565,7 +2849,15 @@ class GSynchro:
         self.save_config()
 
     def _get_relative_path(self, tree, item_id):
-        """Construct relative path for item."""
+        """Construct relative path for item.
+
+        Args:
+            tree: Treeview widget
+            item_id: Item ID
+
+        Returns:
+            Relative path or None
+        """
         path_parts = []
         while item_id:
             text = tree.item(item_id, "text")
@@ -2577,7 +2869,16 @@ class GSynchro:
         return None
 
     def _get_full_path_for_item(self, tree, item_id, panel=None):
-        """Get the full, possibly temporary, path for a tree item."""
+        """Get the full, possibly temporary, path for a tree item.
+
+        Args:
+            tree: Treeview widget
+            item_id: Item ID
+            panel: Optional panel identifier
+
+        Returns:
+            Full path or None
+        """
         rel_path = self._get_relative_path(tree, item_id)
         if not rel_path:
             return None
@@ -2597,12 +2898,12 @@ class GSynchro:
             self.log(f"Downloading remote file for external use: {full_path}")
             try:
                 with self._create_ssh_for_panel(panel) as ssh_client:
-                    if ssh_client:
-                        transport = ssh_client.get_transport()
-                        if transport is None:
-                            raise RuntimeError("SSH client transport is not available.")
-                    else:
+                    if not ssh_client:
                         raise ConnectionError("SSH client is not available.")
+
+                    transport = ssh_client.get_transport()
+                    if not transport or not transport.is_active():
+                        raise ConnectionError("SSH transport is not available.")
                     with tempfile.NamedTemporaryFile(
                         delete=False, suffix=os.path.basename(rel_path)
                     ) as tmp:
@@ -2616,7 +2917,11 @@ class GSynchro:
         return full_path
 
     def _adjust_tree_column_widths(self, tree: ttk.Treeview):
-        """Adjust column widths to fit content."""
+        """Adjust column widths to fit content.
+
+        Args:
+            tree: Treeview widget to adjust
+        """
         try:
             # Ensure we measure with the same font
             font_family, font_size = self._get_mono_font()
@@ -2625,7 +2930,7 @@ class GSynchro:
             # Log message after font is determined
             panel_name = "A" if tree is self.tree_a else "B"
             self.log(
-                f"Adjusting column widths for folder {panel_name} tree using "
+                f"Adjusting column widths for panel {panel_name} tree using "
                 f"font: {font_family}, size: {font_size}..."
             )
 
@@ -2660,7 +2965,12 @@ class GSynchro:
             self.log(f"Could not adjust column widths: {e}")
 
     def _update_status(self, panel, files):
-        """Update the status bar text."""
+        """Update the status bar text.
+
+        Args:
+            panel: Panel identifier ("A" or "B")
+            files: Dictionary of files in the panel
+        """
         num_dirs = sum(1 for f in files.values() if f.get("type") == "dir")
         num_files = sum(1 for f in files.values() if f.get("type") == "file")
         total_size = sum(f.get("size", 0) for f in files.values())
@@ -2672,7 +2982,13 @@ class GSynchro:
             self.status_b.set(status_text)
 
     def start_progress(self, panel=None, max_value=0, text=""):
-        """Show the progress bar."""
+        """Show the progress bar.
+
+        Args:
+            panel: Panel identifier or None
+            max_value: Maximum value for determinate progress
+            text: Status text to display
+        """
         self.status_label_a.grid_remove()
         self.status_label_b.grid_remove()
         self.progress_bar.grid()
@@ -2694,7 +3010,11 @@ class GSynchro:
             status_var.set("Scanning...")
 
     def update_progress(self, step=1):
-        """Update the progress bar."""
+        """Update the progress bar.
+
+        Args:
+            step: Step size to increment
+        """
         self.progress_bar.step(step)
 
     def stop_progress(self):
@@ -2705,7 +3025,12 @@ class GSynchro:
         self.status_label_b.grid()
 
     def _refresh_ui_after_sync(self, use_ssh_a, use_ssh_b):
-        """Refreshes both tree views and runs comparison after sync."""
+        """Refreshes both tree views and runs comparison after sync.
+
+        Args:
+            use_ssh_a: Whether Panel A uses SSH
+            use_ssh_b: Whether Panel B uses SSH
+        """
         rules = self._get_active_filters()
 
         # Clear existing trees
@@ -2773,11 +3098,22 @@ class GSynchro:
     # ==========================================================================
 
     def log(self, message):
-        """Log message to console."""
+        """Log message to console.
+
+        Args:
+            message: Message to log
+        """
         print(f"[{datetime.now().strftime('%H:%M:%S')}] {message}")
 
     def _format_size(self, size_bytes):
-        """Format file size to be readable."""
+        """Format file size to be readable.
+
+        Args:
+            size_bytes: Size in bytes
+
+        Returns:
+            Formatted size string
+        """
         for unit in ["B", "KB", "MB", "GB"]:
             if size_bytes < 1024.0:
                 return f"{size_bytes:.1f} {unit}"
@@ -2785,11 +3121,23 @@ class GSynchro:
         return f"{size_bytes:.1f} TB"
 
     def _format_time(self, timestamp):
-        """Format timestamp to a date string."""
+        """Format timestamp to a date string.
+
+        Args:
+            timestamp: Unix timestamp
+
+        Returns:
+            Formatted date string
+        """
         return datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M:%S")
 
     def _center_dialog(self, dialog, relative_to=None):
-        """Center a dialog on a parent window."""
+        """Center a dialog on a parent window.
+
+        Args:
+            dialog: Dialog window to center
+            relative_to: Parent window to center relative to
+        """
         parent = relative_to or self.root
         dialog.update_idletasks()
 
@@ -2806,7 +3154,11 @@ class GSynchro:
         dialog.geometry(f"+{x}+{y}")
 
     def _get_mono_font(self):
-        """Returns a suitable monospace font family based on the current OS."""
+        """Returns a suitable monospace font family based on the current OS.
+
+        Returns:
+            Tuple of (font_family, font_size)
+        """
         font_families = tkfont.families()
 
         preferred_fonts = []
