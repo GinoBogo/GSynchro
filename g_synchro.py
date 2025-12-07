@@ -139,6 +139,9 @@ class GSynchro:
         self.load_config()
         self.setup_ui()
 
+        # Bind Escape key to clear selection and focus
+        self.root.bind("<Escape>", self._on_escape_key)
+
     # ==========================================================================
     # INITIALIZATION METHODS
     # ==========================================================================
@@ -2819,6 +2822,18 @@ class GSynchro:
     # ==========================================================================
     # UTILITY METHODS
     # ==========================================================================
+
+    def _on_escape_key(self, event=None):
+        """Handle Escape key press to clear selection and focus from trees."""
+        widget = self.root.focus_get()
+        if isinstance(widget, ttk.Treeview) and widget in (self.tree_a, self.tree_b):
+            # Get current selection
+            selection = widget.selection()
+            # Deselect all items in the tree if there's a selection
+            if selection:
+                widget.selection_remove(selection)
+            # Move focus away from the tree to the root window
+            self.root.focus_set()
 
     def _cleanup_temp_files(self):
         """Clean up temporary files created during the session."""
