@@ -1446,7 +1446,13 @@ class GSynchro:
         """
         item_statuses = {}
         dirty_folders = set()
-        stats = {"identical": 0, "different": 0, "only_a": 0, "only_b": 0}
+        stats = {
+            "identical": 0,
+            "different": 0,
+            "only_a": 0,
+            "only_b": 0,
+            "conflicts": 0,
+        }
 
         # First pass: Determine file and unique directory statuses
         for rel_path in sorted(all_visible_paths):
@@ -1477,6 +1483,8 @@ class GSynchro:
                         stats["only_a"] += 1
                     elif status == "Only in B":
                         stats["only_b"] += 1
+                    elif status == "Conflict":
+                        stats["conflicts"] += 1
                     self.sync_states[rel_path] = True
                     # Mark parent directories as dirty
                     current_parent = os.path.dirname(rel_path)
@@ -1545,6 +1553,7 @@ class GSynchro:
 
         status_summary = f"Identical: {stats['identical']}, "
         status_summary += f"Different: {stats['different']}, "
+        status_summary += f"Conflicts: {stats['conflicts']}, "
         status_summary += f"Only in A: {stats['only_a']}, "
         status_summary += f"Only in B: {stats['only_b']}"
         self.status_a.set(status_summary)
