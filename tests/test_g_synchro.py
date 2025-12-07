@@ -62,7 +62,7 @@ def comparison_test_environment():
     (panel_a_dir / "deep" / "a").mkdir(parents=True, exist_ok=True)
     (panel_a_dir / "deep" / "a" / "deep_file.txt").write_text("deep")
 
-    # Type conflict (file vs. directory)
+    # Conflict (file vs. directory)
     (panel_a_dir / "conflict").mkdir(exist_ok=True)
     (panel_b_dir / "conflict").write_text("I am a file")
 
@@ -124,7 +124,10 @@ class TestComparePanels:
         assert actual_statuses.get("only_in_a.txt") == ("Only in A", "blue")
         assert actual_statuses.get("only_in_b.txt") == ("Only in B", "red")
         assert actual_statuses.get("subdir") == ("Only in A", "blue")
-        assert actual_statuses.get(os.path.join("subdir", "subfile.txt")) == ("Only in A", "blue")
+        assert actual_statuses.get(os.path.join("subdir", "subfile.txt")) == (
+            "Only in A",
+            "blue",
+        )
         assert actual_statuses.get("subdir_b") == ("Only in B", "red")
 
     def test_deeply_nested_structure(self, comparison_test_environment):
@@ -133,9 +136,9 @@ class TestComparePanels:
         app, panel_a_dir, panel_b_dir = comparison_test_environment
         actual_statuses = _run_comparison(app, panel_a_dir, panel_b_dir)
         assert actual_statuses.get("deep") == ("Only in A", "blue")
-        assert (
-            actual_statuses.get(os.path.join("deep", "a", "deep_file.txt"))
-            == ("Only in A", "blue")
+        assert actual_statuses.get(os.path.join("deep", "a", "deep_file.txt")) == (
+            "Only in A",
+            "blue",
         )
 
     def test_shared_directory_with_differences(self, comparison_test_environment):
@@ -144,11 +147,13 @@ class TestComparePanels:
         app, panel_a_dir, panel_b_dir = comparison_test_environment
         actual_statuses = _run_comparison(app, panel_a_dir, panel_b_dir)
         assert actual_statuses.get("shared_dir") == ("Different", "magenta")
-        assert (
-            actual_statuses.get(os.path.join("shared_dir", "a_only.txt")) == ("Only in A", "blue")
+        assert actual_statuses.get(os.path.join("shared_dir", "a_only.txt")) == (
+            "Only in A",
+            "blue",
         )
-        assert (
-            actual_statuses.get(os.path.join("shared_dir", "b_only.txt")) == ("Only in B", "red")
+        assert actual_statuses.get(os.path.join("shared_dir", "b_only.txt")) == (
+            "Only in B",
+            "red",
         )
 
     def test_type_conflict(self, comparison_test_environment):
@@ -156,7 +161,7 @@ class TestComparePanels:
         cprint(f"\n--- {self.test_type_conflict.__doc__}", "yellow")
         app, panel_a_dir, panel_b_dir = comparison_test_environment
         actual_statuses = _run_comparison(app, panel_a_dir, panel_b_dir)
-        assert actual_statuses.get("conflict") == ("Type conflict", "orange")
+        assert actual_statuses.get("conflict") == ("Conflict", "black")
 
 
 @pytest.fixture

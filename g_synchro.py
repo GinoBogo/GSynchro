@@ -1610,7 +1610,11 @@ class GSynchro:
             is_b_file = file_b.get("type") == "file"
 
             if is_a_file != is_b_file:
-                return "Type conflict", "orange"
+                return "Conflict", "black"
+
+            # If sizes differ, files cannot be identical.
+            if file_a.get("size") != file_b.get("size"):
+                return "Different", "orange"
 
             if (
                 isinstance(file_a, dict)
