@@ -98,7 +98,7 @@ def _run_comparison(app, panel_a_dir, panel_b_dir):
         all_paths, app.files_a, app.files_b, False, False, None, None
     )
 
-    return {k.replace("/", os.sep): v[0] for k, v in item_statuses.items()}
+    return {k.replace("/", os.sep): v for k, v in item_statuses.items()}
 
 
 class TestComparePanels:
@@ -113,29 +113,29 @@ class TestComparePanels:
         cprint(f"\n--- {self.test_identical_and_different_files.__doc__}", "yellow")
         app, panel_a_dir, panel_b_dir = comparison_test_environment
         actual_statuses = _run_comparison(app, panel_a_dir, panel_b_dir)
-        assert actual_statuses.get("identical.txt") == "Identical"
-        assert actual_statuses.get("different.txt") == "Different"
+        assert actual_statuses.get("identical.txt") == ("Identical", "green")
+        assert actual_statuses.get("different.txt") == ("Different", "orange")
 
     def test_unique_files_and_directories(self, comparison_test_environment):
         """Test items that exist only in one panel."""
         cprint(f"\n--- {self.test_unique_files_and_directories.__doc__}", "yellow")
         app, panel_a_dir, panel_b_dir = comparison_test_environment
         actual_statuses = _run_comparison(app, panel_a_dir, panel_b_dir)
-        assert actual_statuses.get("only_in_a.txt") == "Only in A"
-        assert actual_statuses.get("only_in_b.txt") == "Only in B"
-        assert actual_statuses.get("subdir") == "Only in A"
-        assert actual_statuses.get(os.path.join("subdir", "subfile.txt")) == "Only in A"
-        assert actual_statuses.get("subdir_b") == "Only in B"
+        assert actual_statuses.get("only_in_a.txt") == ("Only in A", "blue")
+        assert actual_statuses.get("only_in_b.txt") == ("Only in B", "red")
+        assert actual_statuses.get("subdir") == ("Only in A", "blue")
+        assert actual_statuses.get(os.path.join("subdir", "subfile.txt")) == ("Only in A", "blue")
+        assert actual_statuses.get("subdir_b") == ("Only in B", "red")
 
     def test_deeply_nested_structure(self, comparison_test_environment):
         """Test deeply nested unique items."""
         cprint(f"\n--- {self.test_deeply_nested_structure.__doc__}", "yellow")
         app, panel_a_dir, panel_b_dir = comparison_test_environment
         actual_statuses = _run_comparison(app, panel_a_dir, panel_b_dir)
-        assert actual_statuses.get("deep") == "Only in A"
+        assert actual_statuses.get("deep") == ("Only in A", "blue")
         assert (
             actual_statuses.get(os.path.join("deep", "a", "deep_file.txt"))
-            == "Only in A"
+            == ("Only in A", "blue")
         )
 
     def test_shared_directory_with_differences(self, comparison_test_environment):
@@ -143,12 +143,12 @@ class TestComparePanels:
         cprint(f"\n--- {self.test_shared_directory_with_differences.__doc__}", "yellow")
         app, panel_a_dir, panel_b_dir = comparison_test_environment
         actual_statuses = _run_comparison(app, panel_a_dir, panel_b_dir)
-        assert actual_statuses.get("shared_dir") == "Different"
+        assert actual_statuses.get("shared_dir") == ("Different", "magenta")
         assert (
-            actual_statuses.get(os.path.join("shared_dir", "a_only.txt")) == "Only in A"
+            actual_statuses.get(os.path.join("shared_dir", "a_only.txt")) == ("Only in A", "blue")
         )
         assert (
-            actual_statuses.get(os.path.join("shared_dir", "b_only.txt")) == "Only in B"
+            actual_statuses.get(os.path.join("shared_dir", "b_only.txt")) == ("Only in B", "red")
         )
 
     def test_type_conflict(self, comparison_test_environment):
@@ -156,7 +156,7 @@ class TestComparePanels:
         cprint(f"\n--- {self.test_type_conflict.__doc__}", "yellow")
         app, panel_a_dir, panel_b_dir = comparison_test_environment
         actual_statuses = _run_comparison(app, panel_a_dir, panel_b_dir)
-        assert actual_statuses.get("conflict") == "Type conflict"
+        assert actual_statuses.get("conflict") == ("Type conflict", "orange")
 
 
 @pytest.fixture
@@ -375,7 +375,7 @@ class TestSymbolicLinks:
         actual_statuses = _run_comparison(app, panel_a_dir, panel_b_dir)
 
         # The symlink in panel B points to a file that is different from the regular file in panel A
-        assert actual_statuses.get("symlink_to_file.txt") == "Different"
+        assert actual_statuses.get("symlink_to_file.txt") == ("Different", "orange")
 
     @pytest.mark.skipif(
         sys.platform == "win32", reason="Symbolic links require admin on Windows"
@@ -404,7 +404,7 @@ class TestSymbolicLinks:
         actual_statuses = _run_comparison(app, panel_a_dir, panel_b_dir)
 
         # The symlinked directory in panel B has different content than the regular directory in panel A
-        assert actual_statuses.get("symlink_to_dir") == "Different"
+        assert actual_statuses.get("symlink_to_dir") == ("Different", "magenta")
 
     @pytest.mark.skipif(
         sys.platform == "win32", reason="Symbolic links require admin on Windows"
@@ -442,4 +442,4 @@ class TestSymbolicLinks:
         actual_statuses = _run_comparison(app, panel_a_dir, panel_b_dir)
 
         # Check that the symlink and directory are considered identical
-        assert actual_statuses.get("shared_dir_identical") == "Identical"
+        assert actual_statuses.get("shared_dir_identical") == ("Identical", "green")

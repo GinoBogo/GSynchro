@@ -580,6 +580,7 @@ class GSynchro:
             "orange": "orange",
             "blue": "blue",
             "red": "red",
+            "magenta": "magenta",
             "black": "black",
         }
         for tag, color in colors.items():
@@ -1495,7 +1496,7 @@ class GSynchro:
                 and files_b.get(rel_path, {}).get("type") == "dir"
             ):
                 if rel_path in dirty_folders:
-                    status, status_color = "Different", "orange"
+                    status, status_color = "Different", "magenta"
                     self.sync_states[rel_path] = True
                 else:
                     status, status_color = "Identical", "green"
@@ -1570,6 +1571,7 @@ class GSynchro:
                 tree.tag_configure("green", foreground="green")
                 tree.tag_configure("orange", foreground="orange")
                 tree.tag_configure("blue", foreground="blue")
+                tree.tag_configure("magenta", foreground="magenta")
                 tree.tag_configure("red", foreground="red")
 
         # Adjust column widths
