@@ -143,7 +143,7 @@ class TestComparePanels:
         cprint(f"\n--- {self.test_shared_directory_with_differences.__doc__}", "yellow")
         app, panel_a_dir, panel_b_dir = comparison_test_environment
         actual_statuses = _run_comparison(app, panel_a_dir, panel_b_dir)
-        assert actual_statuses.get("shared_dir") == "Has differences"
+        assert actual_statuses.get("shared_dir") == "Different"
         assert (
             actual_statuses.get(os.path.join("shared_dir", "a_only.txt")) == "Only in A"
         )
@@ -404,7 +404,7 @@ class TestSymbolicLinks:
         actual_statuses = _run_comparison(app, panel_a_dir, panel_b_dir)
 
         # The symlinked directory in panel B has different content than the regular directory in panel A
-        assert actual_statuses.get("symlink_to_dir") == "Has differences"
+        assert actual_statuses.get("symlink_to_dir") == "Different"
 
     @pytest.mark.skipif(
         sys.platform == "win32", reason="Symbolic links require admin on Windows"
