@@ -563,7 +563,7 @@ class GSynchro:
         tree.column("#0", width=200, anchor="w")
 
         tree.heading("sync", text="Sync")
-        tree.column("sync", width=40, anchor="center")
+        tree.column("sync", width=20, anchor="center")
 
         tree.heading("size", text="Size")
         tree.column("size", width=80, anchor="e")
@@ -577,6 +577,11 @@ class GSynchro:
         # Define a monospace font
         font_tuple = self._get_mono_font()
 
+        # Define a larger font for the "Sync" column characters
+        sync_font_family, sync_font_size = self._get_mono_font()
+        sync_font_size += 2
+        self.sync_font = tkfont.Font(family=sync_font_family, size=sync_font_size)
+
         # Configure tags for different status colors
         colors = {
             "green": "green",
@@ -588,6 +593,7 @@ class GSynchro:
         }
         for tag, color in colors.items():
             tree.tag_configure(tag, foreground=color, font=font_tuple)
+        tree.tag_configure("sync_col_font", font=self.sync_font)
 
         return tree
 
@@ -1309,7 +1315,7 @@ class GSynchro:
 
         insert_items("", structure, current_filter_rules, "")
 
-    def _build_tree_map(self, tree, parent_item="", path=""):
+    def _build_tree_map(self, tree: Optional[ttk.Treeview], parent_item="", path=""):
         """Build path to item ID map for a tree.
 
         Args:
@@ -1359,14 +1365,14 @@ class GSynchro:
                 current_values[2],
                 status,
             ),
-            tags=(status_color,),
+            tags=(status_color, "sync_col_font"),
         )
 
     # ==========================================================================
     # COMPARISON METHODS
     # ==========================================================================
 
-    def compare_folders(self, active_rules=None):
+    def compare_folders(self):
         """Compare files between panels."""
 
         def compare_thread():
@@ -2282,7 +2288,7 @@ class GSynchro:
                     t.join()
 
                 # Run comparison
-                self.root.after(0, self.compare_folders, active_rules)
+                self.root.after(0, self.compare_folders)
 
             threading.Thread(target=run_scans_and_compare, daemon=True).start()
 
