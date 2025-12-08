@@ -831,23 +831,21 @@ class GSynchro:
             Selected remote path or None if cancelled
         """
         try:
-            with self._create_ssh_for_panel(
-                panel_name.split(" ")[1]
-            ) as ssh_client_for_dialog:
-                if ssh_client_for_dialog is None:
+            with self._create_ssh_for_panel(panel_name.split(" ")[1]) as ssh_client:
+                if ssh_client is None:
                     raise ConnectionError(
                         "Failed to establish SSH connection for remote browsing."
                     )
 
                 current_path = initial_path or folder_var.get()
-                stdin, stdout, stderr = ssh_client_for_dialog.exec_command("pwd")
+                stdin, stdout, stderr = ssh_client.exec_command("pwd")
                 remote_path = stdout.read().decode().strip()
 
                 if not current_path or not current_path.startswith(remote_path):
                     current_path = remote_path
 
                 selected_path = self._show_remote_dialog(
-                    ssh_client_for_dialog, folder_var, current_path, panel_name
+                    ssh_client, folder_var, current_path, panel_name
                 )
                 if selected_path:
                     self._update_panel_history(

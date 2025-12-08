@@ -27,7 +27,13 @@ HISTORY_LENGTH = 10
 
 
 class GCompare:
+    """Main application class for GCompare file comparison tool."""
     def __init__(self, root: tk.Tk):
+        """Initialize the GCompare application.
+
+        Args:
+            root: The main Tkinter root window
+        """
         self.root = root
 
         # File Paths
