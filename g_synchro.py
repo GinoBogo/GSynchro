@@ -1858,15 +1858,14 @@ class GSynchro:
                 max_workers=4,
             )
         else:
-            self.log("Using sequential comparison (local-only)")
-            item_statuses, stats = self._calculate_item_statuses(
+            self.log("Using parallel comparison (local-only)")
+            item_statuses, stats = self._calculate_item_statuses_parallel(
                 all_visible_paths,
                 files_a,
                 files_b,
-                use_ssh_a,
-                use_ssh_b,
-                self._get_ssh_client_for_panel("A") if use_ssh_a else None,
-                self._get_ssh_client_for_panel("B") if use_ssh_b else None,
+                False,
+                False,
+                max_workers=4,
             )
 
         self._apply_comparison_to_ui(item_statuses, stats, tree_a_map, tree_b_map)
@@ -3229,20 +3228,47 @@ class GSynchro:
         if use_ssh:
             self.log(f"Downloading remote file for external use: {full_path}")
             try:
-                with self._create_ssh_for_panel(panel) as ssh_client:
-                    if not ssh_client:
-                        raise ConnectionError("SSH client is not available.")
+                # Use the connection manager directly instead of _create_ssh_for_panel
+                if panel == "A":
+                    with self.connection_manager.get_connection(
+                        self.remote_host_a.get(),
+                        self.remote_user_a.get(),
+                        self.remote_pass_a.get(),
+                        int(self.remote_port_a.get()),
+                    ) as ssh_client:
+                        if not ssh_client:
+                            raise ConnectionError("SSH client is not available.")
 
-                    transport = ssh_client.get_transport()
-                    if not transport or not transport.is_active():
-                        raise ConnectionError("SSH transport is not available.")
-                    with tempfile.NamedTemporaryFile(
-                        delete=False, suffix=os.path.basename(rel_path)
-                    ) as tmp:
-                        with SCPClient(transport) as scp:
-                            scp.get(full_path, tmp.name)
-                        self.temp_files_to_clean.append(tmp.name)
-                        return tmp.name
+                        transport = ssh_client.get_transport()
+                        if not transport or not transport.is_active():
+                            raise ConnectionError("SSH transport is not available.")
+                        with tempfile.NamedTemporaryFile(
+                            delete=False, suffix=os.path.basename(rel_path)
+                        ) as tmp:
+                            with SCPClient(transport) as scp:
+                                scp.get(full_path, tmp.name)
+                            self.temp_files_to_clean.append(tmp.name)
+                            return tmp.name
+                else:  # Panel B
+                    with self.connection_manager.get_connection(
+                        self.remote_host_b.get(),
+                        self.remote_user_b.get(),
+                        self.remote_pass_b.get(),
+                        int(self.remote_port_b.get()),
+                    ) as ssh_client:
+                        if not ssh_client:
+                            raise ConnectionError("SSH client is not available.")
+
+                        transport = ssh_client.get_transport()
+                        if not transport or not transport.is_active():
+                            raise ConnectionError("SSH transport is not available.")
+                        with tempfile.NamedTemporaryFile(
+                            delete=False, suffix=os.path.basename(rel_path)
+                        ) as tmp:
+                            with SCPClient(transport) as scp:
+                                scp.get(full_path, tmp.name)
+                            self.temp_files_to_clean.append(tmp.name)
+                            return tmp.name
             except Exception as e:
                 self.log(f"Failed to download remote file: {e}")
                 return None
