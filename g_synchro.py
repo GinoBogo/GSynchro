@@ -83,7 +83,7 @@ class ConnectionManager:
                     self._pools[server_key].put(conn)
                 except Exception as e:
                     self.log(
-                        f"Failed to create connection {i + 1} for {server_key}: {e}"
+                        f"SSH connection {i + 1}/{self.pool_size} failed for {server_key}: {e}"
                     )
 
     @contextmanager
@@ -159,7 +159,7 @@ class ConnectionManager:
         """Close all managed SSH connections."""
         with self._lock:
             for server_key, pool in self._pools.items():
-                self.log(f"Closing all connections for {server_key}")
+                self.log(f"Closing SSH pool {server_key}")
                 while not pool.empty():
                     try:
                         conn = pool.get_nowait()
@@ -854,12 +854,12 @@ class GSynchro:
                 ):
                     raise ValueError("Host, username, password, and port are required.")
 
-                self.log(f"Testing SSH connection for {panel_name}...")
+                self.log(f"Testing SSH {panel_name}...")
                 with self._create_ssh_for_panel(panel_name.split(" ")[1]) as ssh_client:
                     if ssh_client is None:
                         raise ConnectionError("Failed to establish SSH connection.")
 
-                self.log(f"✓ SSH connection successful for {panel_name}")
+                self.log(f"✓ SSH {panel_name} connected")
                 messagebox.showinfo(
                     "Success", f"SSH connection established for {panel_name}!"
                 )
@@ -1140,7 +1140,7 @@ class GSynchro:
             rules = []
 
         if use_ssh:
-            self.log(f"Using SSH for panel {panel_name} scan")
+            self.log(f"SSH scan panel {panel_name}")
             try:
                 files = self._scan_remote(folder_path, ssh_client, rules)
                 num_dirs = sum(1 for f in files.values() if f.get("type") == "dir")
@@ -1640,7 +1640,7 @@ class GSynchro:
         import time
 
         start_time = time.time()
-        self.log(f"Starting parallel comparison with {max_workers} workers...")
+        self.log(f"Parallel comparison: {max_workers} workers")
 
         item_statuses = {}
         dirty_folders = set()
@@ -1668,9 +1668,7 @@ class GSynchro:
             else:
                 dir_paths.append(rel_path)
 
-        self.log(
-            f"Processing {len(file_paths)} files and {len(dir_paths)} directories..."
-        )
+        self.log(f"Processing {len(file_paths)} files, {len(dir_paths)} dirs")
 
         # Process files in parallel using connection pools
         def compare_single_file(rel_path):
@@ -1809,7 +1807,7 @@ class GSynchro:
                 item_statuses[rel_path] = ("Identical", "green")
 
         elapsed_time = time.time() - start_time
-        self.log(f"Parallel comparison completed in {elapsed_time:.2f} seconds")
+        self.log(f"Parallel comparison done: {elapsed_time:.2f}s")
 
         return item_statuses, stats
 
@@ -1854,7 +1852,7 @@ class GSynchro:
 
         # Choose comparison method based on SSH usage
         if use_ssh_a or use_ssh_b:
-            self.log("Using parallel comparison with connection pooling")
+            self.log("Parallel comparison with pooling")
             item_statuses, stats = self._calculate_item_statuses_parallel(
                 all_visible_paths,
                 files_a,
@@ -1864,7 +1862,7 @@ class GSynchro:
                 max_workers=4,
             )
         else:
-            self.log("Using parallel comparison (local-only)")
+            self.log("Sequential comparison (local)")
             item_statuses, stats = self._calculate_item_statuses_parallel(
                 all_visible_paths,
                 files_a,
@@ -3232,7 +3230,7 @@ class GSynchro:
             return None
 
         if use_ssh:
-            self.log(f"Downloading remote file for external use: {full_path}")
+            self.log(f"Downloading remote file: {full_path}")
             try:
                 # Use the connection manager directly instead of _create_ssh_for_panel
                 if panel == "A":
@@ -3564,9 +3562,7 @@ class GSynchro:
 
                 # Log pool status for debugging
                 pool_status = self.connection_manager.get_pool_status()
-                self.log(
-                    f"Pool status after getting connection for {server_key}: {pool_status}"
-                )
+                self.log(f"Pool status {server_key}: {pool_status}")
 
                 return conn
             except Exception as e:
@@ -3603,9 +3599,7 @@ class GSynchro:
 
                 # Log pool status for debugging
                 pool_status = self.connection_manager.get_pool_status()
-                self.log(
-                    f"Pool status after getting connection for {server_key}: {pool_status}"
-                )
+                self.log(f"Pool status {server_key}: {pool_status}")
 
                 return conn
             except Exception as e:
