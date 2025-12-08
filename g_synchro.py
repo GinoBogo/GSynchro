@@ -20,6 +20,8 @@ import subprocess
 import sys
 import tempfile
 import threading
+from queue import Queue
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import tkinter as tk
 import tkinter.font as tkfont
@@ -43,18 +45,50 @@ UNCHECKED_CHAR = "☐"
 class ConnectionManager:
     """Manages SSH connections with pooling."""
 
-    def __init__(self, logger_func):
+    def __init__(self, logger_func, pool_size=4):
         """Initialize the ConnectionManager.
 
         Args:
             logger_func: A function to call for logging messages.
+            pool_size: Number of connections to maintain per server.
         """
-        self._connections = {}
+        self._pools = {}  # {server_key: Queue of connections}
+        self._pool_configs = {}  # {server_key: (host, user, password, port)}
         self._lock = threading.Lock()
         self.log = logger_func
+        self.pool_size = pool_size
 
+    def _get_server_key(self, host, user, port):
+        """Generate a unique key for a server configuration."""
+        return f"{user}@{host}:{port}"
+
+    def _create_connection(self, host, user, password, port):
+        """Create a new SSH connection."""
+        self.log(f"Creating new SSH connection for {user}@{host}:{port}")
+        client = paramiko.SSHClient()
+        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        client.connect(host, username=user, password=password, port=port)
+        return client
+
+    def _initialize_pool(self, server_key, host, user, password, port):
+        """Initialize a connection pool for a server."""
+        if server_key not in self._pools:
+            self._pools[server_key] = Queue()
+            self._pool_configs[server_key] = (host, user, password, port)
+
+            # Create initial connections
+            for i in range(self.pool_size):
+                try:
+                    conn = self._create_connection(host, user, password, port)
+                    self._pools[server_key].put(conn)
+                except Exception as e:
+                    self.log(
+                        f"Failed to create connection {i + 1} for {server_key}: {e}"
+                    )
+
+    @contextmanager
     def get_connection(self, host, user, password, port):
-        """Get an active SSH connection from the pool or create a new one.
+        """Get a connection from the pool as a context manager.
 
         Args:
             host: SSH host.
@@ -62,31 +96,79 @@ class ConnectionManager:
             password: SSH password.
             port: SSH port.
 
-        Returns:
+        Yields:
             An active paramiko.SSHClient instance.
         """
-        key = f"{user}@{host}:{port}"
-        with self._lock:
-            conn = self._connections.get(key)
-            if conn and conn.get_transport() and conn.get_transport().is_active():
-                self.log(f"Reusing existing SSH connection for {key}")
-                return conn
+        server_key = self._get_server_key(host, user, port)
 
-            self.log(f"Creating new SSH connection for {key}")
-            client = paramiko.SSHClient()
-            client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-            client.connect(host, username=user, password=password, port=port)
-            self._connections[key] = client
-            return client
+        with self._lock:
+            # Initialize pool if needed
+            if server_key not in self._pools:
+                self._initialize_pool(server_key, host, user, password, port)
+
+        # Get connection from pool
+        conn = None
+        try:
+            conn = self._pools[server_key].get(timeout=10)
+
+            # Check if connection is still alive
+            if (
+                not conn
+                or not conn.get_transport()
+                or not conn.get_transport().is_active()
+            ):
+                self.log(f"Connection for {server_key} is dead, creating new one")
+                conn = self._create_connection(host, user, password, port)
+
+            yield conn
+
+        except Exception as e:
+            self.log(f"Error getting connection for {server_key}: {e}")
+            # Try to create a new connection as fallback
+            conn = self._create_connection(host, user, password, port)
+            yield conn
+        finally:
+            # Return connection to pool
+            if conn and server_key in self._pools:
+                try:
+                    # Check if connection is still good before returning
+                    if conn.get_transport() and conn.get_transport().is_active():
+                        self._pools[server_key].put(conn, timeout=1)
+                    else:
+                        conn.close()
+                        # Create a replacement connection
+                        host, user, password, port = self._pool_configs[server_key]
+                        new_conn = self._create_connection(host, user, password, port)
+                        self._pools[server_key].put(new_conn, timeout=1)
+                except Exception:
+                    # If we can't return to pool, close it
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
+
+    def get_pool_status(self):
+        """Get status of all connection pools."""
+        status = {}
+        with self._lock:
+            for server_key, pool in self._pools.items():
+                status[server_key] = pool.qsize()
+        return status
 
     def close_all(self):
         """Close all managed SSH connections."""
         with self._lock:
-            for key, conn in self._connections.items():
-                self.log(f"Closing SSH connection for {key}")
-                if conn:
-                    conn.close()
-            self._connections.clear()
+            for server_key, pool in self._pools.items():
+                self.log(f"Closing all connections for {server_key}")
+                while not pool.empty():
+                    try:
+                        conn = pool.get_nowait()
+                        if conn:
+                            conn.close()
+                    except Exception:
+                        pass
+            self._pools.clear()
+            self._pool_configs.clear()
 
 
 class GSynchro:
@@ -102,7 +184,7 @@ class GSynchro:
         self._init_window()
 
         # Connection Manager
-        self.connection_manager = ConnectionManager(self.log)
+        self.connection_manager = ConnectionManager(self.log, pool_size=4)
         self.remote_host_a = tk.StringVar()
         self.remote_user_a = tk.StringVar()
         self.remote_pass_a = tk.StringVar()
@@ -1529,6 +1611,202 @@ class GSynchro:
 
         return item_statuses, stats
 
+    def _calculate_item_statuses_parallel(
+        self,
+        all_visible_paths,
+        files_a,
+        files_b,
+        use_ssh_a,
+        use_ssh_b,
+        ssh_client_a=None,
+        ssh_client_b=None,
+        max_workers=4,
+    ):
+        """Calculate the status of all files and directories in parallel.
+
+        Args:
+            all_visible_paths: Set of all visible paths
+            files_a: Files in Panel A
+            files_b: Files in Panel B
+            use_ssh_a: Whether Panel A uses SSH
+            use_ssh_b: Whether Panel B uses SSH
+            ssh_client_a: The SSH client for panel A (not used in parallel version)
+            ssh_client_b: The SSH client for panel B (not used in parallel version)
+            max_workers: Maximum number of parallel workers
+
+        Returns:
+            Tuple of (item_statuses, stats)
+        """
+        import time
+
+        start_time = time.time()
+        self.log(f"Starting parallel comparison with {max_workers} workers...")
+
+        item_statuses = {}
+        dirty_folders = set()
+        stats = {
+            "identical": 0,
+            "different": 0,
+            "only_a": 0,
+            "only_b": 0,
+            "conflicts": 0,
+        }
+
+        # Separate files and directories for different processing
+        file_paths = []
+        dir_paths = []
+
+        for rel_path in all_visible_paths:
+            file_a_info = files_a.get(rel_path)
+            file_b_info = files_b.get(rel_path)
+            is_file = (file_a_info and file_a_info.get("type") == "file") or (
+                file_b_info and file_b_info.get("type") == "file"
+            )
+
+            if is_file:
+                file_paths.append(rel_path)
+            else:
+                dir_paths.append(rel_path)
+
+        self.log(
+            f"Processing {len(file_paths)} files and {len(dir_paths)} directories..."
+        )
+
+        # Process files in parallel using connection pools
+        def compare_single_file(rel_path):
+            """Compare a single file using the connection pool."""
+            file_a_info = files_a.get(rel_path)
+            file_b_info = files_b.get(rel_path)
+
+            # Use the connection pool for SSH connections only when needed
+            if use_ssh_a and use_ssh_b:
+                # Both sides are remote - use two connections
+                with (
+                    self.connection_manager.get_connection(
+                        self.remote_host_a.get(),
+                        self.remote_user_a.get(),
+                        self.remote_pass_a.get(),
+                        int(self.remote_port_a.get()),
+                    ) as ssh_a,
+                    self.connection_manager.get_connection(
+                        self.remote_host_b.get(),
+                        self.remote_user_b.get(),
+                        self.remote_pass_b.get(),
+                        int(self.remote_port_b.get()),
+                    ) as ssh_b,
+                ):
+                    status, status_color = self._compare_files(
+                        file_a_info, file_b_info, use_ssh_a, use_ssh_b, ssh_a, ssh_b
+                    )
+            elif use_ssh_a:
+                # Only Panel A is remote - use one connection
+                with self.connection_manager.get_connection(
+                    self.remote_host_a.get(),
+                    self.remote_user_a.get(),
+                    self.remote_pass_a.get(),
+                    int(self.remote_port_a.get()),
+                ) as ssh_a:
+                    status, status_color = self._compare_files(
+                        file_a_info, file_b_info, use_ssh_a, False, ssh_a, None
+                    )
+            elif use_ssh_b:
+                # Only Panel B is remote - use one connection
+                with self.connection_manager.get_connection(
+                    self.remote_host_b.get(),
+                    self.remote_user_b.get(),
+                    self.remote_pass_b.get(),
+                    int(self.remote_port_b.get()),
+                ) as ssh_b:
+                    status, status_color = self._compare_files(
+                        file_a_info, file_b_info, False, use_ssh_b, None, ssh_b
+                    )
+            else:
+                # Both sides are local - no SSH needed
+                status, status_color = self._compare_files(
+                    file_a_info, file_b_info, False, False, None, None
+                )
+
+            return rel_path, status, status_color
+
+        # Process files in parallel
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Submit all file comparison tasks
+            future_to_path = {
+                executor.submit(compare_single_file, rel_path): rel_path
+                for rel_path in file_paths
+            }
+
+            # Collect results as they complete
+            for future in as_completed(future_to_path):
+                rel_path, status, status_color = future.result()
+                item_statuses[rel_path] = (status, status_color)
+
+                # Update stats
+                if status == "Identical":
+                    stats["identical"] += 1
+                    self.sync_states[rel_path] = False
+                else:
+                    if status == "Different":
+                        stats["different"] += 1
+                    elif status == "Conflict":
+                        stats["conflicts"] += 1
+                    elif status == "Only in A":
+                        stats["only_a"] += 1
+                        dirty_folders.add(os.path.dirname(rel_path))
+                    elif status == "Only in B":
+                        stats["only_b"] += 1
+                        dirty_folders.add(os.path.dirname(rel_path))
+                    self.sync_states[rel_path] = True
+
+                # Update progress
+                self.root.after(0, self.update_progress, 1)
+
+        # Process directories (these are fast, no need for parallel)
+        for rel_path in dir_paths:
+            file_a_info = files_a.get(rel_path)
+            file_b_info = files_b.get(rel_path)
+            is_dir_in_a = file_a_info and file_a_info.get("type") == "dir"
+            is_dir_in_b = file_b_info and file_b_info.get("type") == "dir"
+
+            if is_dir_in_a and not is_dir_in_b:
+                item_statuses[rel_path] = ("Only in A", "blue")
+                stats["only_a"] += 1
+                self.sync_states[rel_path] = True
+                dirty_folders.add(os.path.dirname(rel_path))
+            elif is_dir_in_b and not is_dir_in_a:
+                item_statuses[rel_path] = ("Only in B", "red")
+                stats["only_b"] += 1
+                self.sync_states[rel_path] = True
+                dirty_folders.add(os.path.dirname(rel_path))
+
+        # Process shared directories
+        for rel_path in sorted(dirty_folders):
+            if (
+                files_a.get(rel_path, {}).get("type") == "dir"
+                and files_b.get(rel_path, {}).get("type") == "dir"
+            ):
+                if rel_path in dirty_folders:
+                    status, status_color = "Different", "magenta"
+                    self.sync_states[rel_path] = True
+                else:
+                    status, status_color = "Identical", "green"
+                    self.sync_states[rel_path] = False
+                item_statuses[rel_path] = (status, status_color)
+
+        # Mark remaining shared directories as identical
+        for rel_path in sorted(all_visible_paths):
+            is_dir_in_both = (
+                files_a.get(rel_path, {}).get("type") == "dir"
+                and files_b.get(rel_path, {}).get("type") == "dir"
+            )
+            if is_dir_in_both and rel_path not in item_statuses:
+                item_statuses[rel_path] = ("Identical", "green")
+
+        elapsed_time = time.time() - start_time
+        self.log(f"Parallel comparison completed in {elapsed_time:.2f} seconds")
+
+        return item_statuses, stats
+
     def _apply_comparison_to_ui(self, item_statuses, stats, tree_a_map, tree_b_map):
         """Update the UI with the results of the comparison.
 
@@ -1568,15 +1846,28 @@ class GSynchro:
         """
         tree_a_map, tree_b_map, all_visible_paths = self._prepare_comparison_data()
 
-        item_statuses, stats = self._calculate_item_statuses(
-            all_visible_paths,
-            files_a,
-            files_b,
-            use_ssh_a,
-            use_ssh_b,
-            self._get_ssh_client_for_panel("A") if use_ssh_a else None,
-            self._get_ssh_client_for_panel("B") if use_ssh_b else None,
-        )
+        # Choose comparison method based on SSH usage
+        if use_ssh_a or use_ssh_b:
+            self.log("Using parallel comparison with connection pooling")
+            item_statuses, stats = self._calculate_item_statuses_parallel(
+                all_visible_paths,
+                files_a,
+                files_b,
+                use_ssh_a,
+                use_ssh_b,
+                max_workers=4,
+            )
+        else:
+            self.log("Using sequential comparison (local-only)")
+            item_statuses, stats = self._calculate_item_statuses(
+                all_visible_paths,
+                files_a,
+                files_b,
+                use_ssh_a,
+                use_ssh_b,
+                self._get_ssh_client_for_panel("A") if use_ssh_a else None,
+                self._get_ssh_client_for_panel("B") if use_ssh_b else None,
+            )
 
         self._apply_comparison_to_ui(item_statuses, stats, tree_a_map, tree_b_map)
 
@@ -3209,20 +3500,91 @@ class GSynchro:
             A paramiko.SSHClient instance or None if not configured.
         """
         if panel_name == "A" and self._has_ssh_a():
-            return self.connection_manager.get_connection(
-                self.remote_host_a.get(),
-                self.remote_user_a.get(),
-                self.remote_pass_a.get(),
-                int(self.remote_port_a.get()),
-            )
+            # For backward compatibility, get a connection and return it
+            # Note: This connection won't be automatically returned to pool
+            # TODO: Refactor callers to use context manager instead
+            try:
+                host = self.remote_host_a.get()
+                user = self.remote_user_a.get()
+                password = self.remote_pass_a.get()
+                port = int(self.remote_port_a.get())
+
+                # Get connection from pool (but don't use context manager)
+                server_key = f"{user}@{host}:{port}"
+                with self.connection_manager._lock:
+                    if server_key not in self.connection_manager._pools:
+                        self.connection_manager._initialize_pool(
+                            server_key, host, user, password, port
+                        )
+
+                # Get a connection from pool
+                conn = self.connection_manager._pools[server_key].get(timeout=10)
+
+                # Check if connection is alive
+                if (
+                    not conn
+                    or not conn.get_transport()
+                    or not conn.get_transport().is_active()
+                ):
+                    conn = self.connection_manager._create_connection(
+                        host, user, password, port
+                    )
+
+                # Log pool status for debugging
+                pool_status = self.connection_manager.get_pool_status()
+                self.log(
+                    f"Pool status after getting connection for {server_key}: {pool_status}"
+                )
+
+                return conn
+            except Exception as e:
+                self.log(f"Error getting SSH client for panel A: {e}")
+                return None
+
         if panel_name == "B" and self._has_ssh_b():
-            return self.connection_manager.get_connection(
-                self.remote_host_b.get(),
-                self.remote_user_b.get(),
-                self.remote_pass_b.get(),
-                int(self.remote_port_b.get()),
-            )
+            try:
+                host = self.remote_host_b.get()
+                user = self.remote_user_b.get()
+                password = self.remote_pass_b.get()
+                port = int(self.remote_port_b.get())
+
+                # Get connection from pool (but don't use context manager)
+                server_key = f"{user}@{host}:{port}"
+                with self.connection_manager._lock:
+                    if server_key not in self.connection_manager._pools:
+                        self.connection_manager._initialize_pool(
+                            server_key, host, user, password, port
+                        )
+
+                # Get a connection from pool
+                conn = self.connection_manager._pools[server_key].get(timeout=10)
+
+                # Check if connection is alive
+                if (
+                    not conn
+                    or not conn.get_transport()
+                    or not conn.get_transport().is_active()
+                ):
+                    conn = self.connection_manager._create_connection(
+                        host, user, password, port
+                    )
+
+                # Log pool status for debugging
+                pool_status = self.connection_manager.get_pool_status()
+                self.log(
+                    f"Pool status after getting connection for {server_key}: {pool_status}"
+                )
+
+                return conn
+            except Exception as e:
+                self.log(f"Error getting SSH client for panel B: {e}")
+                return None
+
         return None
+
+    def _get_connection_pool_status(self):
+        """Get current connection pool status for debugging."""
+        return self.connection_manager.get_pool_status()
 
 
 def main():
