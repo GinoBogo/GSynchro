@@ -1748,8 +1748,14 @@ class GSynchro:
                 else:
                     if status == "Different":
                         stats["different"] += 1
+                        dirty_folders.add(
+                            os.path.dirname(rel_path)
+                        )  # Add parent folder
                     elif status == "Conflict":
                         stats["conflicts"] += 1
+                        dirty_folders.add(
+                            os.path.dirname(rel_path)
+                        )  # Add parent folder
                     elif status == "Only in A":
                         stats["only_a"] += 1
                         dirty_folders.add(os.path.dirname(rel_path))
