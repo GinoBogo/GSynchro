@@ -52,7 +52,7 @@ class GCompare:
         self.file_view_b = None
         self.panel_a = None
         self.panel_b = None
-        self.scroll_marker_id = None  # New: ID for the scroll position marker
+        self.scroll_marker_id = None
         self.diff_map_canvas = None
         self.v_scrollbar_a = None
         self.v_scrollbar_b = None
@@ -64,7 +64,8 @@ class GCompare:
         self.status_b = tk.StringVar()
 
         self.load_config()
-        self._setup_ui()
+        self._init_window()  # Initialize window properties
+        self._setup_ui()  # Set up the main UI components
 
         # Load files from command line arguments
         if len(sys.argv) > 1:
@@ -77,7 +78,7 @@ class GCompare:
             self._compare_files()
 
     # ==========================================================================
-    # INITIALIZATION & UI SETUP
+    # INITIALIZATION METHODS
     # ==========================================================================
 
     def _init_window(self):
@@ -106,69 +107,8 @@ class GCompare:
         # Initial status
         self.status_a.set("by Gino Bogo")
 
+        # Set up synchronized scrolling after all UI components are created
         self._setup_synchronized_scrolling()
-
-    # ==========================================================================
-    # CONFIGURATION METHODS
-    # ==========================================================================
-
-    def load_config(self):
-        """Load configuration from file."""
-        self._init_window()
-        if not os.path.exists(CONFIG_FILE):
-            return
-
-        try:
-            with open(CONFIG_FILE, "r") as f:
-                config = json.load(f)
-
-            # Window geometry
-            if "WINDOW" in config and "geometry" in config["WINDOW"]:
-                self.root.geometry(config["WINDOW"]["geometry"])
-
-            # File A History
-            if "FILE_A_HISTORY" in config:
-                self.file_a_history = config["FILE_A_HISTORY"]
-                if self.file_a_history:
-                    self.file_a.set(self.file_a_history[0])
-
-            # File B History
-            if "FILE_B_HISTORY" in config:
-                self.file_b_history = config["FILE_B_HISTORY"]
-                if self.file_b_history:
-                    self.file_b.set(self.file_b_history[0])
-
-        except json.JSONDecodeError:
-            print(f"Warning: Could not parse {CONFIG_FILE}. Using defaults.")
-
-    def save_config(self):
-        """Save configuration to file."""
-        # Update file history
-        self._update_file_history("A", self.file_a, self.file_a.get())
-        self._update_file_history("B", self.file_b, self.file_b.get())
-
-        config = {
-            "WINDOW": {"geometry": self.root.geometry()},
-            "FILE_A_HISTORY": self.file_a_history,
-            "FILE_B_HISTORY": self.file_b_history,
-        }
-
-        with open(CONFIG_FILE, "w") as f:
-            json.dump(config, f, indent=4)
-
-    def _update_file_history(self, panel_name, file_var, new_path):
-        """Update and save file history."""
-        if not new_path:
-            return
-
-        history_list = self.file_a_history if panel_name == "A" else self.file_b_history
-        if new_path in history_list:
-            history_list.remove(new_path)
-        history_list.insert(0, new_path)
-
-    # ==========================================================================
-    # UI CREATION METHODS
-    # ==========================================================================
 
     def _setup_styles(self):
         """Configure application styles."""
@@ -293,9 +233,11 @@ class GCompare:
         # Diff Map Canvas
         self.diff_map_canvas = tk.Canvas(panels_frame, width=20, bg="#F0F0F0")
         self.diff_map_canvas.grid(row=0, column=1, sticky="ns", pady=(10, 0))
-        self.scroll_marker_id = self.diff_map_canvas.create_rectangle(
-            0, 0, 20, 1, fill="black", outline="black", tags="scroll_marker"
-        )  # Initial marker
+        self.scroll_marker_id = (
+            self.diff_map_canvas.create_rectangle(  # Initial marker for scroll position
+                1, 0, 19, 1, fill="", outline="black", tags="scroll_marker"
+            )
+        )
         self.diff_map_canvas.bind("<Configure>", self._compare_files)
 
         self._create_panel(panels_frame, panel_b_config)
@@ -371,109 +313,6 @@ class GCompare:
             self.v_scrollbar_b = v_scrollbar
             self.h_scrollbar_b = h_scrollbar
 
-    def _setup_synchronized_scrolling(self):
-        """Link the scrollbars of the two text widgets for synchronized scrolling."""
-        if not (
-            self.file_view_a
-            and self.file_view_b
-            and self.v_scrollbar_a
-            and self.v_scrollbar_b
-            and self.h_scrollbar_a
-            and self.h_scrollbar_b
-        ):
-            return
-
-        # Assign local variables to avoid Pylance warnings about optional members
-        file_view_a, file_view_b = self.file_view_a, self.file_view_b
-        v_scrollbar_a, v_scrollbar_b = self.v_scrollbar_a, self.v_scrollbar_b
-        h_scrollbar_a, h_scrollbar_b = self.h_scrollbar_a, self.h_scrollbar_b
-
-        def _on_y_scroll(*args):
-            """Handle all vertical scroll events."""
-            file_view_a.yview(*args)
-            file_view_b.yview(*args)
-
-        def _on_y_view_change(*args):
-            """Update scrollbars when text view changes."""
-            v_scrollbar_a.set(*args)
-            v_scrollbar_b.set(*args)
-            self._update_scroll_marker(float(args[0]), float(args[1]))
-
-        def _on_x_scroll(*args):
-            """Handle all horizontal scroll events."""
-            file_view_a.xview(*args)
-            file_view_b.xview(*args)
-
-        def _on_x_view_change(*args):
-            """Update scrollbars when text view's horizontal position changes."""
-            h_scrollbar_a.set(*args)
-            h_scrollbar_b.set(*args)
-
-        # Configure vertical scrolling
-        v_scrollbar_a.config(command=_on_y_scroll)
-        v_scrollbar_b.config(command=_on_y_scroll)
-        file_view_a.config(yscrollcommand=_on_y_view_change)
-        file_view_b.config(yscrollcommand=_on_y_view_change)
-
-        # Configure horizontal scrolling
-        h_scrollbar_a.config(command=_on_x_scroll)
-        h_scrollbar_b.config(command=_on_x_scroll)
-        file_view_a.config(xscrollcommand=_on_x_view_change)
-        file_view_b.config(xscrollcommand=_on_x_view_change)
-
-        # Bind mouse wheel to scroll both text widgets
-        def _on_mouse_wheel(event):
-            """Handle mouse wheel scrolling for both text widgets."""
-            # Determine scroll direction and amount
-            delta = -1 * (event.delta / 120) if event.delta != 0 else 0
-
-            # Handle touchpad scrolling (some systems use event.num)
-            if event.num in (4, 5):
-                delta = -1 if event.num == 4 else 1
-
-            # Scroll both text widgets
-            file_view_a.yview_scroll(int(delta), "units")
-            file_view_b.yview_scroll(int(delta), "units")
-
-            # Prevent default behavior
-            return "break"
-
-        # Bind mouse wheel events to both text widgets
-        for widget in [file_view_a, file_view_b]:
-            widget.bind("<MouseWheel>", _on_mouse_wheel, add=True)
-            widget.bind("<Button-4>", _on_mouse_wheel, add=True)  # Linux scroll up
-            widget.bind("<Button-5>", _on_mouse_wheel, add=True)  # Linux scroll down
-
-            # Also bind to the frame containing the text widget for when focus is elsewhere
-            if widget.master:
-                widget.master.bind("<MouseWheel>", _on_mouse_wheel, add=True)
-                widget.master.bind("<Button-4>", _on_mouse_wheel, add=True)
-                widget.master.bind("<Button-5>", _on_mouse_wheel, add=True)
-
-        # Bind to the main window as well to catch events anywhere in the application
-        self.root.bind("<MouseWheel>", _on_mouse_wheel, add=True)
-        self.root.bind("<Button-4>", _on_mouse_wheel, add=True)
-        self.root.bind("<Button-5>", _on_mouse_wheel, add=True)
-
-    def _update_scroll_marker(self, first_visible_fraction, last_visible_fraction):
-        """Updates the position and height of the scroll marker on the diff map."""
-        if self.diff_map_canvas and self.scroll_marker_id:
-            canvas_height = self.diff_map_canvas.winfo_height()
-            if (
-                canvas_height == 0
-            ):  # Avoid division by zero or incorrect calculations if canvas is not yet rendered
-                return
-
-            y1 = first_visible_fraction * canvas_height
-            y2 = last_visible_fraction * canvas_height
-
-            # Ensure minimum height for visibility, e.g., 2 pixels
-            if y2 - y1 < 2:
-                y2 = y1 + 2
-                if y2 > canvas_height:  # Adjust if marker goes past bottom
-                    y1 = canvas_height - 2
-            self.diff_map_canvas.coords(self.scroll_marker_id, 1, y1, 19, y2)
-
     def _create_status_bar(self, parent):
         """Create status bar."""
         status_frame = ttk.Frame(parent, relief="flat", padding="2")
@@ -492,6 +331,63 @@ class GCompare:
             status_frame, textvariable=self.status_b, anchor=tk.W
         )
         status_label_b.grid(row=0, column=1, sticky=tk.EW, padx=0)
+
+    # ==========================================================================
+    # CONFIGURATION METHODS
+    # ==========================================================================
+
+    def load_config(self):
+        """Load configuration from file."""
+        if not os.path.exists(CONFIG_FILE):
+            return
+
+        try:
+            with open(CONFIG_FILE, "r") as f:
+                config = json.load(f)
+
+            # Window geometry
+            if "WINDOW" in config and "geometry" in config["WINDOW"]:
+                self.root.geometry(config["WINDOW"]["geometry"])
+
+            # File A History
+            if "FILE_A_HISTORY" in config:
+                self.file_a_history = config["FILE_A_HISTORY"]
+                if self.file_a_history:
+                    self.file_a.set(self.file_a_history[0])
+
+            # File B History
+            if "FILE_B_HISTORY" in config:
+                self.file_b_history = config["FILE_B_HISTORY"]
+                if self.file_b_history:
+                    self.file_b.set(self.file_b_history[0])
+
+        except json.JSONDecodeError:
+            print(f"Warning: Could not parse {CONFIG_FILE}. Using defaults.")
+
+    def save_config(self):
+        """Save configuration to file."""
+        # Update file history
+        self._update_file_history("A", self.file_a, self.file_a.get())
+        self._update_file_history("B", self.file_b, self.file_b.get())
+
+        config = {
+            "WINDOW": {"geometry": self.root.geometry()},
+            "FILE_A_HISTORY": self.file_a_history,
+            "FILE_B_HISTORY": self.file_b_history,
+        }
+
+        with open(CONFIG_FILE, "w") as f:
+            json.dump(config, f, indent=4)
+
+    def _update_file_history(self, panel_name, file_var, new_path):
+        """Update and save file history."""
+        if not new_path:
+            return
+
+        history_list = self.file_a_history if panel_name == "A" else self.file_b_history
+        if new_path in history_list:
+            history_list.remove(new_path)
+        history_list.insert(0, new_path)
 
     # ==========================================================================
     # FILE OPERATIONS
@@ -639,7 +535,7 @@ class GCompare:
             # We must reset the flag manually to be able to catch the next change.
             text_widget.edit_modified(False)
 
-    def _compare_files(self, event=None):
+    def _compare_files(self, event=None):  # event=None for manual calls
         """Compare the content of the two text areas and highlight differences."""
         if not self.file_view_a or not self.file_view_b:
             messagebox.showwarning(
@@ -652,12 +548,12 @@ class GCompare:
         lines_b = self.file_view_b.get("1.0", tk.END).splitlines()
 
         # Clear existing tags
-        # Only delete diff tags, preserve others like 'sel'
+        # Only delete diff tags, preserve others like 'sel'.
         self.file_view_a.tag_remove("difference", "1.0", tk.END)
         self.file_view_b.tag_remove("difference", "1.0", tk.END)
 
         # Clear diff map canvas
-        # Only delete diff lines, preserve the scroll marker
+        # Only delete diff lines, preserve the scroll marker.
         if self.diff_map_canvas:
             self.diff_map_canvas.delete("diff_line")
             # Update scroll marker position in case canvas height changed
@@ -715,6 +611,119 @@ class GCompare:
         self.status_a.set(f"Lines removed: {removed_lines}")
         self.status_b.set(f"Lines added: {added_lines}")
 
+        # Ensure the scroll marker is always drawn on top of the diff lines
+        if self.diff_map_canvas:
+            self.diff_map_canvas.tag_raise("scroll_marker")
+
+    # ==========================================================================
+    # SCROLLING METHODS
+    # ==========================================================================
+
+    def _setup_synchronized_scrolling(self):
+        """Link the scrollbars of the two text widgets for synchronized scrolling."""
+        if not (
+            self.file_view_a
+            and self.file_view_b
+            and self.v_scrollbar_a
+            and self.v_scrollbar_b
+            and self.h_scrollbar_a
+            and self.h_scrollbar_b
+        ):
+            return
+
+        # Assign local variables to avoid Pylance warnings about optional members
+        file_view_a, file_view_b = self.file_view_a, self.file_view_b
+        v_scrollbar_a, v_scrollbar_b = self.v_scrollbar_a, self.v_scrollbar_b
+        h_scrollbar_a, h_scrollbar_b = self.h_scrollbar_a, self.h_scrollbar_b
+
+        def _on_y_scroll(*args):
+            """Handle all vertical scroll events."""
+            file_view_a.yview(*args)
+            file_view_b.yview(*args)
+
+        def _on_y_view_change(*args):
+            """Update scrollbars when text view changes."""
+            v_scrollbar_a.set(*args)
+            v_scrollbar_b.set(*args)
+            self._update_scroll_marker(float(args[0]), float(args[1]))
+
+        def _on_x_scroll(*args):
+            """Handle all horizontal scroll events."""
+            file_view_a.xview(*args)
+            file_view_b.xview(*args)
+
+        def _on_x_view_change(*args):
+            """Update scrollbars when text view's horizontal position changes."""
+            h_scrollbar_a.set(*args)
+            h_scrollbar_b.set(*args)
+
+        # Configure vertical scrolling
+        v_scrollbar_a.config(command=_on_y_scroll)
+        v_scrollbar_b.config(command=_on_y_scroll)
+        file_view_a.config(yscrollcommand=_on_y_view_change)
+        file_view_b.config(yscrollcommand=_on_y_view_change)
+
+        # Configure horizontal scrolling
+        h_scrollbar_a.config(command=_on_x_scroll)
+        h_scrollbar_b.config(command=_on_x_scroll)
+        file_view_a.config(xscrollcommand=_on_x_view_change)
+        file_view_b.config(xscrollcommand=_on_x_view_change)
+
+        # Bind mouse wheel to scroll both text widgets
+        def _on_mouse_wheel(event):
+            """Handle mouse wheel scrolling for both text widgets."""
+            # Determine scroll direction and amount
+            delta = -1 * (event.delta / 120) if event.delta != 0 else 0
+
+            # Handle touchpad scrolling (some systems use event.num)
+            if event.num in (4, 5):
+                delta = -1 if event.num == 4 else 1
+
+            # Scroll both text widgets
+            file_view_a.yview_scroll(int(delta), "units")
+            file_view_b.yview_scroll(int(delta), "units")
+
+            # Prevent default behavior
+            return "break"
+
+        # Bind mouse wheel events to both text widgets
+        for widget in [file_view_a, file_view_b]:
+            widget.bind("<MouseWheel>", _on_mouse_wheel, add=True)
+            widget.bind("<Button-4>", _on_mouse_wheel, add=True)  # Linux scroll up
+            widget.bind("<Button-5>", _on_mouse_wheel, add=True)  # Linux scroll down
+
+            # Also bind to the frame containing the text widget for when focus is elsewhere
+            if widget.master:
+                widget.master.bind("<MouseWheel>", _on_mouse_wheel, add=True)
+                widget.master.bind("<Button-4>", _on_mouse_wheel, add=True)
+                widget.master.bind("<Button-5>", _on_mouse_wheel, add=True)
+
+        # Bind to the main window as well to catch events anywhere in the application
+        self.root.bind("<MouseWheel>", _on_mouse_wheel, add=True)
+        self.root.bind("<Button-4>", _on_mouse_wheel, add=True)
+        self.root.bind("<Button-5>", _on_mouse_wheel, add=True)
+
+    def _update_scroll_marker(self, first_visible_fraction, last_visible_fraction):
+        """Updates the position and height of the scroll marker on the diff map."""
+        if self.diff_map_canvas and self.scroll_marker_id:
+            canvas_height = self.diff_map_canvas.winfo_height()
+            if (
+                canvas_height == 0
+            ):  # Avoid division by zero or incorrect calculations if canvas is not yet rendered
+                return
+
+            y1 = first_visible_fraction * canvas_height
+            y2 = last_visible_fraction * canvas_height
+
+            # Ensure minimum height for visibility, e.g., 2 pixels
+            if y2 - y1 < 2:
+                y2 = y1 + 2
+                if y2 > canvas_height:  # Adjust if marker goes past bottom
+                    y1 = canvas_height - 2
+            self.diff_map_canvas.coords(
+                self.scroll_marker_id, 1, y1, 19, y2
+            )  # Update marker coordinates
+
     # ==========================================================================
     # UTILITY METHODS
     # ==========================================================================
@@ -741,6 +750,10 @@ class GCompare:
 
         # Fallback to a generic monospace font
         return ("Courier", 12)
+
+    # ==========================================================================
+    # EVENT HANDLERS
+    # ==========================================================================
 
     def _on_closing(self):
         """Handle window close event."""
