@@ -29,7 +29,7 @@ from tkinter import filedialog, messagebox, ttk
 
 from contextlib import contextmanager
 from datetime import datetime
-from typing import Any, Generator, Optional
+from typing import Optional, Iterator
 
 import paramiko
 from scp import SCPClient
@@ -111,12 +111,9 @@ class ConnectionManager:
         try:
             conn = self._pools[server_key].get(timeout=10)
 
-            # Check if connection is still alive
-            if (
-                not conn
-                or not conn.get_transport()
-                or not conn.get_transport().is_active()
-            ):
+            # Check if connection is still alive, assign to transport to avoid error
+            transport = conn.get_transport() if conn else None
+            if not transport or not transport.is_active():
                 self.log(f"Connection for {server_key} is dead, creating new one")
                 conn = self._create_connection(host, user, password, port)
 
@@ -132,7 +129,8 @@ class ConnectionManager:
             if conn and server_key in self._pools:
                 try:
                     # Check if connection is still good before returning
-                    if conn.get_transport() and conn.get_transport().is_active():
+                    transport = conn.get_transport()
+                    if transport and transport.is_active():
                         self._pools[server_key].put(conn, timeout=1)
                     else:
                         conn.close()
@@ -783,7 +781,7 @@ class GSynchro:
     @contextmanager
     def _create_ssh_for_panel(
         self, panel_name, optional=False
-    ) -> Generator[Optional[paramiko.SSHClient], Any, None]:
+    ) -> Iterator[Optional[paramiko.SSHClient]]:
         """Create SSH client for a panel.
 
         Args:
@@ -818,13 +816,13 @@ class GSynchro:
             )
         )
 
-        client = self.connection_manager.get_connection(host, user, password, port)
-        try:
-            yield client
-        finally:
-            # With pooling, we no longer close the connection here.
-            # The ConnectionManager handles the lifecycle.
-            pass
+        with self.connection_manager.get_connection(
+            host, user, password, port
+        ) as client:
+            try:
+                yield client
+            finally:
+                pass
 
     def test_ssh(self, panel_name):
         """Test SSH connection for specified panel.
