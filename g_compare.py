@@ -28,6 +28,7 @@ HISTORY_LENGTH = 10
 
 class GCompare:
     """Main application class for GCompare file comparison tool."""
+
     def __init__(self, root: tk.Tk):
         """Initialize the GCompare application.
 
@@ -68,6 +69,10 @@ class GCompare:
             self._load_file_a(sys.argv[1])
         if len(sys.argv) > 2:
             self._load_file_b(sys.argv[2])
+
+        # If both files were provided on the command line, run the comparison
+        if len(sys.argv) > 2:
+            self._compare_files()
 
     # ==========================================================================
     # INITIALIZATION & UI SETUP
