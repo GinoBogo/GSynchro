@@ -52,6 +52,7 @@ class GCompare:
         self.file_view_b = None
         self.panel_a = None
         self.panel_b = None
+        self.scroll_marker_id = None  # New: ID for the scroll position marker
         self.diff_map_canvas = None
         self.v_scrollbar_a = None
         self.v_scrollbar_b = None
@@ -292,6 +293,9 @@ class GCompare:
         # Diff Map Canvas
         self.diff_map_canvas = tk.Canvas(panels_frame, width=20, bg="#F0F0F0")
         self.diff_map_canvas.grid(row=0, column=1, sticky="ns", pady=(10, 0))
+        self.scroll_marker_id = self.diff_map_canvas.create_rectangle(
+            0, 0, 20, 1, fill="black", outline="black", tags="scroll_marker"
+        )  # Initial marker
         self.diff_map_canvas.bind("<Configure>", self._compare_files)
 
         self._create_panel(panels_frame, panel_b_config)
@@ -393,6 +397,7 @@ class GCompare:
             """Update scrollbars when text view changes."""
             v_scrollbar_a.set(*args)
             v_scrollbar_b.set(*args)
+            self._update_scroll_marker(float(args[0]), float(args[1]))
 
         def _on_x_scroll(*args):
             """Handle all horizontal scroll events."""
@@ -449,6 +454,25 @@ class GCompare:
         self.root.bind("<MouseWheel>", _on_mouse_wheel, add=True)
         self.root.bind("<Button-4>", _on_mouse_wheel, add=True)
         self.root.bind("<Button-5>", _on_mouse_wheel, add=True)
+
+    def _update_scroll_marker(self, first_visible_fraction, last_visible_fraction):
+        """Updates the position and height of the scroll marker on the diff map."""
+        if self.diff_map_canvas and self.scroll_marker_id:
+            canvas_height = self.diff_map_canvas.winfo_height()
+            if (
+                canvas_height == 0
+            ):  # Avoid division by zero or incorrect calculations if canvas is not yet rendered
+                return
+
+            y1 = first_visible_fraction * canvas_height
+            y2 = last_visible_fraction * canvas_height
+
+            # Ensure minimum height for visibility, e.g., 2 pixels
+            if y2 - y1 < 2:
+                y2 = y1 + 2
+                if y2 > canvas_height:  # Adjust if marker goes past bottom
+                    y1 = canvas_height - 2
+            self.diff_map_canvas.coords(self.scroll_marker_id, 1, y1, 19, y2)
 
     def _create_status_bar(self, parent):
         """Create status bar."""
@@ -628,12 +652,17 @@ class GCompare:
         lines_b = self.file_view_b.get("1.0", tk.END).splitlines()
 
         # Clear existing tags
-        self.file_view_a.tag_delete(*self.file_view_a.tag_names())
-        self.file_view_b.tag_delete(*self.file_view_b.tag_names())
+        # Only delete diff tags, preserve others like 'sel'
+        self.file_view_a.tag_remove("difference", "1.0", tk.END)
+        self.file_view_b.tag_remove("difference", "1.0", tk.END)
 
         # Clear diff map canvas
+        # Only delete diff lines, preserve the scroll marker
         if self.diff_map_canvas:
-            self.diff_map_canvas.delete("all")
+            self.diff_map_canvas.delete("diff_line")
+            # Update scroll marker position in case canvas height changed
+            first, last = self.file_view_a.yview()
+            self._update_scroll_marker(float(first), float(last))
 
         # Configure tags for highlighting
         self.file_view_a.tag_configure(
@@ -665,10 +694,10 @@ class GCompare:
                 start_pos = f"{a_index}.0"
                 end_pos = f"{a_index}.end"
                 self.file_view_a.tag_add("difference", start_pos, end_pos)
-                if self.diff_map_canvas and total_lines > 0:
+                if self.diff_map_canvas and total_lines > 0 and canvas_height > 0:
                     y = (a_index / total_lines) * canvas_height
                     self.diff_map_canvas.create_line(
-                        0, y, 20, y, fill="lightcoral", width=2
+                        0, y, 20, y, fill="lightcoral", width=2, tags="diff_line"
                     )
                 a_index += 1
             elif code == "+":
@@ -676,10 +705,10 @@ class GCompare:
                 start_pos = f"{b_index}.0"
                 end_pos = f"{b_index}.end"
                 self.file_view_b.tag_add("difference", start_pos, end_pos)
-                if self.diff_map_canvas and total_lines > 0:
+                if self.diff_map_canvas and total_lines > 0 and canvas_height > 0:
                     y = (b_index / total_lines) * canvas_height
                     self.diff_map_canvas.create_line(
-                        0, y, 20, y, fill="lightblue", width=2
+                        0, y, 20, y, fill="lightblue", width=2, tags="diff_line"
                     )
                 b_index += 1
 
