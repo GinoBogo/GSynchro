@@ -245,8 +245,7 @@ class GSynchro:
 
         # Folder panels
         panels_frame = self._create_panels_frame(main_frame)
-        self._create_panel_a(panels_frame)
-        self._create_panel_b(panels_frame)
+        self._create_panels(panels_frame)
 
         # Status bar
         self._create_status_bar(main_frame)
@@ -471,41 +470,40 @@ class GSynchro:
 
         return panels_frame
 
-    def _create_panel_a(self, panels_frame):
-        """Create Panel A (left panel)."""
-        panel_config = {
-            "title": "Panel A",
-            "column": 0,
-            "padx": (0, 5),
-            "button_color": "lightgreen",
-            "folder_var": self.folder_a,
-            "browse_command": self.browse_panel_a,
-            "host_var": self.remote_host_a,
-            "port_var": self.remote_port_a,
-            "user_var": self.remote_user_a,
-            "pass_var": self.remote_pass_a,
-            "tree_attr": "tree_a",
-            "folder_history": self.folder_a_history,
-        }
-        self._create_panel(panels_frame, panel_config)
-
-    def _create_panel_b(self, panels_frame):
-        """Create Panel B (right panel)."""
-        panel_config = {
-            "title": "Panel B",
-            "column": 1,
-            "padx": (5, 0),
-            "button_color": "lightblue",
-            "folder_var": self.folder_b,
-            "browse_command": self.browse_panel_b,
-            "host_var": self.remote_host_b,
-            "port_var": self.remote_port_b,
-            "user_var": self.remote_user_b,
-            "pass_var": self.remote_pass_b,
-            "tree_attr": "tree_b",
-            "folder_history": self.folder_b_history,
-        }
-        self._create_panel(panels_frame, panel_config)
+    def _create_panels(self, panels_frame):
+        """Create both Panel A and Panel B."""
+        panel_configs = [
+            {
+                "title": "Panel A",
+                "column": 0,
+                "padx": (0, 5),
+                "button_color": "lightgreen",
+                "folder_var": self.folder_a,
+                "browse_command": self.browse_panel_a,
+                "host_var": self.remote_host_a,
+                "port_var": self.remote_port_a,
+                "user_var": self.remote_user_a,
+                "pass_var": self.remote_pass_a,
+                "tree_attr": "tree_a",
+                "folder_history": self.folder_a_history,
+            },
+            {
+                "title": "Panel B",
+                "column": 1,
+                "padx": (5, 0),
+                "button_color": "lightblue",
+                "folder_var": self.folder_b,
+                "browse_command": self.browse_panel_b,
+                "host_var": self.remote_host_b,
+                "port_var": self.remote_port_b,
+                "user_var": self.remote_user_b,
+                "pass_var": self.remote_pass_b,
+                "tree_attr": "tree_b",
+                "folder_history": self.folder_b_history,
+            },
+        ]
+        for config in panel_configs:
+            self._create_panel(panels_frame, config)
 
     def _create_panel(self, parent, config):
         """Create an individual folder panel.
