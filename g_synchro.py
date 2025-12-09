@@ -2886,6 +2886,9 @@ class GSynchro:
         # Update the destination file's metadata to match the source
         dest_files[synced_item_rel_path] = source_item_info.copy()
 
+        # After sync, the item is no longer selected for sync
+        self.sync_states[synced_item_rel_path] = False
+
         # Find the item in both trees and update its status
         tree_a_map = self._build_tree_map(tree_a)
         tree_b_map = self._build_tree_map(tree_b)
