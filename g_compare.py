@@ -52,6 +52,7 @@ class GCompare:
         self.file_view_b = None
         self.panel_a = None
         self.panel_b = None
+        self.diff_map_canvas = None
         self.v_scrollbar_a = None
         self.v_scrollbar_b = None
         self.h_scrollbar_a = None
@@ -252,7 +253,8 @@ class GCompare:
         panels_frame.grid(row=1, column=0, columnspan=3, sticky=tk.NSEW)
 
         panels_frame.columnconfigure(0, weight=1)
-        panels_frame.columnconfigure(1, weight=1)
+        panels_frame.columnconfigure(1, weight=0)  # For the diff map
+        panels_frame.columnconfigure(2, weight=1)
         panels_frame.rowconfigure(0, weight=1)
 
         return panels_frame
@@ -263,7 +265,7 @@ class GCompare:
         panel_a_config = {
             "title": "File A",
             "column": 0,
-            "padx": (0, 5),
+            "padx": (0, 2),
             "content_var": self.content_a,
             "file_var": self.file_a,
             "file_history": self.file_a_history,
@@ -275,8 +277,8 @@ class GCompare:
         # Panel B configuration
         panel_b_config = {
             "title": "File B",
-            "column": 1,
-            "padx": (5, 0),
+            "column": 2,
+            "padx": (2, 0),
             "content_var": self.content_b,
             "file_var": self.file_b,
             "file_history": self.file_b_history,
@@ -286,6 +288,12 @@ class GCompare:
         }
 
         self._create_panel(panels_frame, panel_a_config)
+
+        # Diff Map Canvas
+        self.diff_map_canvas = tk.Canvas(panels_frame, width=20, bg="#F0F0F0")
+        self.diff_map_canvas.grid(row=0, column=1, sticky="ns", pady=(10, 0))
+        self.diff_map_canvas.bind("<Configure>", self._compare_files)
+
         self._create_panel(panels_frame, panel_b_config)
 
     def _create_panel(self, parent, config):
@@ -607,7 +615,7 @@ class GCompare:
             # We must reset the flag manually to be able to catch the next change.
             text_widget.edit_modified(False)
 
-    def _compare_files(self):
+    def _compare_files(self, event=None):
         """Compare the content of the two text areas and highlight differences."""
         if not self.file_view_a or not self.file_view_b:
             messagebox.showwarning(
@@ -615,25 +623,37 @@ class GCompare:
             )
             return
 
-        text_a = self.file_view_a.get("1.0", tk.END)
-        text_b = self.file_view_b.get("1.0", tk.END)
+        # Get content and split into lines
+        lines_a = self.file_view_a.get("1.0", tk.END).splitlines()
+        lines_b = self.file_view_b.get("1.0", tk.END).splitlines()
 
         # Clear existing tags
         self.file_view_a.tag_delete(*self.file_view_a.tag_names())
         self.file_view_b.tag_delete(*self.file_view_b.tag_names())
 
+        # Clear diff map canvas
+        if self.diff_map_canvas:
+            self.diff_map_canvas.delete("all")
+
         # Configure tags for highlighting
-        self.file_view_a.tag_configure("difference", background="lightblue")
+        self.file_view_a.tag_configure(
+            "difference", background="lightcoral"
+        )  # Changed to lightcoral for removed
         self.file_view_b.tag_configure("difference", background="lightcoral")
 
         # Perform comparison
         differ = difflib.Differ()
-        diff = differ.compare(text_a.splitlines(), text_b.splitlines())
+        diff = differ.compare(lines_a, lines_b)
 
         a_index = 1
         b_index = 1
         added_lines = 0
         removed_lines = 0
+
+        total_lines = max(len(lines_a), len(lines_b))
+        canvas_height = (
+            self.diff_map_canvas.winfo_height() if self.diff_map_canvas else 0
+        )
 
         for line in diff:
             code = line[0]
@@ -642,11 +662,25 @@ class GCompare:
                 b_index += 1
             elif code == "-":
                 removed_lines += 1
-                self.file_view_a.tag_add("difference", f"{a_index}.0", f"{a_index}.end")
+                start_pos = f"{a_index}.0"
+                end_pos = f"{a_index}.end"
+                self.file_view_a.tag_add("difference", start_pos, end_pos)
+                if self.diff_map_canvas and total_lines > 0:
+                    y = (a_index / total_lines) * canvas_height
+                    self.diff_map_canvas.create_line(
+                        0, y, 20, y, fill="lightcoral", width=2
+                    )
                 a_index += 1
             elif code == "+":
                 added_lines += 1
-                self.file_view_b.tag_add("difference", f"{b_index}.0", f"{b_index}.end")
+                start_pos = f"{b_index}.0"
+                end_pos = f"{b_index}.end"
+                self.file_view_b.tag_add("difference", start_pos, end_pos)
+                if self.diff_map_canvas and total_lines > 0:
+                    y = (b_index / total_lines) * canvas_height
+                    self.diff_map_canvas.create_line(
+                        0, y, 20, y, fill="lightblue", width=2
+                    )
                 b_index += 1
 
         self.status_a.set(f"Lines removed: {removed_lines}")
