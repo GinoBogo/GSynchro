@@ -1180,12 +1180,14 @@ class GSynchro:
             ):
                 excluded_dirs = set()
                 for d in dirs:
-                    dir_rel_path = os.path.relpath(
-                        os.path.join(root, d), folder_path
-                    ).replace(os.sep, "/")
+                    dir_rel_path = os.path.relpath(os.path.join(root, d), folder_path)
                     for pattern in rules:
                         if pattern.endswith("/") and fnmatch.fnmatch(
-                            dir_rel_path + "/", pattern
+                            dir_rel_path.replace(os.sep, "/") + "/", pattern
+                        ):
+                            excluded_dirs.add(d)
+                        elif fnmatch.fnmatch(
+                            dir_rel_path.replace(os.sep, "/"), pattern
                         ):
                             excluded_dirs.add(d)
                         elif not pattern.endswith("/") and fnmatch.fnmatch(d, pattern):
@@ -1198,16 +1200,19 @@ class GSynchro:
                     full_path = os.path.join(root, dirname)
                     rel_path = os.path.relpath(full_path, folder_path)
                     if dirname not in excluded_dirs:
-                        files[rel_path.replace(os.sep, "/")] = {"type": "dir"}
+                        files[rel_path] = {
+                            "type": "dir",
+                            "full_path": full_path,
+                        }
 
                 # Add files
                 for filename in filenames:
                     full_path = os.path.join(root, filename)
-                    rel_path = os.path.relpath(full_path, folder_path).replace(
-                        os.sep, "/"
-                    )
+                    rel_path = os.path.relpath(full_path, folder_path)
 
-                    if any(fnmatch.fnmatch(rel_path, r) for r in rules):
+                    if any(
+                        fnmatch.fnmatch(rel_path.replace(os.sep, "/"), r) for r in rules
+                    ):
                         continue
 
                     try:
@@ -3198,7 +3203,7 @@ class GSynchro:
             item_id = tree.parent(item_id)
 
         if path_parts:
-            return os.path.sep.join(path_parts)
+            return os.path.join(*path_parts)
         return None
 
     def _get_full_path_for_item(self, tree, item_id, panel=None):
