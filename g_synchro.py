@@ -1850,7 +1850,7 @@ class GSynchro:
 
         # Choose comparison method based on SSH usage
         if use_ssh_a or use_ssh_b:
-            self.log("Parallel comparison with pooling")
+            self.log("Parallel comparison (remote)")
             item_statuses, stats = self._calculate_item_statuses_parallel(
                 all_visible_paths,
                 files_a,
@@ -1860,7 +1860,7 @@ class GSynchro:
                 max_workers=4,
             )
         else:
-            self.log("Sequential comparison (local)")
+            self.log("Parallel comparison (local)")
             item_statuses, stats = self._calculate_item_statuses_parallel(
                 all_visible_paths,
                 files_a,
