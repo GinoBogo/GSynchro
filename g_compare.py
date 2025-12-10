@@ -114,11 +114,11 @@ class GCompare:
         self._create_file_panels(panels_frame)
         self._create_status_bar(main_frame)
 
-        # Set initial status
-        self.status_a.set("by Gino Bogo")
-
         # Setup synchronized scrolling
         self._setup_synchronized_scrolling()
+
+        # Set initial status
+        self.status_a.set("by Gino Bogo")
 
     def _setup_styles(self):
         """Configure application styles."""
@@ -480,7 +480,21 @@ class GCompare:
 
     def _open_file(self, panel_name):
         """Open file dialog and load file."""
-        file_path = filedialog.askopenfilename()
+        initial_dir = None
+        current_path = ""
+
+        if panel_name == "A":
+            current_path = self.file_a.get()
+        else:
+            current_path = self.file_b.get()
+
+        if current_path:
+            if os.path.isdir(current_path):
+                initial_dir = current_path
+            else:
+                initial_dir = os.path.dirname(current_path)
+
+        file_path = filedialog.askopenfilename(initialdir=initial_dir)
         if file_path:
             if panel_name == "A":
                 self._load_file_a(file_path)
