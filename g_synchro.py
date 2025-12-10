@@ -15,6 +15,7 @@ from __future__ import annotations
 import fnmatch
 import json
 import os
+import stat
 import shutil
 import subprocess
 import sys
@@ -2226,8 +2227,15 @@ class GSynchro:
 
             # Ensure target is writable
             if os.path.exists(target_file) and not os.access(target_file, os.W_OK):
-                current_mode = os.stat(target_file).st_mode
-                os.chmod(target_file, current_mode | 0o200)
+                if os.name == "posix":
+                    # On Linux/Unix/macOS: add owner write bit
+                    current_mode = os.stat(target_file).st_mode
+                    os.chmod(target_file, current_mode | stat.S_IWUSR)
+                elif os.name == "nt":
+                    # On Windows: clear the read-only attribute
+                    os.chmod(target_file, stat.S_IWRITE)
+                else:
+                    raise NotImplementedError(f"Unsupported OS: {os.name}")
 
             self.log(f"Copying: {rel_path}")
             try:
