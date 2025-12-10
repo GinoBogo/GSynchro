@@ -235,7 +235,15 @@ class GCompare:
         self.diff_map_canvas.grid(row=0, column=1, sticky="ns", pady=(10, 0))
         self.scroll_marker_id = (
             self.diff_map_canvas.create_rectangle(  # Initial marker for scroll position
-                1, 0, 19, 1, fill="", outline="black", tags="scroll_marker"
+                2,
+                2,
+                19,
+                3,
+                fill="",
+                outline="black",
+                width=1,
+                stipple="gray50",
+                tags="scroll_marker",
             )
         )
         self.diff_map_canvas.bind("<Configure>", self._compare_files)
@@ -715,13 +723,13 @@ class GCompare:
             y1 = first_visible_fraction * canvas_height
             y2 = last_visible_fraction * canvas_height
 
-            # Ensure minimum height for visibility, e.g., 2 pixels
-            if y2 - y1 < 2:
-                y2 = y1 + 2
+            # Ensure minimum height for visibility, e.g., 4 pixels
+            if y2 - y1 < 4:
+                y2 = y1 + 4
                 if y2 > canvas_height:  # Adjust if marker goes past bottom
-                    y1 = canvas_height - 2
+                    y1 = canvas_height - 4
             self.diff_map_canvas.coords(
-                self.scroll_marker_id, 1, y1, 19, y2
+                self.scroll_marker_id, 2, y1 + 2, 19, y2 - 3
             )  # Update marker coordinates
 
     # ==========================================================================
