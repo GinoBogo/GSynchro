@@ -76,6 +76,9 @@ class GCompare:
         self.status_a = tk.StringVar()
         self.status_b = tk.StringVar()
 
+        # Variables to manage scroll marker dragging
+        self._marker_drag_start_y = None
+        self._marker_initial_scroll_fraction = 0.0
         # Initialize application
         self.load_config()
         self._init_window()
@@ -305,7 +308,7 @@ class GCompare:
             "save_command": self._save_file_b,
         }
 
-        # Create panels
+        # Create panel A
         self._create_single_panel(panels_frame, panel_a_config)
 
         # Create diff map canvas
@@ -318,15 +321,29 @@ class GCompare:
             2,
             19,
             3,
-            fill="",
+            fill="#8F8F8F",
             outline="black",
             width=1,
-            stipple="gray50",
+            stipple="gray12",
             tags="scroll_marker",
         )
 
+        # Bind events to the scroll marker for dragging functionality
+        self.diff_map_canvas.tag_bind(
+            "scroll_marker", "<ButtonPress-1>", self._on_marker_press
+        )
+        self.diff_map_canvas.tag_bind(
+            "scroll_marker", "<B1-Motion>", self._on_marker_drag
+        )
+        self.diff_map_canvas.tag_bind(
+            "scroll_marker", "<ButtonRelease-1>", self._on_marker_release
+        )
+        self.diff_map_canvas.tag_bind("scroll_marker", "<Enter>", self._on_marker_enter)
+        self.diff_map_canvas.tag_bind("scroll_marker", "<Leave>", self._on_marker_leave)
+
         self.diff_map_canvas.bind("<Configure>", self._compare_files)
 
+        # Create panel B
         self._create_single_panel(panels_frame, panel_b_config)
 
     def _create_single_panel(self, parent, config):
@@ -702,7 +719,7 @@ class GCompare:
                 if self.diff_map_canvas and total_lines > 0 and canvas_height > 0:
                     y = (b_index / total_lines) * canvas_height
                     self.diff_map_canvas.create_line(
-                        0, y, 20, y, fill="lightblue", width=2, tags="diff_line"
+                        0, y, 20, y, fill="darkcyan", width=2, tags="diff_line"
                     )
 
                 b_index += 1
@@ -819,6 +836,69 @@ class GCompare:
                     y1 = canvas_height - 4
 
             self.diff_map_canvas.coords(self.scroll_marker_id, 2, y1 + 2, 19, y2 - 3)
+
+    def _on_marker_press(self, event):
+        """Handle mouse button press on the scroll marker.
+        Stores the initial drag position and current scroll fraction.
+        """
+        if not self.diff_map_canvas:
+            return
+
+        if not self.file_view_a:
+            return
+
+        self._marker_drag_start_y = event.y
+        # Get the current scroll fraction of the text widgets
+        self._marker_initial_scroll_fraction = self.file_view_a.yview()[0]
+        self.diff_map_canvas.config(cursor="hand2")  # Change cursor to a grabbing hand
+
+    def _on_marker_drag(self, event):
+        """Handle mouse drag motion on the scroll marker.
+        Calculates new scroll position and updates text widgets.
+        """
+        if self._marker_drag_start_y is None:
+            return
+
+        if not self.diff_map_canvas:
+            return
+
+        dy = event.y - self._marker_drag_start_y
+        canvas_height = self.diff_map_canvas.winfo_height()
+
+        if canvas_height == 0:  # Avoid division by zero
+            return
+
+        # Calculate the new scroll fraction based on drag movement
+        new_fraction = self._marker_initial_scroll_fraction + (dy / canvas_height)
+
+        # Clamp the fraction between 0 and 1 to stay within bounds
+        new_fraction = max(0.0, min(1.0, new_fraction))
+
+        # Apply the new scroll position to both text widgets
+        if self.file_view_a:
+            self.file_view_a.yview_moveto(new_fraction)
+        if self.file_view_b:
+            self.file_view_b.yview_moveto(new_fraction)
+
+    def _on_marker_release(self, event):
+        """Handle mouse button release on the scroll marker.
+        Resets the drag state and cursor.
+        """
+        if not self.diff_map_canvas:
+            return
+
+        self._marker_drag_start_y = None  # Reset drag state
+        self.diff_map_canvas.config(cursor="")  # Reset cursor to default
+
+    def _on_marker_enter(self, event):
+        """Change cursor to a hand when entering the scroll marker."""
+        if self.diff_map_canvas:
+            self.diff_map_canvas.config(cursor="hand2")
+
+    def _on_marker_leave(self, event):
+        """Reset cursor when leaving the scroll marker."""
+        if self.diff_map_canvas:
+            self.diff_map_canvas.config(cursor="")
 
     # ========================================================================
     # UTILITY METHODS
