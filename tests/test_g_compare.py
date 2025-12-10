@@ -145,8 +145,8 @@ class TestGCompare:
         app._compare_files()
         root.update()
 
-        assert app.status_a.get() == "Lines removed: 0"
-        assert app.status_b.get() == "Lines added: 0"
+        assert app.status_a.get() == "0 lines removed from File A"
+        assert app.status_b.get() == "0 lines added to File B"
 
         # Check that no 'difference' tags were applied
         assert len(app.file_view_a.tag_ranges("difference")) == 0
@@ -164,18 +164,18 @@ class TestGCompare:
         app._compare_files()
         root.update()
 
-        assert app.status_a.get() == "Lines removed: 1"
-        assert app.status_b.get() == "Lines added: 1"
+        assert app.status_a.get() == "1 lines removed from File A"
+        assert app.status_b.get() == "1 lines added to File B"
 
         # Check that 'difference' tags were applied
-        assert len(app.file_view_a.tag_ranges("difference")) > 0
-        assert len(app.file_view_b.tag_ranges("difference")) > 0
+        assert len(app.file_view_a.tag_ranges("removed")) > 0
+        assert len(app.file_view_b.tag_ranges("added")) > 0
 
         # Check the correct lines are tagged
-        tagged_a = app.file_view_a.tag_ranges("difference")
+        tagged_a = app.file_view_a.tag_ranges("removed")
         assert str(tagged_a[0]) == "2.0"  # Start of line 2
 
-        tagged_b = app.file_view_b.tag_ranges("difference")
+        tagged_b = app.file_view_b.tag_ranges("added")
         assert str(tagged_b[0]) == "2.0"  # Start of line 2
 
     # ==========================================================================

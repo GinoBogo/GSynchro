@@ -674,7 +674,7 @@ class GCompare:
 
         # Update status: show number and type in each side's label
         self.status_a.set(f"{removed_lines} lines removed from File A")
-        self.status_b.set(f"{added_lines} lines added in File B")
+        self.status_b.set(f"{added_lines} lines added to File B")
 
         # Ensure the scroll marker is always drawn on top of the diff lines
         if self.diff_map_canvas:
