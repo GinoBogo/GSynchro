@@ -2116,25 +2116,34 @@ class GSynchro:
         Returns:
             List of file paths to copy
         """
-        files_to_sync = []
+        files_to_sync = set()
+
+        # Normalize helper to compare relative paths in a consistent manner
+        def _norm(p):
+            return p.replace(os.sep, "/")
+
         for rel_path, is_checked in self.sync_states.items():
             if not is_checked:
                 continue
 
             source_item = source_files_dict.get(rel_path)
+            if not source_item:
+                continue
 
-            if source_item:
-                if source_item.get("type") == "file":
-                    files_to_sync.append(rel_path)
-                elif source_item.get("type") == "dir":
-                    # Add all files in directory
-                    dir_prefix = rel_path.rstrip(os.sep) + os.sep
-                    for file_path, file_info in source_files_dict.items():
-                        if file_info.get("type") == "file" and file_path.startswith(
-                            dir_prefix
-                        ):
-                            files_to_sync.append(file_path)
-        return sorted(list(set(files_to_sync)))
+            if source_item.get("type") == "file":
+                files_to_sync.add(rel_path)
+            elif source_item.get("type") == "dir":
+                # Only include files under this directory that are individually marked for sync.
+                dir_prefix = _norm(rel_path.rstrip(os.sep)) + "/"
+                for file_path, file_info in source_files_dict.items():
+                    if file_info.get("type") != "file":
+                        continue
+                    if _norm(file_path).startswith(dir_prefix) and self.sync_states.get(
+                        file_path, False
+                    ):
+                        files_to_sync.add(file_path)
+
+        return sorted(files_to_sync)
 
     def _perform_sync(
         self,
@@ -2821,15 +2830,22 @@ class GSynchro:
                 if not source_item:
                     raise ValueError(f"Source item '{rel_path}' not found.")
 
-                files_to_copy = [rel_path]
-                if source_item.get("type") == "dir":
-                    # If it's a directory, find all files within it
-                    dir_prefix = rel_path.rstrip("/") + "/"
-                    files_to_copy = [
-                        p
-                        for p, info in source_files_dict.items()
-                        if p.startswith(dir_prefix) and info.get("type") == "file"
-                    ]
+                # Build files_to_copy:
+                # - if a file was selected, sync that file
+                # - if a directory was selected, only include files under it that are marked in sync_states
+                files_to_copy = []
+                if source_item.get("type") == "file":
+                    files_to_copy = [rel_path]
+                else:
+                    # Directory: include only those child files that are marked for sync
+                    dir_prefix = rel_path.rstrip(os.sep).replace(os.sep, "/") + "/"
+                    for p, info in source_files_dict.items():
+                        if info.get("type") != "file":
+                            continue
+                        if p.replace(os.sep, "/").startswith(
+                            dir_prefix
+                        ) and self.sync_states.get(p, False):
+                            files_to_copy.append(p)
 
                 self.root.after(
                     0,
@@ -2863,7 +2879,6 @@ class GSynchro:
 
             except Exception as e:
                 self.log(f"Error syncing '{rel_path}': {e}")
-
                 messagebox.showerror("Sync Error", f"Failed to sync item: {e}")
             finally:
                 self.root.after(0, self.stop_progress)
