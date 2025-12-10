@@ -703,9 +703,16 @@ class GCompare:
 
                 # Add to diff map
                 if self.diff_map_canvas and total_lines > 0 and canvas_height > 0:
-                    y = (a_index / total_lines) * canvas_height
-                    self.diff_map_canvas.create_line(
-                        0, y, 40, y, fill="lightcoral", width=2, tags="diff_line"
+                    y_start = (a_index / total_lines) * canvas_height
+                    y_end = y_start + 2
+                    self.diff_map_canvas.create_rectangle(
+                        2,
+                        y_start,
+                        38,
+                        y_end,
+                        fill="lightcoral",
+                        outline="",
+                        tags="diff_line",
                     )
 
                 a_index += 1
@@ -717,9 +724,16 @@ class GCompare:
 
                 # Add to diff map
                 if self.diff_map_canvas and total_lines > 0 and canvas_height > 0:
-                    y = (b_index / total_lines) * canvas_height
-                    self.diff_map_canvas.create_line(
-                        0, y, 40, y, fill="lightblue", width=2, tags="diff_line"
+                    y_start = (b_index / total_lines) * canvas_height
+                    y_end = y_start + 2
+                    self.diff_map_canvas.create_rectangle(
+                        2,
+                        y_start,
+                        38,
+                        y_end,
+                        fill="lightblue",
+                        outline="",
+                        tags="diff_line",
                     )
 
                 b_index += 1
