@@ -2230,8 +2230,12 @@ class GSynchro:
                 os.chmod(target_file, current_mode | 0o200)
 
             self.log(f"Copying: {rel_path}")
-            shutil.copy2(source_file, target_file)
-            self.root.after(0, self.update_progress)
+            try:
+                shutil.copy2(source_file, target_file)
+            except Exception as e:
+                self.log(f"Error copying {rel_path}: {e}")
+            finally:
+                self.root.after(0, self.update_progress)
 
     def _sync_local_to_remote(
         self, files_to_copy, source_files_dict, remote_path, ssh_client
