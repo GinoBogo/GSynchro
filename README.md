@@ -4,6 +4,8 @@ GSynchro is a graphical user interface (GUI) tool designed for comparing and syn
 
 ![figure_01.png](docs/images/figure_01.png)
 
+![figure_02.png](docs/images/figure_02.png)
+
 ## Key Features
 
 *   **Side-by-Side Comparison**: Visually compare the contents of two directories in a hierarchical tree view.
