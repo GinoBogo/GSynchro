@@ -210,6 +210,10 @@ class GSynchro:
         self.filter_rules = []
         self.temp_files_to_clean = []
 
+        # Host histories: lists of dicts {'host','port','username'}
+        self.hosts_a = []
+        self.hosts_b = []
+
         # Sync States
         self.sync_states = {}
 
@@ -286,6 +290,30 @@ class GSynchro:
                 self.remote_port_b.set(config["SSH_B"].get("port", "22"))
                 self.remote_user_b.set(config["SSH_B"].get("username", ""))
 
+            # Load host histories (list of dicts)
+            if "HOSTS_A" in config:
+                self.hosts_a = config["HOSTS_A"] or []
+                # if no explicit host set, pick most recent
+                if not self.remote_host_a.get() and self.hosts_a:
+                    self.remote_host_a.set(self.hosts_a[0].get("host", ""))
+                    self.remote_port_a.set(
+                        self.hosts_a[0].get("port", self.remote_port_a.get())
+                    )
+                    self.remote_user_a.set(
+                        self.hosts_a[0].get("username", self.remote_user_a.get())
+                    )
+
+            if "HOSTS_B" in config:
+                self.hosts_b = config["HOSTS_B"] or []
+                if not self.remote_host_b.get() and self.hosts_b:
+                    self.remote_host_b.set(self.hosts_b[0].get("host", ""))
+                    self.remote_port_b.set(
+                        self.hosts_b[0].get("port", self.remote_port_b.get())
+                    )
+                    self.remote_user_b.set(
+                        self.hosts_b[0].get("username", self.remote_user_b.get())
+                    )
+
             # Filter rules
             if "FILTERS" in config and "rules" in config["FILTERS"]:
                 self._load_filter_rules(config["FILTERS"]["rules"])
@@ -340,6 +368,20 @@ class GSynchro:
             self.folder_b_history.insert(0, current_folder_b)
             self.folder_b_history = self.folder_b_history[:HISTORY_LENGTH]
 
+        # Ensure host histories include current entries
+        self._update_host_history(
+            "A",
+            self.remote_host_a.get(),
+            self.remote_port_a.get(),
+            self.remote_user_a.get(),
+        )
+        self._update_host_history(
+            "B",
+            self.remote_host_b.get(),
+            self.remote_port_b.get(),
+            self.remote_user_b.get(),
+        )
+
         self.filter_rules.sort(key=lambda item: item["rule"])
 
         config = {
@@ -354,6 +396,8 @@ class GSynchro:
                 "port": self.remote_port_b.get(),
                 "username": self.remote_user_b.get(),
             },
+            "HOSTS_A": self.hosts_a,
+            "HOSTS_B": self.hosts_b,
             "FILTERS": {"rules": self.filter_rules},
             "FOLDER_A_HISTORY": self.folder_a_history,
             "FOLDER_B_HISTORY": self.folder_b_history,
@@ -529,8 +573,18 @@ class GSynchro:
         ttk.Label(panel, text="Host:").grid(
             row=0, column=0, padx=5, pady=5, sticky=tk.E
         )
-        host_entry = ttk.Entry(panel, textvariable=config["host_var"], width=15)
-        host_entry.grid(row=0, column=1, padx=5, pady=5, sticky=tk.EW)
+        # Use Combobox for Host so user can select previously saved host tuples
+        panel_name = config["title"].split(" ")[1]
+        host_list = self.hosts_a if panel_name == "A" else self.hosts_b
+        host_values = [h.get("host", "") for h in host_list]
+        host_combobox = ttk.Combobox(
+            panel, textvariable=config["host_var"], values=host_values, width=15
+        )
+        host_combobox.grid(row=0, column=1, padx=5, pady=5, sticky=tk.EW)
+        # When user selects a saved host, autofill port and username
+        host_combobox.bind(
+            "<<ComboboxSelected>>", lambda e, pn=panel_name: self._on_host_selected(pn)
+        )
 
         ttk.Label(panel, text="Port:").grid(
             row=0, column=2, padx=5, pady=5, sticky=tk.E
@@ -856,6 +910,17 @@ class GSynchro:
                     if ssh_client is None:
                         raise ConnectionError("Failed to establish SSH connection.")
 
+                # On successful connection, update host history so combobox remembers this tuple
+                try:
+                    self._update_host_history(
+                        panel_name.split(" ")[1],
+                        host_var.get(),
+                        port_var.get(),
+                        user_var.get(),
+                    )
+                except Exception:
+                    pass
+
                 self.log(f"✓ SSH {panel_name} connected")
                 messagebox.showinfo(
                     "Success", f"SSH connection established for {panel_name}!"
@@ -893,6 +958,41 @@ class GSynchro:
                 self.remote_pass_b.get(),
             ]
         )
+
+    def _on_host_selected(self, panel_name: str):
+        """Called when user selects a host from the combobox. Auto-fill port and
+        username."""
+        if panel_name == "A":
+            host = self.remote_host_a.get()
+            for h in self.hosts_a:
+                if h.get("host") == host:
+                    self.remote_port_a.set(h.get("port", self.remote_port_a.get()))
+                    self.remote_user_a.set(h.get("username", self.remote_user_a.get()))
+                    return
+        else:
+            host = self.remote_host_b.get()
+            for h in self.hosts_b:
+                if h.get("host") == host:
+                    self.remote_port_b.set(h.get("port", self.remote_port_b.get()))
+                    self.remote_user_b.set(h.get("username", self.remote_user_b.get()))
+                    return
+
+    def _update_host_history(
+        self, panel_name: str, host: str, port: str, username: str
+    ):
+        """Update host history list for a panel (most-recent-first, deduped)."""
+        if not host:
+            return
+        entry = {"host": host, "port": port or "22", "username": username or ""}
+        if panel_name == "A":
+            # remove any existing with same host
+            self.hosts_a = [h for h in self.hosts_a if h.get("host") != host]
+            self.hosts_a.insert(0, entry)
+            self.hosts_a = self.hosts_a[:HISTORY_LENGTH]
+        else:
+            self.hosts_b = [h for h in self.hosts_b if h.get("host") != host]
+            self.hosts_b.insert(0, entry)
+            self.hosts_b = self.hosts_b[:HISTORY_LENGTH]
 
     # ==========================================================================
     # REMOTE PANEL BROWSING
