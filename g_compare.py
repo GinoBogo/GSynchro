@@ -146,6 +146,10 @@ class GCompare:
         font_tuple = self._get_mono_font()
         style.configure("TText", font=font_tuple)
 
+    # ==========================================================================
+    # LAYOUT HELPERS
+    # ==========================================================================
+
     def _create_main_frame(self):
         """Create the main application frame."""
         main_frame = ttk.Frame(self.root, padding="10")
@@ -189,7 +193,7 @@ class GCompare:
             )
 
     def _create_panels_frame(self, main_frame):
-        """Create panels frame for displays."""
+        "Create panels container."
         panels_frame = ttk.Frame(main_frame)
         panels_frame.grid(row=1, column=0, columnspan=3, sticky=tk.NSEW)
 
@@ -201,7 +205,7 @@ class GCompare:
         return panels_frame
 
     def _create_file_panels(self, panels_frame):
-        """Create file panels A and B."""
+        "Create both file panels and diff map."
         # Panel A configuration
         panel_a_config = {
             "title": "File A",
@@ -251,7 +255,7 @@ class GCompare:
         self._create_panel(panels_frame, panel_b_config)
 
     def _create_panel(self, parent, config):
-        """Create an individual text panel."""
+        "Create a single file panel."
         panel = ttk.LabelFrame(parent, text=config["title"], padding="5")
         panel.grid(
             row=0,
@@ -322,30 +326,64 @@ class GCompare:
             self.h_scrollbar_b = h_scrollbar
 
     def _create_status_bar(self, parent):
-        """Create status bar."""
+        "Create status bar with legends."
         status_frame = ttk.Frame(parent, relief="flat", padding="2")
         status_frame.grid(row=2, column=0, columnspan=3, sticky=tk.EW, pady=(5, 0))
 
         status_frame.columnconfigure(0, weight=1)
         status_frame.columnconfigure(1, weight=1)
 
-        # Status labels
-        status_label_a = ttk.Label(
-            status_frame, textvariable=self.status_a, anchor=tk.W
-        )
-        status_label_a.grid(row=0, column=0, sticky=tk.EW, padx=0)
+        # Left status: single label (shows number + type) + red square
+        left_status_container = ttk.Frame(status_frame)
+        left_status_container.grid(row=0, column=0, sticky=tk.W, padx=0)
 
-        status_label_b = ttk.Label(
-            status_frame, textvariable=self.status_b, anchor=tk.W
+        removed_square = tk.Label(
+            left_status_container,
+            bg="lightcoral",
+            width=2,
+            height=1,
+            relief="solid",
+            bd=1,
         )
-        status_label_b.grid(row=0, column=1, sticky=tk.EW, padx=0)
+        removed_square.pack(side=tk.LEFT, padx=(6, 4))
+
+        status_label_left = ttk.Label(
+            left_status_container, textvariable=self.status_a, anchor=tk.W
+        )
+        status_label_left.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        # Right status: single label (shows number + type) + cyan square
+        right_status_container = ttk.Frame(status_frame)
+        right_status_container.grid(row=0, column=1, sticky=tk.E, padx=0)
+
+        status_label_right = ttk.Label(
+            right_status_container, textvariable=self.status_b, anchor=tk.E
+        )
+        status_label_right.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        added_square = tk.Label(
+            right_status_container,
+            bg="lightblue",
+            width=2,
+            height=1,
+            relief="solid",
+            bd=1,
+        )
+        added_square.pack(side=tk.LEFT, padx=(6, 4))
 
     # ==========================================================================
     # CONFIGURATION METHODS
     # ==========================================================================
 
     def load_config(self):
-        """Load configuration from file."""
+        """Load configuration from file.
+
+        Args:
+            None
+
+        Notes:
+            Reads CONFIG_FILE (JSON). If not present, does nothing.
+        """
         if not os.path.exists(CONFIG_FILE):
             return
 
@@ -373,7 +411,14 @@ class GCompare:
             print(f"Warning: Could not parse {CONFIG_FILE}. Using defaults.")
 
     def save_config(self):
-        """Save configuration to file."""
+        """Save configuration to file.
+
+        Args:
+            None
+
+        Notes:
+            Persists window geometry and file history to CONFIG_FILE (JSON).
+        """
         # Update file history
         self._update_file_history("A", self.file_a, self.file_a.get())
         self._update_file_history("B", self.file_b, self.file_b.get())
@@ -388,7 +433,7 @@ class GCompare:
             json.dump(config, f, indent=4)
 
     def _update_file_history(self, panel_name, file_var, new_path):
-        """Update and save file history."""
+        "Update recent files list."
         if not new_path:
             return
 
@@ -402,15 +447,15 @@ class GCompare:
     # ==========================================================================
 
     def _open_file_a(self):
-        """Open a file for panel A."""
+        "Open file A dialog."
         self._open_file("A")
 
     def _open_file_b(self):
-        """Open a file for panel B."""
+        "Open file B dialog."
         self._open_file("B")
 
     def _open_file(self, panel_name):
-        """Open a file dialog and load the selected file."""
+        "Open file dialog and load."
         file_path = filedialog.askopenfilename()
         if file_path:
             if panel_name == "A":
@@ -419,7 +464,7 @@ class GCompare:
                 self._load_file_b(file_path)
 
     def _reload_files(self):
-        """Reload both files, prompting to save if there are changes."""
+        "Reload files (prompt save if dirty)."
         # Check File A for unsaved changes
         if self.panel_a and self.panel_a.cget("text").endswith("*"):
             response = messagebox.askyesnocancel(
@@ -449,15 +494,15 @@ class GCompare:
             self._load_file_b(self.file_b.get())
 
     def _save_file_a(self):
-        """Save content of File A panel to its file."""
+        "Save panel A."
         self._save_file(self.file_a.get(), self.file_view_a, "A")
 
     def _save_file_b(self):
-        """Save content of File B panel to its file."""
+        "Save panel B."
         self._save_file(self.file_b.get(), self.file_view_b, "B")
 
     def _save_file(self, file_path, text_widget, panel_name):
-        """Save the content of a text widget to a file."""
+        "Write text widget to disk."
         if not file_path:
             messagebox.showwarning(
                 "Save Error", f"No file path specified for Panel {panel_name}."
@@ -491,7 +536,7 @@ class GCompare:
             )
 
     def _load_file_a(self, file_path):
-        """Load file A content into the text area."""
+        "Load file A into view."
         try:
             with open(file_path, "r", encoding="utf-8") as file:
                 content = file.read()
@@ -511,7 +556,7 @@ class GCompare:
             messagebox.showerror("Error", f"Failed to load file: {e}")
 
     def _load_file_b(self, file_path):
-        """Load file B content into the text area."""
+        "Load file B into view."
         try:
             with open(file_path, "r", encoding="utf-8") as file:
                 content = file.read()
@@ -535,16 +580,25 @@ class GCompare:
     # ==========================================================================
 
     def _on_text_modified(self, event, panel_widget, original_title):
-        """Handle text modification to mark file as dirty."""
-        text_widget = event.widget
-        # The flag is set by Tkinter when the text is modified.
+        """Mark panel as modified when its Text widget changes."""
+        try:
+            text_widget = event.widget
+        except Exception:
+            return
+        # Tk sets the modified flag; check and update UI, then reset flag.
         if panel_widget and text_widget.edit_modified():
             panel_widget.config(text=f"{original_title}*")
-            # We must reset the flag manually to be able to catch the next change.
             text_widget.edit_modified(False)
 
     def _compare_files(self, event=None):  # event=None for manual calls
-        """Compare the content of the two text areas and highlight differences."""
+        """Compare the two text areas and highlight differences.
+
+        Args:
+            event: Optional Tk event (passed by bindings)
+
+        Returns:
+            None (updates UI in-place)
+        """
         if not self.file_view_a or not self.file_view_b:
             messagebox.showwarning(
                 "Warning", "Please load both files before comparing."
@@ -556,9 +610,9 @@ class GCompare:
         lines_b = self.file_view_b.get("1.0", tk.END).splitlines()
 
         # Clear existing tags
-        # Only delete diff tags, preserve others like 'sel'.
-        self.file_view_a.tag_remove("difference", "1.0", tk.END)
-        self.file_view_b.tag_remove("difference", "1.0", tk.END)
+        # Remove any old 'removed'/'added' tags so we don't accumulate highlights.
+        self.file_view_a.tag_remove("removed", "1.0", tk.END)
+        self.file_view_b.tag_remove("added", "1.0", tk.END)
 
         # Clear diff map canvas
         # Only delete diff lines, preserve the scroll marker.
@@ -569,10 +623,10 @@ class GCompare:
             self._update_scroll_marker(float(first), float(last))
 
         # Configure tags for highlighting
-        self.file_view_a.tag_configure(
-            "difference", background="lightcoral"
-        )  # Changed to lightcoral for removed
-        self.file_view_b.tag_configure("difference", background="lightcoral")
+        # 'removed' = red background on File A (lines present in A but not B)
+        # 'added' = cyan/lightblue background on File B (lines present in B but not A)
+        self.file_view_a.tag_configure("removed", background="lightcoral")
+        self.file_view_b.tag_configure("added", background="lightblue")
 
         # Perform comparison
         differ = difflib.Differ()
@@ -589,6 +643,8 @@ class GCompare:
         )
 
         for line in diff:
+            if not line:
+                continue
             code = line[0]
             if code == " ":
                 a_index += 1
@@ -597,7 +653,7 @@ class GCompare:
                 removed_lines += 1
                 start_pos = f"{a_index}.0"
                 end_pos = f"{a_index}.end"
-                self.file_view_a.tag_add("difference", start_pos, end_pos)
+                self.file_view_a.tag_add("removed", start_pos, end_pos)
                 if self.diff_map_canvas and total_lines > 0 and canvas_height > 0:
                     y = (a_index / total_lines) * canvas_height
                     self.diff_map_canvas.create_line(
@@ -608,7 +664,7 @@ class GCompare:
                 added_lines += 1
                 start_pos = f"{b_index}.0"
                 end_pos = f"{b_index}.end"
-                self.file_view_b.tag_add("difference", start_pos, end_pos)
+                self.file_view_b.tag_add("added", start_pos, end_pos)
                 if self.diff_map_canvas and total_lines > 0 and canvas_height > 0:
                     y = (b_index / total_lines) * canvas_height
                     self.diff_map_canvas.create_line(
@@ -616,8 +672,9 @@ class GCompare:
                     )
                 b_index += 1
 
-        self.status_a.set(f"Lines removed: {removed_lines}")
-        self.status_b.set(f"Lines added: {added_lines}")
+        # Update status: show number and type in each side's label
+        self.status_a.set(f"{removed_lines} lines removed from File A")
+        self.status_b.set(f"{added_lines} lines added in File B")
 
         # Ensure the scroll marker is always drawn on top of the diff lines
         if self.diff_map_canvas:
@@ -628,7 +685,7 @@ class GCompare:
     # ==========================================================================
 
     def _setup_synchronized_scrolling(self):
-        """Link the scrollbars of the two text widgets for synchronized scrolling."""
+        "Link scrolling between panels."
         if not (
             self.file_view_a
             and self.file_view_b
@@ -712,7 +769,7 @@ class GCompare:
         self.root.bind("<Button-5>", _on_mouse_wheel, add=True)
 
     def _update_scroll_marker(self, first_visible_fraction, last_visible_fraction):
-        """Updates the position and height of the scroll marker on the diff map."""
+        "Update diff-map scroll marker."
         if self.diff_map_canvas and self.scroll_marker_id:
             canvas_height = self.diff_map_canvas.winfo_height()
             if (
@@ -737,7 +794,11 @@ class GCompare:
     # ==========================================================================
 
     def _get_mono_font(self):
-        """Returns a suitable monospace font family based on the current OS."""
+        """Return a suitable monospace font tuple for the platform.
+
+        Returns:
+            Tuple[str, int]: (font_family, font_size)
+        """
         font_families = tkfont.families()
 
         preferred_fonts = []
@@ -764,13 +825,13 @@ class GCompare:
     # ==========================================================================
 
     def _on_closing(self):
-        """Handle window close event."""
+        "Save state and exit."
         self.save_config()
         self.root.destroy()
 
 
 def main():
-    """Main entry point for the application."""
+    "Main entry point for the application."
     root = tk.Tk()
     GCompare(root)
     root.mainloop()
