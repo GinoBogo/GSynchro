@@ -312,16 +312,16 @@ class GCompare:
         self._create_single_panel(panels_frame, panel_a_config)
 
         # Create diff map canvas
-        self.diff_map_canvas = tk.Canvas(panels_frame, width=20, bg="#F0F0F0")
+        self.diff_map_canvas = tk.Canvas(panels_frame, width=40, bg="#FFFFFF")
         self.diff_map_canvas.grid(row=0, column=1, sticky="ns", pady=(10, 0))
 
         # Create scroll marker
         self.scroll_marker_id = self.diff_map_canvas.create_rectangle(
             2,
             2,
-            19,
+            39,
             3,
-            fill="#8F8F8F",
+            fill="#808080",
             outline="black",
             width=1,
             stipple="gray12",
@@ -705,7 +705,7 @@ class GCompare:
                 if self.diff_map_canvas and total_lines > 0 and canvas_height > 0:
                     y = (a_index / total_lines) * canvas_height
                     self.diff_map_canvas.create_line(
-                        0, y, 20, y, fill="lightcoral", width=2, tags="diff_line"
+                        0, y, 40, y, fill="lightcoral", width=2, tags="diff_line"
                     )
 
                 a_index += 1
@@ -719,7 +719,7 @@ class GCompare:
                 if self.diff_map_canvas and total_lines > 0 and canvas_height > 0:
                     y = (b_index / total_lines) * canvas_height
                     self.diff_map_canvas.create_line(
-                        0, y, 20, y, fill="darkcyan", width=2, tags="diff_line"
+                        0, y, 40, y, fill="lightblue", width=2, tags="diff_line"
                     )
 
                 b_index += 1
@@ -835,7 +835,7 @@ class GCompare:
                 if y2 > canvas_height:
                     y1 = canvas_height - 4
 
-            self.diff_map_canvas.coords(self.scroll_marker_id, 2, y1 + 2, 19, y2 - 3)
+            self.diff_map_canvas.coords(self.scroll_marker_id, 2, y1 + 2, 39, y2 - 3)
 
     def _on_marker_press(self, event):
         """Handle mouse button press on the scroll marker.
