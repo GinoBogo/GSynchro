@@ -1355,20 +1355,31 @@ class GSynchro:
 
         if use_ssh:
             self._log(f"SSH scan panel {panel_name}")
-            try:
-                if ssh_client is None:
-                    self._log(f"SSH client is None for panel {panel_name}")
+            # If an ssh_client is not provided, get one from the pool.
+            if ssh_client:
+                return self._scan_remote(folder_path, ssh_client, rules)
+            else:
+                try:
+                    with self._create_ssh_for_panel(panel_name) as new_ssh_client:
+                        if new_ssh_client is None:
+                            self._log(
+                                f"Failed to acquire SSH client for panel {panel_name}"
+                            )
+                            return {}
+                        files = self._scan_remote(folder_path, new_ssh_client, rules)
+                        num_dirs = sum(
+                            1 for f in files.values() if f.get("type") == "dir"
+                        )
+                        num_files = sum(
+                            1 for f in files.values() if f.get("type") == "file"
+                        )
+                        self._log(
+                            f"Found {num_dirs} folders and {num_files} files in panel {panel_name}"
+                        )
+                        return files
+                except Exception as e:
+                    self._log(f"SSH connection failed for Panel {panel_name}: {str(e)}")
                     return {}
-                files = self._scan_remote(folder_path, ssh_client, rules)
-                num_dirs = sum(1 for f in files.values() if f.get("type") == "dir")
-                num_files = sum(1 for f in files.values() if f.get("type") == "file")
-                self._log(
-                    f"Found {num_dirs} folders and {num_files} files in panel {panel_name}"
-                )
-                return files
-            except Exception as e:
-                self._log(f"SSH connection failed for Panel {panel_name}: {str(e)}")
-                return {}
         else:
             self._log(f"Using local folder scan for panel {panel_name}")
             files = self._scan_local(folder_path, rules)
@@ -1470,12 +1481,29 @@ class GSynchro:
         if rules is None:
             rules = []
 
+        # Determine the correct stat command format (GNU vs. BSD)
         try:
+            # Try running 'stat --version', which is typical for GNU stat
             stdin, stdout, stderr = ssh_client.exec_command(
-                f"find '{folder_path}' -mindepth 1 -exec stat -c '%n|%F|%s|%Y' {{}} \\; 2>/dev/null"
+                "stat --version > /dev/null 2>&1"
             )
+            exit_code = stdout.channel.recv_exit_status()
 
-            for line in stdout:
+            if exit_code == 0:
+                # GNU stat
+                stat_command = "stat -c '%n|%F|%s|%Y'"
+                self._log("Remote system uses GNU stat.")
+            else:
+                # BSD stat (e.g., on macOS, FreeBSD)
+                stat_command = "stat -f '%N|%HT|%z|%m'"
+                self._log("Remote system uses BSD stat.")
+
+            # Construct the full find command
+            find_command = f"find '{folder_path}' -mindepth 1 -exec {stat_command} {{}} \\; 2>/dev/null"
+
+            stdin, stdout, stderr = ssh_client.exec_command(find_command)
+
+            for line in stdout.readlines():
                 line = line.strip()
                 if line:
                     try:
@@ -1502,7 +1530,7 @@ class GSynchro:
                         if is_excluded:
                             continue
 
-                        if "directory" in filetype:
+                        if "directory" in filetype.lower():
                             files[rel_path] = {"type": "dir"}
                         else:
                             files[rel_path] = {
@@ -1512,7 +1540,8 @@ class GSynchro:
                                 "type": "file",
                             }
                     except ValueError:
-                        continue
+                        self._log(f"Warning: Could not parse stat line: '{line}'")
+
         except Exception as e:
             self._log(f"Error scanning remote folder {folder_path}: {str(e)}")
 
@@ -3530,48 +3559,40 @@ class GSynchro:
 
         if use_ssh:
             self._log(f"Downloading remote file: {full_path}")
+
+            # Determine connection details
+            if panel == "A":
+                host, user, password, port = (
+                    self.remote_host_a.get(),
+                    self.remote_user_a.get(),
+                    self.remote_pass_a.get(),
+                    int(self.remote_port_a.get()),
+                )
+            else:  # Panel B
+                host, user, password, port = (
+                    self.remote_host_b.get(),
+                    self.remote_user_b.get(),
+                    self.remote_pass_b.get(),
+                    int(self.remote_port_b.get()),
+                )
+
             try:
-                # Use the connection manager directly instead of _create_ssh_for_panel
-                if panel == "A":
-                    with self.connection_manager.get_connection(
-                        self.remote_host_a.get(),
-                        self.remote_user_a.get(),
-                        self.remote_pass_a.get(),
-                        int(self.remote_port_a.get()),
-                    ) as ssh_client:
-                        if not ssh_client:
-                            raise ConnectionError("SSH client is not available.")
+                with self.connection_manager.get_connection(
+                    host, user, password, port
+                ) as ssh_client:
+                    transport = ssh_client.get_transport()
+                    if not ssh_client or not transport or not transport.is_active():
+                        raise ConnectionError(
+                            "SSH client or transport is not available."
+                        )
 
-                        transport = ssh_client.get_transport()
-                        if not transport or not transport.is_active():
-                            raise ConnectionError("SSH transport is not available.")
-                        with tempfile.NamedTemporaryFile(
-                            delete=False, suffix=os.path.basename(rel_path)
-                        ) as tmp:
-                            with SCPClient(transport) as scp:
-                                scp.get(full_path, tmp.name)
-                            self.temp_files_to_clean.append(tmp.name)
-                            return tmp.name
-                else:  # Panel B
-                    with self.connection_manager.get_connection(
-                        self.remote_host_b.get(),
-                        self.remote_user_b.get(),
-                        self.remote_pass_b.get(),
-                        int(self.remote_port_b.get()),
-                    ) as ssh_client:
-                        if not ssh_client:
-                            raise ConnectionError("SSH client is not available.")
-
-                        transport = ssh_client.get_transport()
-                        if not transport or not transport.is_active():
-                            raise ConnectionError("SSH transport is not available.")
-                        with tempfile.NamedTemporaryFile(
-                            delete=False, suffix=os.path.basename(rel_path)
-                        ) as tmp:
-                            with SCPClient(transport) as scp:
-                                scp.get(full_path, tmp.name)
-                            self.temp_files_to_clean.append(tmp.name)
-                            return tmp.name
+                    with tempfile.NamedTemporaryFile(
+                        delete=False, suffix=os.path.basename(rel_path)
+                    ) as tmp:
+                        with SCPClient(transport) as scp:
+                            scp.get(full_path, tmp.name)
+                        self.temp_files_to_clean.append(tmp.name)
+                        return tmp.name
             except Exception as e:
                 self._log(f"Failed to download remote file: {e}")
                 return None
