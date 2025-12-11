@@ -218,6 +218,9 @@ class GSynchro:
         self.sync_states = {}
 
         # Status Variables
+        self._context_menu_tree: Optional[ttk.Treeview] = None
+        self._context_menu_item_id: Optional[str] = None
+
         self.status_a = tk.StringVar()
         self.status_b = tk.StringVar()
 
@@ -2827,6 +2830,9 @@ class GSynchro:
         if not item_id:
             return
 
+        self._context_menu_tree = tree
+        self._context_menu_item_id = item_id
+
         tree.selection_set(item_id)
         tree.focus(item_id)
 
@@ -3138,15 +3144,17 @@ class GSynchro:
 
         except Exception as e:
             messagebox.showerror("Error", f"Failed to launch g_compare.py: {e}")
+        finally:
+            self._clear_context_menu_state()
 
     def _open_selected_item(self):
         """Open selected file with default app."""
-        tree = self.root.focus_get()
-        if tree is None or tree not in (self.tree_a, self.tree_b):
-            return
+        tree = self._context_menu_tree
+        item_id = self._context_menu_item_id
 
-        item_id = tree.focus()
-        if not item_id:
+        if tree is None or item_id is None:
+            self.log("No item selected for opening via context menu.")
+            self._clear_context_menu_state()
             return
 
         try:
@@ -3178,15 +3186,17 @@ class GSynchro:
 
         except Exception as e:
             messagebox.showerror("Error", f"Could not open file: {e}")
+        finally:
+            self._clear_context_menu_state()
 
     def _delete_selected_item(self):
         """Delete the selected file or directory."""
-        tree = self.root.focus_get()
-        if tree is None or tree not in (self.tree_a, self.tree_b):
-            return
+        tree = self._context_menu_tree
+        item_id = self._context_menu_item_id
 
-        item_id = tree.focus()
-        if not item_id:
+        if tree is None or item_id is None:
+            self.log("No item selected for deletion via context menu.")
+            self._clear_context_menu_state()
             return
 
         rel_path = self._get_relative_path(tree, item_id)
@@ -3258,6 +3268,8 @@ class GSynchro:
             except Exception as e:
                 messagebox.showerror("Error", f"Failed to delete item: {e}")
                 self.log(f"Error deleting {full_path}: {e}")
+            finally:
+                self._clear_context_menu_state()
 
         threading.Thread(target=delete_and_refresh, daemon=True).start()
 
@@ -3268,6 +3280,7 @@ class GSynchro:
     def _on_escape_key(self, event=None):
         """Handle Escape key press to clear selection and focus from trees."""
         # Hide context menu if it's visible
+        self._clear_context_menu_state()
         self.tree_context_menu.unpost()
 
         widget = self.root.focus_get()
@@ -3279,6 +3292,11 @@ class GSynchro:
                 widget.selection_remove(selection)
             # Move focus away from the tree to the root window
             self.root.focus_set()
+
+    def _clear_context_menu_state(self):
+        """Clear the stored context menu tree and item ID."""
+        self._context_menu_tree = None
+        self._context_menu_item_id = None
 
     def _cleanup_temp_files(self):
         """Clean up temporary files created during the session."""
