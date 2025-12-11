@@ -456,6 +456,7 @@ class GCompare:
         left_status_container = ttk.Frame(status_frame)
         left_status_container.grid(row=0, column=0, sticky=tk.W, padx=0)
 
+        # Removed lines legend
         removed_square = tk.Label(
             left_status_container,
             bg="lightcoral",
@@ -465,6 +466,17 @@ class GCompare:
             bd=1,
         )
         removed_square.pack(side=tk.LEFT, padx=(6, 4))
+
+        # Removed empty lines legend
+        empty_square = tk.Label(
+            left_status_container,
+            bg="yellow",
+            width=2,
+            height=1,
+            relief="solid",
+            bd=1,
+        )
+        empty_square.pack(side=tk.LEFT, padx=(4, 4))
 
         status_label_left = ttk.Label(
             left_status_container, textvariable=self.status_a, anchor=tk.W
@@ -480,6 +492,7 @@ class GCompare:
         )
         status_label_right.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
+        # Added lines legend
         added_square = tk.Label(
             right_status_container,
             bg="lightblue",
@@ -488,7 +501,18 @@ class GCompare:
             relief="solid",
             bd=1,
         )
-        added_square.pack(side=tk.LEFT, padx=(6, 4))
+        added_square.pack(side=tk.LEFT, padx=(4, 6))
+
+        # Added empty lines legend
+        empty_square_b = tk.Label(
+            right_status_container,
+            bg="yellow",
+            width=2,
+            height=1,
+            relief="solid",
+            bd=1,
+        )
+        empty_square_b.pack(side=tk.LEFT, padx=(4, 4))
 
     # ========================================================================
     # FILE OPERATIONS
@@ -589,6 +613,7 @@ class GCompare:
             )
             return
 
+        # Save confirmation dialog - RESTORED
         if not messagebox.askyesno(
             "Confirm Save", f"Are you sure you want to overwrite '{file_path}'?"
         ):
@@ -765,9 +790,23 @@ class GCompare:
             "diff_lines": diff_lines,
             "added_lines": 0,
             "removed_lines": 0,
+            "added_empty_lines": 0,
+            "removed_empty_lines": 0,
             "total_lines": max(len(lines_a), len(lines_b)),
-            "changes": [],  # List of (type, line_num) tuples
+            "changes": [],  # List of (type, line_num, is_empty) tuples
         }
+
+        # Helper function to check if line is empty (only whitespace)
+        def is_empty_line(line: str) -> bool:
+            """Check if a line is empty or contains only whitespace.
+
+            Args:
+                line: Line to check
+
+            Returns:
+                True if line is empty or contains only whitespace
+            """
+            return len(line.strip()) == 0
 
         # Process diff results
         for line in diff_lines:
@@ -775,17 +814,27 @@ class GCompare:
                 continue
 
             code = line[0]
+            line_content = line[2:] if len(line) > 2 else ""
+            is_empty = is_empty_line(line_content)
 
             if code == " ":
                 a_index += 1
                 b_index += 1
             elif code == "-":
                 diff_info["removed_lines"] += 1
-                diff_info["changes"].append(("removed", a_index))
+                if is_empty:
+                    diff_info["removed_empty_lines"] += 1
+                    diff_info["changes"].append(("removed_empty", a_index, True))
+                else:
+                    diff_info["changes"].append(("removed", a_index, False))
                 a_index += 1
             elif code == "+":
                 diff_info["added_lines"] += 1
-                diff_info["changes"].append(("added", b_index))
+                if is_empty:
+                    diff_info["added_empty_lines"] += 1
+                    diff_info["changes"].append(("added_empty", b_index, True))
+                else:
+                    diff_info["changes"].append(("added", b_index, False))
                 b_index += 1
 
         return diff_info
@@ -799,25 +848,35 @@ class GCompare:
         # Clear existing tags
         if self.file_view_a:
             self.file_view_a.tag_remove("removed", "1.0", tk.END)
+            self.file_view_a.tag_remove("removed_empty", "1.0", tk.END)
         if self.file_view_b:
             self.file_view_b.tag_remove("added", "1.0", tk.END)
+            self.file_view_b.tag_remove("added_empty", "1.0", tk.END)
 
         # Configure highlight tags
         if self.file_view_a:
             self.file_view_a.tag_configure("removed", background="lightcoral")
+            self.file_view_a.tag_configure("removed_empty", background="yellow")
         if self.file_view_b:
             self.file_view_b.tag_configure("added", background="lightblue")
+            self.file_view_b.tag_configure("added_empty", background="yellow")
 
         # Apply highlights based on diff results
-        for change_type, line_num in diff_result["changes"]:
-            if change_type == "removed" and self.file_view_a:
+        for change_info in diff_result["changes"]:
+            change_type, line_num, is_empty = change_info
+
+            if change_type in ("removed", "removed_empty") and self.file_view_a:
                 start_pos = f"{line_num}.0"
                 end_pos = f"{line_num}.end"
-                self.file_view_a.tag_add("removed", start_pos, end_pos)
-            elif change_type == "added" and self.file_view_b:
+                tag_name = (
+                    "removed_empty" if change_type == "removed_empty" else "removed"
+                )
+                self.file_view_a.tag_add(tag_name, start_pos, end_pos)
+            elif change_type in ("added", "added_empty") and self.file_view_b:
                 start_pos = f"{line_num}.0"
                 end_pos = f"{line_num}.end"
-                self.file_view_b.tag_add("added", start_pos, end_pos)
+                tag_name = "added_empty" if change_type == "added_empty" else "added"
+                self.file_view_b.tag_add(tag_name, start_pos, end_pos)
 
     def _update_diff_map(self, diff_result: Dict):
         """Update the diff map visualization.
@@ -846,29 +905,38 @@ class GCompare:
         canvas_width = self.diff_map_canvas.winfo_width()
         half_width = canvas_width / 2
 
-        for change_type, line_num in diff_result["changes"]:
+        for change_info in diff_result["changes"]:
+            change_type, line_num, is_empty = change_info
+
             if line_num <= total_lines:
                 y_start = ((line_num - 1) / total_lines) * canvas_height
                 line_height = max(1, canvas_height / total_lines)
                 y_end = y_start + line_height
 
-                if change_type == "removed":
+                # Determine color based on change type
+                if change_type in ("removed", "removed_empty"):
+                    fill_color = (
+                        "yellow" if change_type == "removed_empty" else "lightcoral"
+                    )
                     self.diff_map_canvas.create_rectangle(
                         2,
                         y_start,
                         half_width,
                         y_end,
-                        fill="lightcoral",
+                        fill=fill_color,
                         outline="",
                         tags="diff_line",
                     )
-                elif change_type == "added":
+                elif change_type in ("added", "added_empty"):
+                    fill_color = (
+                        "yellow" if change_type == "added_empty" else "lightblue"
+                    )
                     self.diff_map_canvas.create_rectangle(
                         half_width,
                         y_start,
                         canvas_width - 2,
                         y_end,
-                        fill="lightblue",
+                        fill=fill_color,
                         outline="",
                         tags="diff_line",
                     )
@@ -883,8 +951,32 @@ class GCompare:
         Args:
             diff_result: Dictionary containing diff information
         """
-        self.status_a.set(f"{diff_result['removed_lines']} lines removed from File A")
-        self.status_b.set(f"{diff_result['added_lines']} lines added to File B")
+        # Calculate non-empty changes
+        non_empty_removed = (
+            diff_result["removed_lines"] - diff_result["removed_empty_lines"]
+        )
+        non_empty_added = diff_result["added_lines"] - diff_result["added_empty_lines"]
+
+        # Build concise status strings
+        if diff_result["removed_lines"] > 0:
+            if diff_result["removed_empty_lines"] > 0:
+                self.status_a.set(
+                    f"Removed {non_empty_removed} lines / {diff_result['removed_empty_lines']} empty lines"
+                )
+            else:
+                self.status_a.set(f"Removed {non_empty_removed} lines")
+        else:
+            self.status_a.set("File A")
+
+        if diff_result["added_lines"] > 0:
+            if diff_result["added_empty_lines"] > 0:
+                self.status_b.set(
+                    f"Added {non_empty_added} lines / {diff_result['added_empty_lines']} empty lines"
+                )
+            else:
+                self.status_b.set(f"Added {non_empty_added} lines")
+        else:
+            self.status_b.set("File B")
 
     # ========================================================================
     # SCROLLING METHODS
