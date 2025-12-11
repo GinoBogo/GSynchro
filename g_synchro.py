@@ -2862,7 +2862,7 @@ class GSynchro:
         selected_b = self.tree_b.selection() if self.tree_b else ()
 
         # Post the menu at the cursor's location
-        self.tree_context_menu.post(event.x_root, event.y_root)
+        self.tree_context_menu.tk_popup(event.x_root, event.y_root)
 
         if len(selected_a) == 1 and len(selected_b) == 1:
             self.tree_context_menu.entryconfig("Compare...", state="normal")
@@ -3267,6 +3267,9 @@ class GSynchro:
 
     def _on_escape_key(self, event=None):
         """Handle Escape key press to clear selection and focus from trees."""
+        # Hide context menu if it's visible
+        self.tree_context_menu.unpost()
+
         widget = self.root.focus_get()
         if isinstance(widget, ttk.Treeview) and widget in (self.tree_a, self.tree_b):
             # Get current selection
