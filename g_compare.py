@@ -577,6 +577,9 @@ class GCompare:
             elif response is None:  # Cancel
                 return
 
+        # Clear the diff map visualization
+        self._clear_diff_map()
+
         # Reload files
         if self.file_a.get():
             self._load_file_a(self.file_a.get())
@@ -1207,6 +1210,26 @@ class GCompare:
 
         # Fallback
         return ("Courier", 12)
+
+    def _clear_diff_map(self):
+        """Clear the diff map visualization."""
+        if self.diff_map_canvas:
+            # Clear all diff lines
+            self.diff_map_canvas.delete("diff_line")
+
+            # Reset status to default
+            if self.status_a:
+                self.status_a.set("by Gino Bogo")
+            if self.status_b:
+                self.status_b.set("")
+
+            # Clear any text highlighting
+            if self.file_view_a:
+                self.file_view_a.tag_remove("removed", "1.0", tk.END)
+                self.file_view_a.tag_remove("removed_empty", "1.0", tk.END)
+            if self.file_view_b:
+                self.file_view_b.tag_remove("added", "1.0", tk.END)
+                self.file_view_b.tag_remove("added_empty", "1.0", tk.END)
 
     # ========================================================================
     # EVENT HANDLERS
