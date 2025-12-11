@@ -1710,29 +1710,55 @@ class GSynchro:
         def compare_thread():
             self._log("Starting folder comparison...")
 
-            path_a = self.folder_a.get()
-            path_b = self.folder_b.get()
+            folder_a_path = self.folder_a.get()
+            folder_b_path = self.folder_b.get()
 
-            if not path_a or not path_b:
+            if not folder_a_path or not folder_b_path:
                 messagebox.showerror("Error", "Please select both folders to compare")
                 return
 
             try:
-                # Use existing data for comparison
-                total_items = len(set(self.files_a.keys()) | set(self.files_b.keys()))
-                self.root.after(
-                    0, self._start_progress, None, total_items, "Comparing..."
-                )
+                self.root.after(0, self._start_progress, None, 0, "Scanning...")
 
-                # Use context managers for SSH connections during comparison
+                # Rescan both folders to get the latest state
                 with self._create_ssh_for_panel("A", optional=True) as ssh_a:
                     with self._create_ssh_for_panel("B", optional=True) as ssh_b:
                         use_ssh_a = ssh_a is not None
                         use_ssh_b = ssh_b is not None
+                        rules = self._get_active_filters()
 
+                        # Scan folders
+                        self.files_a = self._scan_folder(
+                            folder_a_path, use_ssh_a, ssh_a, "A", rules
+                        )
+                        self.files_b = self._scan_folder(
+                            folder_b_path, use_ssh_b, ssh_b, "B", rules
+                        )
+
+                        # Update UI with new file lists
+                        tree_structure_a = self._build_tree_structure(self.files_a)
+                        tree_structure_b = self._build_tree_structure(self.files_b)
+
+                        if self.tree_a:
+                            self._batch_populate_tree(
+                                self.tree_a, tree_structure_a, rules
+                            )
+                        if self.tree_b:
+                            self._batch_populate_tree(
+                                self.tree_b, tree_structure_b, rules
+                            )
+
+                        # Now run the comparison on the fresh data
+                        total_items = len(
+                            set(self.files_a.keys()) | set(self.files_b.keys())
+                        )
+                        self.root.after(
+                            0, self._start_progress, None, total_items, "Comparing..."
+                        )
                         self._update_trees_with_comparison(
                             self.files_a, self.files_b, use_ssh_a, use_ssh_b
                         )
+
             except Exception as e:
                 self._log(f"Error during comparison: {str(e)}")
             finally:
@@ -2072,10 +2098,10 @@ class GSynchro:
             is_a_file = file_a.get("type") == "file"
             is_b_file = file_b.get("type") == "file"
 
-            if is_a_file != is_b_file:
+            if is_a_file and not is_b_file:
                 return "Conflict", "black"
-
-            # If sizes differ, files cannot be identical.
+            if not is_a_file and is_b_file:
+                return "Conflict", "black"
             if file_a.get("size") != file_b.get("size"):
                 return "Different", "orange"
 
@@ -2101,7 +2127,7 @@ class GSynchro:
 
                 except Exception as e:
                     self._log(f"Error during chunked file comparison: {e}")
-                    return "Error", "black"
+                    return "Different", "orange"
             else:
                 # Fallback for items that exist in both but aren't comparable as files
                 return "Different", "orange"
@@ -3116,43 +3142,35 @@ class GSynchro:
         self._log(f"Updating UI for synced item: {synced_item_rel_path}")
 
         # Determine source and destination data
+        rules = self._get_active_filters()
         if direction == "a_to_b":
             source_files, dest_files = self.files_a, self.files_b
-            tree_a, tree_b = self.tree_a, self.tree_b
+            dest_tree = self.tree_b
         else:
             source_files, dest_files = self.files_b, self.files_a
-            tree_a, tree_b = self.tree_b, self.tree_a
+            dest_tree = self.tree_a
 
         source_item_info = source_files.get(synced_item_rel_path)
         if not source_item_info:
             self._log(
                 f"Could not find source info for {synced_item_rel_path}, performing full refresh."
             )
-            self.compare_folders()
+            self.root.after(0, self.compare_folders)
             return
 
         # Update the destination file's metadata to match the source
         dest_files[synced_item_rel_path] = source_item_info.copy()
 
+        # Rebuild and repopulate the destination tree
+        tree_structure = self._build_tree_structure(dest_files)
+        if dest_tree:
+            self._batch_populate_tree(dest_tree, tree_structure, rules)
+
         # After sync, the item is no longer selected for sync
         self.sync_states[synced_item_rel_path] = False
 
         # Find the item in both trees and update its status
-        if tree_a:
-            tree_a_map = self._build_tree_map(tree_a)
-            item_id_a = tree_a_map.get(synced_item_rel_path.replace(os.sep, "/"))
-            if item_id_a:
-                self._update_tree_item(
-                    tree_a, item_id_a, synced_item_rel_path, "Identical", "green"
-                )
-
-        if tree_b:
-            tree_b_map = self._build_tree_map(tree_b)
-            item_id_b = tree_b_map.get(synced_item_rel_path.replace(os.sep, "/"))
-            if item_id_b:
-                self._update_tree_item(
-                    tree_b, item_id_b, synced_item_rel_path, "Identical", "green"
-                )
+        self.root.after(0, self.compare_folders)
 
     def _select_all(self):
         """Select all different/new items."""
@@ -3676,6 +3694,10 @@ class GSynchro:
             self.status_label_a.grid()
         if self.status_label_b:
             self.status_label_b.grid()
+
+        # Clear any "syncing..." or "scanning..." messages
+        self._update_status("A", self.files_a)
+        self._update_status("B", self.files_b)
 
     def _refresh_ui_after_sync(self, use_ssh_a: bool, use_ssh_b: bool):
         """Refreshes both tree views and runs comparison after sync.
