@@ -20,6 +20,7 @@ import sys
 import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import ttk, filedialog, messagebox
+from typing import Dict, List, Tuple, Optional, cast
 
 
 # ============================================================================
@@ -28,6 +29,9 @@ from tkinter import ttk, filedialog, messagebox
 
 CONFIG_FILE = "g_compare.json"
 HISTORY_LENGTH = 10
+SCROLL_MARKER_WIDTH = 40
+MIN_WINDOW_WIDTH = 1024
+MIN_WINDOW_HEIGHT = 768
 
 
 # ============================================================================
@@ -53,32 +57,33 @@ class GCompare:
         # File variables
         self.file_a = tk.StringVar()
         self.file_b = tk.StringVar()
-        self.file_a_history = []
-        self.file_b_history = []
+        self.file_a_history: List[str] = []
+        self.file_b_history: List[str] = []
 
         # Content variables
         self.content_a = tk.StringVar()
         self.content_b = tk.StringVar()
 
         # UI components
-        self.file_view_a = None
-        self.file_view_b = None
-        self.panel_a = None
-        self.panel_b = None
-        self.diff_map_canvas = None
-        self.scroll_marker_id = None
-        self.v_scrollbar_a = None
-        self.v_scrollbar_b = None
-        self.h_scrollbar_a = None
-        self.h_scrollbar_b = None
+        self.file_view_a: Optional[tk.Text] = None
+        self.file_view_b: Optional[tk.Text] = None
+        self.panel_a: Optional[ttk.LabelFrame] = None
+        self.panel_b: Optional[ttk.LabelFrame] = None
+        self.diff_map_canvas: Optional[tk.Canvas] = None
+        self.scroll_marker_id: Optional[int] = None
+        self.v_scrollbar_a: Optional[ttk.Scrollbar] = None
+        self.v_scrollbar_b: Optional[ttk.Scrollbar] = None
+        self.h_scrollbar_a: Optional[ttk.Scrollbar] = None
+        self.h_scrollbar_b: Optional[ttk.Scrollbar] = None
 
         # Status variables
         self.status_a = tk.StringVar()
         self.status_b = tk.StringVar()
 
         # Variables to manage scroll marker dragging
-        self._marker_drag_start_y = None
+        self._marker_drag_start_y: Optional[float] = None
         self._marker_initial_scroll_fraction = 0.0
+
         # Initialize application
         self.load_config()
         self._init_window()
@@ -97,7 +102,7 @@ class GCompare:
     def _init_window(self):
         """Initialize main window properties."""
         self.root.title("GCompare - File Comparison Tool")
-        self.root.minsize(1024, 768)
+        self.root.minsize(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT)
         self.root.protocol("WM_DELETE_WINDOW", self._on_closing)
 
     def _setup_ui(self):
@@ -191,8 +196,10 @@ class GCompare:
     def save_config(self):
         """Save configuration to file."""
         # Update file history
-        self._update_file_history("A", self.file_a.get())
-        self._update_file_history("B", self.file_b.get())
+        if self.file_a.get():
+            self._update_file_history("A", self.file_a.get())
+        if self.file_b.get():
+            self._update_file_history("B", self.file_b.get())
 
         config = {
             "WINDOW": {"geometry": self.root.geometry()},
@@ -203,8 +210,13 @@ class GCompare:
         with open(CONFIG_FILE, "w") as f:
             json.dump(config, f, indent=4)
 
-    def _update_file_history(self, panel_name, new_path):
-        """Update recent files list for specified panel."""
+    def _update_file_history(self, panel_name: str, new_path: str):
+        """Update recent files list for specified panel.
+
+        Args:
+            panel_name: Either "A" or "B"
+            new_path: Path to add to history
+        """
         if not new_path:
             return
 
@@ -224,7 +236,7 @@ class GCompare:
     # UI CREATION METHODS
     # ========================================================================
 
-    def _create_main_frame(self):
+    def _create_main_frame(self) -> ttk.Frame:
         """Create the main application frame."""
         main_frame = ttk.Frame(self.root, padding="10")
         main_frame.grid(row=0, column=0, sticky=tk.NSEW)
@@ -236,13 +248,13 @@ class GCompare:
 
         return main_frame
 
-    def _create_control_frame(self, main_frame):
+    def _create_control_frame(self, main_frame: ttk.Frame) -> ttk.Frame:
         """Create control buttons frame."""
         control_frame = ttk.Frame(main_frame)
         control_frame.grid(row=0, column=0, columnspan=3, sticky=tk.EW, pady=5)
         return control_frame
 
-    def _create_control_buttons(self, control_frame):
+    def _create_control_buttons(self, control_frame: ttk.Frame):
         """Create the main control buttons."""
         button_container = ttk.Frame(control_frame)
         button_container.pack(expand=True)
@@ -268,7 +280,7 @@ class GCompare:
                 side=tk.LEFT, padx=5, pady=5
             )
 
-    def _create_panels_frame(self, main_frame):
+    def _create_panels_frame(self, main_frame: ttk.Frame) -> ttk.Frame:
         """Create panels container."""
         panels_frame = ttk.Frame(main_frame)
         panels_frame.grid(row=1, column=0, columnspan=3, sticky=tk.NSEW)
@@ -280,7 +292,7 @@ class GCompare:
 
         return panels_frame
 
-    def _create_file_panels(self, panels_frame):
+    def _create_file_panels(self, panels_frame: ttk.Frame):
         """Create both file panels and diff map."""
         # Panel A
         panel_a_config = {
@@ -312,14 +324,16 @@ class GCompare:
         self._create_single_panel(panels_frame, panel_a_config)
 
         # Create diff map canvas
-        self.diff_map_canvas = tk.Canvas(panels_frame, width=40, bg="#FFFFFF")
+        self.diff_map_canvas = tk.Canvas(
+            panels_frame, width=SCROLL_MARKER_WIDTH, bg="#FFFFFF"
+        )
         self.diff_map_canvas.grid(row=0, column=1, sticky="ns", pady=(10, 0))
 
         # Create scroll marker
         self.scroll_marker_id = self.diff_map_canvas.create_rectangle(
             2,
             2,
-            39,
+            SCROLL_MARKER_WIDTH - 1,
             3,
             fill="#808080",
             outline="black",
@@ -329,25 +343,35 @@ class GCompare:
         )
 
         # Bind events to the scroll marker for dragging functionality
-        self.diff_map_canvas.tag_bind(
-            "scroll_marker", "<ButtonPress-1>", self._on_marker_press
-        )
-        self.diff_map_canvas.tag_bind(
-            "scroll_marker", "<B1-Motion>", self._on_marker_drag
-        )
-        self.diff_map_canvas.tag_bind(
-            "scroll_marker", "<ButtonRelease-1>", self._on_marker_release
-        )
-        self.diff_map_canvas.tag_bind("scroll_marker", "<Enter>", self._on_marker_enter)
-        self.diff_map_canvas.tag_bind("scroll_marker", "<Leave>", self._on_marker_leave)
+        if self.scroll_marker_id:
+            self.diff_map_canvas.tag_bind(
+                "scroll_marker", "<ButtonPress-1>", self._on_marker_press
+            )
+            self.diff_map_canvas.tag_bind(
+                "scroll_marker", "<B1-Motion>", self._on_marker_drag
+            )
+            self.diff_map_canvas.tag_bind(
+                "scroll_marker", "<ButtonRelease-1>", self._on_marker_release
+            )
+            self.diff_map_canvas.tag_bind(
+                "scroll_marker", "<Enter>", self._on_marker_enter
+            )
+            self.diff_map_canvas.tag_bind(
+                "scroll_marker", "<Leave>", self._on_marker_leave
+            )
 
         self.diff_map_canvas.bind("<Configure>", self._compare_files)
 
         # Create panel B
         self._create_single_panel(panels_frame, panel_b_config)
 
-    def _create_single_panel(self, parent, config):
-        """Create a single file panel."""
+    def _create_single_panel(self, parent: ttk.Frame, config: Dict):
+        """Create a single file panel.
+
+        Args:
+            parent: Parent widget
+            config: Dictionary containing panel configuration
+        """
         panel = ttk.LabelFrame(parent, text=config["title"], padding="5")
         panel.grid(
             row=0,
@@ -420,7 +444,7 @@ class GCompare:
             self.v_scrollbar_b = v_scrollbar
             self.h_scrollbar_b = h_scrollbar
 
-    def _create_status_bar(self, parent):
+    def _create_status_bar(self, parent: ttk.Frame):
         """Create status bar with legends."""
         status_frame = ttk.Frame(parent, relief="flat", padding="2")
         status_frame.grid(row=2, column=0, columnspan=3, sticky=tk.EW, pady=(5, 0))
@@ -478,8 +502,12 @@ class GCompare:
         """Open file dialog for File B."""
         self._open_file("B")
 
-    def _open_file(self, panel_name):
-        """Open file dialog and load file."""
+    def _open_file(self, panel_name: str):
+        """Open file dialog and load file.
+
+        Args:
+            panel_name: Either "A" or "B"
+        """
         initial_dir = None
         current_path = ""
 
@@ -533,14 +561,22 @@ class GCompare:
 
     def _save_file_a(self):
         """Save File A."""
-        self._save_file(self.file_a.get(), self.file_view_a, "A")
+        if self.file_view_a:
+            self._save_file(self.file_a.get(), self.file_view_a, "A")
 
     def _save_file_b(self):
         """Save File B."""
-        self._save_file(self.file_b.get(), self.file_view_b, "B")
+        if self.file_view_b:
+            self._save_file(self.file_b.get(), self.file_view_b, "B")
 
-    def _save_file(self, file_path, text_widget, panel_name):
-        """Write text widget content to disk."""
+    def _save_file(self, file_path: str, text_widget: tk.Text, panel_name: str):
+        """Write text widget content to disk.
+
+        Args:
+            file_path: Path to save to
+            text_widget: Text widget containing content
+            panel_name: Either "A" or "B"
+        """
         if not file_path:
             messagebox.showwarning(
                 "Save Error", f"No file path specified for Panel {panel_name}."
@@ -574,8 +610,12 @@ class GCompare:
                 "Save Error", f"Failed to save file '{file_path}':\n{e}"
             )
 
-    def _load_file_a(self, file_path):
-        """Load file into File A view."""
+    def _load_file_a(self, file_path: str):
+        """Load file into File A view.
+
+        Args:
+            file_path: Path to file to load
+        """
         self._load_file(
             file_path,
             "A",
@@ -586,8 +626,12 @@ class GCompare:
             self.status_a,
         )
 
-    def _load_file_b(self, file_path):
-        """Load file into File B view."""
+    def _load_file_b(self, file_path: str):
+        """Load file into File B view.
+
+        Args:
+            file_path: Path to file to load
+        """
         self._load_file(
             file_path,
             "B",
@@ -600,15 +644,25 @@ class GCompare:
 
     def _load_file(
         self,
-        file_path,
-        panel_name,
-        file_var,
-        content_var,
-        text_view,
-        panel_widget,
-        status_var,
+        file_path: str,
+        panel_name: str,
+        file_var: tk.StringVar,
+        content_var: tk.StringVar,
+        text_view: Optional[tk.Text],
+        panel_widget: Optional[ttk.LabelFrame],
+        status_var: tk.StringVar,
     ):
-        """Load file content into specified panel."""
+        """Load file content into specified panel.
+
+        Args:
+            file_path: Path to file to load
+            panel_name: Either "A" or "B"
+            file_var: StringVar to store file path
+            content_var: StringVar to store content
+            text_view: Text widget to display content
+            panel_widget: Panel widget to update title
+            status_var: Status variable to update
+        """
         try:
             with open(file_path, "r", encoding="utf-8") as file:
                 content = file.read()
@@ -642,11 +696,20 @@ class GCompare:
     # TEXT AND COMPARISON METHODS
     # ========================================================================
 
-    def _on_text_modified(self, event, panel_widget, original_title):
-        """Mark panel as modified when its text changes."""
+    def _on_text_modified(
+        self, event: tk.Event, panel_widget: ttk.LabelFrame, original_title: str
+    ):
+        """Mark panel as modified when its text changes.
+
+        Args:
+            event: Tkinter event
+            panel_widget: Panel to mark as modified
+            original_title: Original panel title
+        """
         try:
-            text_widget = event.widget
-        except Exception:
+            # Cast the widget to Text since we know it's a Text widget
+            text_widget = cast(tk.Text, event.widget)
+        except (AttributeError, TypeError):
             return
 
         if panel_widget and text_widget.edit_modified():
@@ -665,42 +728,49 @@ class GCompare:
             )
             return
 
+        # Compute differences
+        diff_result = self._compute_diff()
+
+        # Apply visual changes
+        self._apply_highlights(diff_result)
+        self._update_diff_map(diff_result)
+        self._update_status(diff_result)
+
+    def _compute_diff(self) -> Dict:
+        """Compute differences between the two files.
+
+        Returns:
+            dict: Contains diff lines, line counts, and content information
+        """
         # Get content
-        lines_a = self.file_view_a.get("1.0", tk.END).splitlines()
-        lines_b = self.file_view_b.get("1.0", tk.END).splitlines()
-
-        # Clear existing tags
-        self.file_view_a.tag_remove("removed", "1.0", tk.END)
-        self.file_view_b.tag_remove("added", "1.0", tk.END)
-
-        # Clear diff map
-        if self.diff_map_canvas:
-            self.diff_map_canvas.delete("diff_line")
-            # Update scroll marker
-            first, last = self.file_view_a.yview()
-            self._update_scroll_marker(float(first), float(last))
-
-        # Configure highlight tags
-        self.file_view_a.tag_configure("removed", background="lightcoral")
-        self.file_view_b.tag_configure("added", background="lightblue")
+        lines_a = (
+            self.file_view_a.get("1.0", tk.END).splitlines() if self.file_view_a else []
+        )
+        lines_b = (
+            self.file_view_b.get("1.0", tk.END).splitlines() if self.file_view_b else []
+        )
 
         # Perform comparison
         differ = difflib.Differ()
-        diff = differ.compare(lines_a, lines_b)
+        diff_lines = list(differ.compare(lines_a, lines_b))
 
         # Initialize counters
         a_index = 1
         b_index = 1
-        added_lines = 0
-        removed_lines = 0
 
-        total_lines = max(len(lines_a), len(lines_b))
-        canvas_height = (
-            self.diff_map_canvas.winfo_height() if self.diff_map_canvas else 0
-        )
+        # Prepare diff information
+        diff_info = {
+            "lines_a": lines_a,
+            "lines_b": lines_b,
+            "diff_lines": diff_lines,
+            "added_lines": 0,
+            "removed_lines": 0,
+            "total_lines": max(len(lines_a), len(lines_b)),
+            "changes": [],  # List of (type, line_num) tuples
+        }
 
         # Process diff results
-        for line in diff:
+        for line in diff_lines:
             if not line:
                 continue
 
@@ -710,42 +780,91 @@ class GCompare:
                 a_index += 1
                 b_index += 1
             elif code == "-":
-                removed_lines += 1
-                start_pos = f"{a_index}.0"
-                end_pos = f"{a_index}.end"
-                self.file_view_a.tag_add("removed", start_pos, end_pos)
+                diff_info["removed_lines"] += 1
+                diff_info["changes"].append(("removed", a_index))
+                a_index += 1
+            elif code == "+":
+                diff_info["added_lines"] += 1
+                diff_info["changes"].append(("added", b_index))
+                b_index += 1
 
-                # Add to diff map
-                if self.diff_map_canvas and total_lines > 0 and canvas_height > 0:
-                    y_start = ((a_index - 1) / total_lines) * canvas_height
-                    line_height = max(1, canvas_height / total_lines)
-                    y_end = y_start + line_height
-                    canvas_width = self.diff_map_canvas.winfo_width()
+        return diff_info
+
+    def _apply_highlights(self, diff_result: Dict):
+        """Apply highlighting to the text widgets based on diff results.
+
+        Args:
+            diff_result: Dictionary containing diff information
+        """
+        # Clear existing tags
+        if self.file_view_a:
+            self.file_view_a.tag_remove("removed", "1.0", tk.END)
+        if self.file_view_b:
+            self.file_view_b.tag_remove("added", "1.0", tk.END)
+
+        # Configure highlight tags
+        if self.file_view_a:
+            self.file_view_a.tag_configure("removed", background="lightcoral")
+        if self.file_view_b:
+            self.file_view_b.tag_configure("added", background="lightblue")
+
+        # Apply highlights based on diff results
+        for change_type, line_num in diff_result["changes"]:
+            if change_type == "removed" and self.file_view_a:
+                start_pos = f"{line_num}.0"
+                end_pos = f"{line_num}.end"
+                self.file_view_a.tag_add("removed", start_pos, end_pos)
+            elif change_type == "added" and self.file_view_b:
+                start_pos = f"{line_num}.0"
+                end_pos = f"{line_num}.end"
+                self.file_view_b.tag_add("added", start_pos, end_pos)
+
+    def _update_diff_map(self, diff_result: Dict):
+        """Update the diff map visualization.
+
+        Args:
+            diff_result: Dictionary containing diff information
+        """
+        if not self.diff_map_canvas or not self.file_view_a:
+            return
+
+        # Clear existing diff map
+        self.diff_map_canvas.delete("diff_line")
+
+        # Update scroll marker
+        first, last = self.file_view_a.yview()
+        self._update_scroll_marker(float(first), float(last))
+
+        # Check if we have content to visualize
+        total_lines = diff_result["total_lines"]
+        canvas_height = self.diff_map_canvas.winfo_height()
+
+        if total_lines <= 0 or canvas_height <= 0:
+            return
+
+        # Draw diff indicators
+        canvas_width = self.diff_map_canvas.winfo_width()
+        half_width = canvas_width / 2
+
+        for change_type, line_num in diff_result["changes"]:
+            if line_num <= total_lines:
+                y_start = ((line_num - 1) / total_lines) * canvas_height
+                line_height = max(1, canvas_height / total_lines)
+                y_end = y_start + line_height
+
+                if change_type == "removed":
                     self.diff_map_canvas.create_rectangle(
                         2,
                         y_start,
-                        canvas_width / 2,
+                        half_width,
                         y_end,
                         fill="lightcoral",
                         outline="",
                         tags="diff_line",
                     )
-
-                a_index += 1
-            elif code == "+":
-                added_lines += 1
-                start_pos = f"{b_index}.0"
-                end_pos = f"{b_index}.end"
-                self.file_view_b.tag_add("added", start_pos, end_pos)
-
-                # Add to diff map
-                if self.diff_map_canvas and total_lines > 0 and canvas_height > 0:
-                    y_start = ((b_index - 1) / total_lines) * canvas_height
-                    line_height = max(1, canvas_height / total_lines)
-                    y_end = y_start + line_height
-                    canvas_width = self.diff_map_canvas.winfo_width()
+                elif change_type == "added":
                     self.diff_map_canvas.create_rectangle(
-                        canvas_width / 2,
+                        half_width,
                         y_start,
                         canvas_width - 2,
                         y_end,
@@ -754,15 +873,18 @@ class GCompare:
                         tags="diff_line",
                     )
 
-                b_index += 1
-
-        # Update status
-        self.status_a.set(f"{removed_lines} lines removed from File A")
-        self.status_b.set(f"{added_lines} lines added to File B")
-
         # Ensure scroll marker is on top
-        if self.diff_map_canvas:
+        if self.scroll_marker_id:
             self.diff_map_canvas.tag_raise("scroll_marker")
+
+    def _update_status(self, diff_result: Dict):
+        """Update the status bar with diff information.
+
+        Args:
+            diff_result: Dictionary containing diff information
+        """
+        self.status_a.set(f"{diff_result['removed_lines']} lines removed from File A")
+        self.status_b.set(f"{diff_result['added_lines']} lines added to File B")
 
     # ========================================================================
     # SCROLLING METHODS
@@ -794,7 +916,9 @@ class GCompare:
             """Update scrollbars when vertical view changes."""
             v_scrollbar_a.set(*args)
             v_scrollbar_b.set(*args)
-            self._update_scroll_marker(float(args[0]), float(args[1]))
+            if self.file_view_a:
+                first, last = self.file_view_a.yview()
+                self._update_scroll_marker(float(first), float(last))
 
         def _on_x_scroll(*args):
             """Handle horizontal scroll events."""
@@ -819,8 +943,12 @@ class GCompare:
         file_view_b.config(xscrollcommand=_on_x_view_change)
 
         # Bind mouse wheel events
-        def _on_mouse_wheel(event):
-            """Handle mouse wheel scrolling."""
+        def _on_mouse_wheel(event: tk.Event):
+            """Handle mouse wheel scrolling.
+
+            Args:
+                event: Mouse wheel event
+            """
             # Determine scroll direction
             delta = -1 * (event.delta / 120) if event.delta != 0 else 0
 
@@ -836,23 +964,33 @@ class GCompare:
 
         # Bind to text widgets
         for widget in [file_view_a, file_view_b]:
-            widget.bind("<MouseWheel>", _on_mouse_wheel, add=True)
-            widget.bind("<Button-4>", _on_mouse_wheel, add=True)  # Linux scroll up
-            widget.bind("<Button-5>", _on_mouse_wheel, add=True)  # Linux scroll down
+            if widget:
+                widget.bind("<MouseWheel>", _on_mouse_wheel, add=True)
+                widget.bind("<Button-4>", _on_mouse_wheel, add=True)  # Linux scroll up
+                widget.bind(
+                    "<Button-5>", _on_mouse_wheel, add=True
+                )  # Linux scroll down
 
-            # Bind to parent frames
-            if widget.master:
-                widget.master.bind("<MouseWheel>", _on_mouse_wheel, add=True)
-                widget.master.bind("<Button-4>", _on_mouse_wheel, add=True)
-                widget.master.bind("<Button-5>", _on_mouse_wheel, add=True)
+                # Bind to parent frames
+                if widget.master:
+                    widget.master.bind("<MouseWheel>", _on_mouse_wheel, add=True)
+                    widget.master.bind("<Button-4>", _on_mouse_wheel, add=True)
+                    widget.master.bind("<Button-5>", _on_mouse_wheel, add=True)
 
         # Bind to root window
         self.root.bind("<MouseWheel>", _on_mouse_wheel, add=True)
         self.root.bind("<Button-4>", _on_mouse_wheel, add=True)
         self.root.bind("<Button-5>", _on_mouse_wheel, add=True)
 
-    def _update_scroll_marker(self, first_visible_fraction, last_visible_fraction):
-        """Update diff map scroll marker position."""
+    def _update_scroll_marker(
+        self, first_visible_fraction: float, last_visible_fraction: float
+    ):
+        """Update diff map scroll marker position.
+
+        Args:
+            first_visible_fraction: Fraction of document at top of viewport
+            last_visible_fraction: Fraction of document at bottom of viewport
+        """
         if self.diff_map_canvas and self.scroll_marker_id:
             canvas_height = self.diff_map_canvas.winfo_height()
             if canvas_height == 0:
@@ -867,11 +1005,16 @@ class GCompare:
                 if y2 > canvas_height:
                     y1 = canvas_height - 4
 
-            self.diff_map_canvas.coords(self.scroll_marker_id, 2, y1 + 2, 39, y2 - 3)
+            self.diff_map_canvas.coords(
+                self.scroll_marker_id, 2, y1 + 2, SCROLL_MARKER_WIDTH - 1, y2 - 3
+            )
 
-    def _on_marker_press(self, event):
+    def _on_marker_press(self, event: tk.Event):
         """Handle mouse button press on the scroll marker.
         Stores the initial drag position and current scroll fraction.
+
+        Args:
+            event: Mouse event
         """
         if not self.diff_map_canvas:
             return
@@ -884,9 +1027,12 @@ class GCompare:
         self._marker_initial_scroll_fraction = self.file_view_a.yview()[0]
         self.diff_map_canvas.config(cursor="hand2")  # Change cursor to a grabbing hand
 
-    def _on_marker_drag(self, event):
+    def _on_marker_drag(self, event: tk.Event):
         """Handle mouse drag motion on the scroll marker.
         Calculates new scroll position and updates text widgets.
+
+        Args:
+            event: Mouse event
         """
         if self._marker_drag_start_y is None:
             return
@@ -912,9 +1058,12 @@ class GCompare:
         if self.file_view_b:
             self.file_view_b.yview_moveto(new_fraction)
 
-    def _on_marker_release(self, event):
+    def _on_marker_release(self, event: tk.Event):
         """Handle mouse button release on the scroll marker.
         Resets the drag state and cursor.
+
+        Args:
+            event: Mouse event
         """
         if not self.diff_map_canvas:
             return
@@ -922,13 +1071,21 @@ class GCompare:
         self._marker_drag_start_y = None  # Reset drag state
         self.diff_map_canvas.config(cursor="")  # Reset cursor to default
 
-    def _on_marker_enter(self, event):
-        """Change cursor to a hand when entering the scroll marker."""
+    def _on_marker_enter(self, event: tk.Event):
+        """Change cursor to a hand when entering the scroll marker.
+
+        Args:
+            event: Mouse event
+        """
         if self.diff_map_canvas:
             self.diff_map_canvas.config(cursor="hand2")
 
-    def _on_marker_leave(self, event):
-        """Reset cursor when leaving the scroll marker."""
+    def _on_marker_leave(self, event: tk.Event):
+        """Reset cursor when leaving the scroll marker.
+
+        Args:
+            event: Mouse event
+        """
         if self.diff_map_canvas:
             self.diff_map_canvas.config(cursor="")
 
@@ -936,7 +1093,7 @@ class GCompare:
     # UTILITY METHODS
     # ========================================================================
 
-    def _get_mono_font(self):
+    def _get_mono_font(self) -> Tuple[str, int]:
         """Return a suitable monospace font tuple for the platform.
 
         Returns:
