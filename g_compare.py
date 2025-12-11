@@ -388,7 +388,7 @@ class GCompare:
         ).grid(row=0, column=2, padx=(0, 5), pady=5, sticky=tk.E)
 
         # Text area
-        text_area = tk.Text(panel, wrap=tk.WORD, state=tk.NORMAL)
+        text_area = tk.Text(panel, wrap=tk.NONE, state=tk.NORMAL)
         text_area.grid(row=1, column=0, columnspan=3, pady=(10, 0), sticky=tk.NSEW)
 
         # Bind modified event
