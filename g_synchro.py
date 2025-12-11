@@ -3560,7 +3560,7 @@ class GSynchro:
         if use_ssh:
             self._log(f"Downloading remote file: {full_path}")
 
-            # Determine connection details
+            # Determine connection details based on the panel
             if panel == "A":
                 host, user, password, port = (
                     self.remote_host_a.get(),
@@ -3568,7 +3568,7 @@ class GSynchro:
                     self.remote_pass_a.get(),
                     int(self.remote_port_a.get()),
                 )
-            else:  # Panel B
+            else:  # Panel B is the only other option
                 host, user, password, port = (
                     self.remote_host_b.get(),
                     self.remote_user_b.get(),
@@ -3580,8 +3580,8 @@ class GSynchro:
                 with self.connection_manager.get_connection(
                     host, user, password, port
                 ) as ssh_client:
-                    transport = ssh_client.get_transport()
-                    if not ssh_client or not transport or not transport.is_active():
+                    transport = ssh_client.get_transport() if ssh_client else None
+                    if not transport or not transport.is_active():
                         raise ConnectionError(
                             "SSH client or transport is not available."
                         )
@@ -3612,13 +3612,6 @@ class GSynchro:
             font_family, font_size = self._get_mono_font()
             font = tkfont.Font(family=font_family, size=font_size)
 
-            # Log message after font is determined
-            panel_name = "A" if tree is self.tree_a else "B"
-            self._log(
-                f"Adjusting column widths for panel {panel_name} tree using "
-                f"font: {font_family}, size: {font_size}..."
-            )
-
             # Adjust data columns
             columns = list(tree["columns"])
             columns.insert(0, "#0")  # Add 'Name' column to be processed
@@ -3631,10 +3624,8 @@ class GSynchro:
                     nonlocal max_width
                     for child_id in tree.get_children(item_id):
                         if col == "#0":
-                            # For 'Name' column, get item's text
                             cell_value = tree.item(child_id, "text")
                         else:
-                            # For other columns, use tree.set()
                             cell_value = tree.set(child_id, col)
                         if isinstance(cell_value, str) and cell_value:
                             width = font.measure(cell_value)
@@ -3644,10 +3635,12 @@ class GSynchro:
                 find_max_width()
 
                 # Apply the new width with padding
-                tree.column(col, width=max_width + 10)
+                tree.column(col, width=max_width + 20, minwidth=40)
 
         except Exception as e:
-            self._log(f"Could not adjust column widths: {e}")
+            self._log(
+                f"Could not adjust column widths due to potential race condition: {e}"
+            )
 
     def _update_status(self, panel: str, files: dict):
         """Update the status bar text.

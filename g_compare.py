@@ -80,6 +80,7 @@ class GCompare:
         self.status_a = tk.StringVar()
         self.status_b = tk.StringVar()
 
+        self._font_families: Optional[Tuple[str, ...]] = None
         # Variables to manage scroll marker dragging
         self._marker_drag_start_y: Optional[float] = None
         self._marker_initial_scroll_fraction = 0.0
@@ -1194,7 +1195,10 @@ class GCompare:
         Returns:
             Tuple[str, int]: (font_family, font_size)
         """
-        font_families = tkfont.families()
+        if self._font_families is None:
+            self._font_families = tkfont.families()
+        font_families = self._font_families
+
         preferred_fonts = []
 
         if sys.platform == "win32":
