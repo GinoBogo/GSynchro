@@ -2250,28 +2250,27 @@ class GSynchro:
 
                 # Determine source and target SSH connections
                 if direction == "a_to_b":
-                    source_ssh, target_ssh = (
-                        self._get_ssh_client_for_panel("A"),
-                        self._get_ssh_client_for_panel("B"),
-                    )
                     source_use_ssh, target_use_ssh = use_ssh_a, use_ssh_b
                 else:
-                    source_ssh, target_ssh = (
-                        self._get_ssh_client_for_panel("B"),
-                        self._get_ssh_client_for_panel("A"),
-                    )
                     source_use_ssh, target_use_ssh = use_ssh_b, use_ssh_a
 
                 # Perform synchronization
-                self._perform_sync(
-                    files_to_copy,
-                    source_files_dict,
-                    target_path,
-                    source_ssh,
-                    target_ssh,
-                    source_use_ssh,
-                    target_use_ssh,
-                )
+                with (
+                    self._create_ssh_for_panel("A", optional=True) as ssh_a,
+                    self._create_ssh_for_panel("B", optional=True) as ssh_b,
+                ):
+                    ssh_src, ssh_tgt = (
+                        (ssh_a, ssh_b) if direction == "a_to_b" else (ssh_b, ssh_a)
+                    )
+                    self._perform_sync(
+                        files_to_copy,
+                        source_files_dict,
+                        target_path,
+                        ssh_src,
+                        ssh_tgt,
+                        source_use_ssh,
+                        target_use_ssh,
+                    )
 
                 # Rescan target folder
                 self._log("Synchronization completed. Refreshing view...")
@@ -2407,17 +2406,15 @@ class GSynchro:
             use_ssh_b: Whether Panel B uses SSH
         """
         if direction == "a_to_b":
-            self._log("Rescanning Panel B...")
-            self.files_b = self._scan_folder(
-                target_path, use_ssh_b, self._get_ssh_client_for_panel("B"), "B"
-            )
-            self._update_status("B", self.files_b)
+            with self._create_ssh_for_panel("B", optional=True) as ssh_b:
+                self._log("Rescanning Panel B...")
+                self.files_b = self._scan_folder(target_path, use_ssh_b, ssh_b, "B")
+                self._update_status("B", self.files_b)
         else:
-            self._log("Rescanning Panel A...")
-            self.files_a = self._scan_folder(
-                target_path, use_ssh_a, self._get_ssh_client_for_panel("A"), "A"
-            )
-            self._update_status("A", self.files_a)
+            with self._create_ssh_for_panel("A", optional=True) as ssh_a:
+                self._log("Rescanning Panel A...")
+                self.files_a = self._scan_folder(target_path, use_ssh_a, ssh_a, "A")
+                self._update_status("A", self.files_a)
 
     def _sync_local_to_local(
         self, files_to_copy: list, source_files_dict: dict, target_path: str
@@ -3715,27 +3712,24 @@ class GSynchro:
             self.root.after(0, lambda: self._batch_populate_tree(self.tree_b, {}))
 
         try:
-            self.files_a = self._scan_folder(
-                self.folder_a.get(),
-                use_ssh_a,
-                self._get_ssh_client_for_panel("A"),
-                "A",
-                rules,
-            )
-            self.files_b = self._scan_folder(
-                self.folder_b.get(),
-                use_ssh_b,
-                self._get_ssh_client_for_panel("B"),
-                "B",
-                rules,
-            )
+            with self._create_ssh_for_panel("A", optional=True) as ssh_a:
+                self.files_a = self._scan_folder(
+                    self.folder_a.get(), use_ssh_a, ssh_a, "A", rules
+                )
+
+            with self._create_ssh_for_panel("B", optional=True) as ssh_b:
+                self.files_b = self._scan_folder(
+                    self.folder_b.get(), use_ssh_b, ssh_b, "B", rules
+                )
 
             tree_structure_a = self._build_tree_structure(self.files_a)
             if self.tree_a:
                 self.root.after(
                     0,
                     lambda: self._batch_populate_tree(
-                        self.tree_a, tree_structure_a, rules
+                        self.tree_a,
+                        tree_structure_a,
+                        rules,
                     ),
                 )
 
@@ -3744,7 +3738,9 @@ class GSynchro:
                 self.root.after(
                     0,
                     lambda: self._batch_populate_tree(
-                        self.tree_b, tree_structure_b, rules
+                        self.tree_b,
+                        tree_structure_b,
+                        rules,
                     ),
                 )
 
@@ -3844,96 +3840,6 @@ class GSynchro:
 
         # Fallback to a generic monospace font
         return ("Courier", 11)
-
-    def _get_ssh_client_for_panel(
-        self, panel_name: str
-    ) -> Optional[paramiko.SSHClient]:
-        """Get an SSH client for a panel using the connection manager.
-
-        Args:
-            panel_name: "A" or "B".
-
-        Returns:
-            A paramiko.SSHClient instance or None if not configured.
-        """
-        if panel_name == "A" and self._has_ssh_a():
-            # For backward compatibility, get a connection and return it
-            # Note: This connection won't be automatically returned to pool
-            # TODO: Refactor callers to use context manager instead
-            try:
-                host = self.remote_host_a.get()
-                user = self.remote_user_a.get()
-                password = self.remote_pass_a.get()
-                port = int(self.remote_port_a.get())
-
-                # Get connection from pool (but don't use context manager)
-                server_key = f"{user}@{host}:{port}"
-                with self.connection_manager._lock:
-                    if server_key not in self.connection_manager._pools:
-                        self.connection_manager._initialize_pool(
-                            server_key, host, user, password, port
-                        )
-
-                # Get a connection from pool
-                conn = self.connection_manager._pools[server_key].get(timeout=10)
-
-                # Check if connection is alive
-                if (
-                    not conn
-                    or not conn.get_transport()
-                    or not conn.get_transport().is_active()
-                ):
-                    conn = self.connection_manager._create_connection(
-                        host, user, password, port
-                    )
-
-                # Log pool status for debugging
-                pool_status = self.connection_manager.get_pool_status()
-                self._log(f"Pool status {server_key}: {pool_status}")
-
-                return conn
-            except Exception as e:
-                self._log(f"Error getting SSH client for panel A: {e}")
-                return None
-
-        if panel_name == "B" and self._has_ssh_b():
-            try:
-                host = self.remote_host_b.get()
-                user = self.remote_user_b.get()
-                password = self.remote_pass_b.get()
-                port = int(self.remote_port_b.get())
-
-                # Get connection from pool (but don't use context manager)
-                server_key = f"{user}@{host}:{port}"
-                with self.connection_manager._lock:
-                    if server_key not in self.connection_manager._pools:
-                        self.connection_manager._initialize_pool(
-                            server_key, host, user, password, port
-                        )
-
-                # Get a connection from pool
-                conn = self.connection_manager._pools[server_key].get(timeout=10)
-
-                # Check if connection is alive
-                if (
-                    not conn
-                    or not conn.get_transport()
-                    or not conn.get_transport().is_active()
-                ):
-                    conn = self.connection_manager._create_connection(
-                        host, user, password, port
-                    )
-
-                # Log pool status for debugging
-                pool_status = self.connection_manager.get_pool_status()
-                self._log(f"Pool status {server_key}: {pool_status}")
-
-                return conn
-            except Exception as e:
-                self._log(f"Error getting SSH client for panel B: {e}")
-                return None
-
-        return None
 
     def _get_connection_pool_status(self) -> dict:
         """Get current connection pool status for debugging.
