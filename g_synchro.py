@@ -2994,22 +2994,32 @@ class GSynchro:
 
         item_id = tree.identify_row(event.y)
 
-        if not item_id:
-            return
-
+        # Store context menu tree reference
         self._context_menu_tree = tree
         self._context_menu_item_id = item_id
 
-        tree.selection_set(item_id)
-        tree.focus(item_id)
+        # If clicking on empty space, still show context menu but don't select/focus
+        if item_id:
+            tree.selection_set(item_id)
+            tree.focus(item_id)
+        else:
+            # Clear selection when clicking on empty space
+            tree.selection_remove(tree.selection())
+            tree.set("")
 
-        rel_path = self._get_relative_path(tree, item_id)
-        if not rel_path:
-            return
+        # Only get item info if we have an item
+        if item_id:
+            rel_path = self._get_relative_path(tree, item_id)
+            if not rel_path:
+                return
 
-        # Determine which file dictionary to use
-        files_dict = self.files_a if tree is self.tree_a else self.files_b
-        item_info = files_dict.get(rel_path)
+            # Determine which file dictionary to use
+            files_dict = self.files_a if tree is self.tree_a else self.files_b
+            item_info = files_dict.get(rel_path)
+        else:
+            # No item selected - set default states
+            item_info = None
+            rel_path = None
 
         # Enable/disable menu items based on context
         if item_info and item_info.get("type") == "file":
@@ -3017,22 +3027,45 @@ class GSynchro:
         else:
             self.tree_context_menu.entryconfig("Open...", state="disabled")
 
-        # Show/hide sync options based on the panel
-        if tree is self.tree_a:
-            self.tree_context_menu.entryconfig("Sync  ▶", state="normal")
-            self.tree_context_menu.entryconfig("◀  Sync", state="disabled")
-        elif tree is self.tree_b:
-            self.tree_context_menu.entryconfig("Sync  ▶", state="disabled")
-            self.tree_context_menu.entryconfig("◀  Sync", state="normal")
+        # Show/hide sync options based on the panel and whether an item is
+        # selected
+        if item_id:
+            if tree is self.tree_a:
+                self.tree_context_menu.entryconfig("Sync  ▶", state="normal")
+                self.tree_context_menu.entryconfig("◀  Sync", state="disabled")
+            elif tree is self.tree_b:
+                self.tree_context_menu.entryconfig("Sync  ▶", state="disabled")
+                self.tree_context_menu.entryconfig("◀  Sync", state="normal")
+            else:
+                self.tree_context_menu.entryconfig("Sync  ▶", state="disabled")
+                self.tree_context_menu.entryconfig("◀  Sync", state="disabled")
         else:
+            # No item selected - disable sync options
             self.tree_context_menu.entryconfig("Sync  ▶", state="disabled")
             self.tree_context_menu.entryconfig("◀  Sync", state="disabled")
 
-        self.tree_context_menu.entryconfig("Delete", state="normal")
+        # Enable/disable Delete menu item based on whether an item is selected
+        if item_id:
+            self.tree_context_menu.entryconfig("Delete", state="normal")
+        else:
+            self.tree_context_menu.entryconfig("Delete", state="disabled")
+
+        # Enable/disable Select All and Deselect All based on whether comparison
+        # has been performed
+        if self.sync_states:
+            self.tree_context_menu.entryconfig("Select All", state="normal")
+            self.tree_context_menu.entryconfig("Deselect All", state="normal")
+        else:
+            self.tree_context_menu.entryconfig("Select All", state="disabled")
+            self.tree_context_menu.entryconfig("Deselect All", state="disabled")
 
         # Enable/disable "Compare..." based on selections in both trees
         selected_a = self.tree_a.selection() if self.tree_a else ()
         selected_b = self.tree_b.selection() if self.tree_b else ()
+
+        # Check if tree has children - if not, don't show context menu
+        if not tree.get_children():
+            return
 
         # Post the menu at the cursor's location
         self.tree_context_menu.tk_popup(event.x_root, event.y_root)
@@ -3200,7 +3233,11 @@ class GSynchro:
 
     def _select_all(self):
         """Select all different/new items."""
-        tree = self.root.focus_get()
+        # Use stored context menu tree if available, otherwise fall back to focus
+        tree = getattr(self, "_context_menu_tree", None)
+        if not tree:
+            tree = self.root.focus_get()
+
         if not isinstance(tree, ttk.Treeview) or tree not in (self.tree_a, self.tree_b):
             return
 
@@ -3230,7 +3267,11 @@ class GSynchro:
 
     def _deselect_all(self):
         """Deselect all items in the tree."""
-        tree = self.root.focus_get()
+        # Use stored context menu tree if available, otherwise fall back to focus
+        tree = getattr(self, "_context_menu_tree", None)
+        if not tree:
+            tree = self.root.focus_get()
+
         if not isinstance(tree, ttk.Treeview) or tree not in (self.tree_a, self.tree_b):
             return
 
