@@ -2834,7 +2834,7 @@ class GSynchro:
             else:
                 context_menu.entryconfig("Remove Rule", state="disabled")
                 context_menu.entryconfig("Edit Rule", state="disabled")
-            context_menu.post(event.x_root, event.y_root)
+            context_menu.tk_popup(event.x_root, event.y_root)
 
         def hide_context_menu_on_escape(event=None):
             """Hide the context menu when Escape is pressed."""
@@ -3509,6 +3509,42 @@ class GSynchro:
             except OSError as e:
                 self._log(f"Error cleaning up temporary file {temp_file_path}: {e}")
 
+    def _is_temporary_path(self, path: str) -> bool:
+        """Check if a path is a temporary file or directory.
+
+        Args:
+            path: Path to check
+
+        Returns:
+            True if path appears to be temporary
+        """
+        if not path:
+            return False
+
+        # Check for common temporary directory patterns
+        temp_patterns = [
+            "/tmp/",
+            "\\tmp\\",
+            "/temp/",
+            "\\temp\\",
+            tempfile.gettempdir(),
+        ]
+
+        path_normalized = os.path.normpath(path)
+        for pattern in temp_patterns:
+            if pattern in path_normalized:
+                return True
+
+        # Check for tempfile.NamedTemporaryFile patterns
+        if "tmp" in path_normalized and (
+            path_normalized.startswith("/tmp/")
+            or path_normalized.startswith("\\tmp\\")
+            or "tmp" in os.path.basename(path_normalized)
+        ):
+            return True
+
+        return False
+
     def _update_panel_history(
         self, panel_name: str, folder_var: tk.StringVar, new_path: str
     ):
@@ -3519,7 +3555,7 @@ class GSynchro:
             folder_var: StringVar for the folder path
             new_path: New path to add to history
         """
-        if not new_path:
+        if not new_path or self._is_temporary_path(new_path):
             return
 
         history_list = (

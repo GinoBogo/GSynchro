@@ -17,6 +17,7 @@ import difflib
 import json
 import os
 import sys
+import tempfile
 import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import ttk, filedialog, messagebox
@@ -211,6 +212,42 @@ class GCompare:
         with open(CONFIG_FILE, "w") as f:
             json.dump(config, f, indent=4)
 
+    def _is_temporary_path(self, path: str) -> bool:
+        """Check if a path is a temporary file or directory.
+
+        Args:
+            path: Path to check
+
+        Returns:
+            True if path appears to be temporary
+        """
+        if not path:
+            return False
+
+        # Check for common temporary directory patterns
+        temp_patterns = [
+            "/tmp/",
+            "\\tmp\\",
+            "/temp/",
+            "\\temp\\",
+            tempfile.gettempdir(),
+        ]
+
+        path_normalized = os.path.normpath(path)
+        for pattern in temp_patterns:
+            if pattern in path_normalized:
+                return True
+
+        # Check for tempfile.NamedTemporaryFile patterns
+        if "tmp" in path_normalized and (
+            path_normalized.startswith("/tmp/")
+            or path_normalized.startswith("\\tmp\\")
+            or "tmp" in os.path.basename(path_normalized)
+        ):
+            return True
+
+        return False
+
     def _update_file_history(self, panel_name: str, new_path: str):
         """Update recent files list for specified panel.
 
@@ -218,7 +255,7 @@ class GCompare:
             panel_name: Either "A" or "B"
             new_path: Path to add to history
         """
-        if not new_path:
+        if not new_path or self._is_temporary_path(new_path):
             return
 
         history_list = self.file_a_history if panel_name == "A" else self.file_b_history
@@ -381,10 +418,17 @@ class GCompare:
             padx=config["padx"],
         )
 
-        panel.columnconfigure(0, weight=1)
-        panel.columnconfigure(1, weight=0)  # For buttons
-        panel.columnconfigure(2, weight=0)
+        panel.columnconfigure(0, weight=0)  # For Path label
+        panel.columnconfigure(1, weight=1)  # For combobox
+        panel.columnconfigure(2, weight=0)  # For Open button
+        panel.columnconfigure(3, weight=0)  # For Save button
+        panel.columnconfigure(4, weight=0)  # For vertical scrollbar
         panel.rowconfigure(1, weight=1)  # For text area
+
+        # Path label
+        ttk.Label(panel, text="Path:").grid(
+            row=0, column=0, padx=5, pady=5, sticky=tk.W
+        )
 
         # File path combobox
         path_combobox = ttk.Combobox(
@@ -392,7 +436,7 @@ class GCompare:
             textvariable=config["file_var"],
             values=config["file_history"],
         )
-        path_combobox.grid(row=0, column=0, padx=5, pady=5, sticky=tk.EW)
+        path_combobox.grid(row=0, column=1, padx=5, pady=5, sticky=tk.EW)
 
         # Load button
         ttk.Button(
@@ -401,7 +445,7 @@ class GCompare:
             command=config["open_command"],
             cursor="hand2",
             style=f"{config['button_color']}.TButton",
-        ).grid(row=0, column=1, padx=5, pady=5, sticky=tk.E)
+        ).grid(row=0, column=2, padx=5, pady=5, sticky=tk.E)
 
         # Save button
         ttk.Button(
@@ -410,11 +454,11 @@ class GCompare:
             command=config["save_command"],
             cursor="hand2",
             style=f"{config['button_color']}.TButton",
-        ).grid(row=0, column=2, padx=(0, 5), pady=5, sticky=tk.E)
+        ).grid(row=0, column=3, padx=5, pady=5, sticky=tk.E)
 
         # Text area
         text_area = tk.Text(panel, wrap=tk.NONE, state=tk.NORMAL)
-        text_area.grid(row=1, column=0, columnspan=3, pady=(10, 0), sticky=tk.NSEW)
+        text_area.grid(row=1, column=0, columnspan=4, pady=(10, 0), sticky=tk.NSEW)
 
         # Bind modified event
         text_area.bind(
@@ -425,13 +469,13 @@ class GCompare:
         # Scrollbars
         v_scrollbar = ttk.Scrollbar(panel, orient=tk.VERTICAL, command=text_area.yview)
         text_area.configure(yscrollcommand=v_scrollbar.set)
-        v_scrollbar.grid(row=1, column=3, pady=(10, 0), sticky=tk.NS)
+        v_scrollbar.grid(row=1, column=4, pady=(10, 0), sticky=tk.NS)
 
         h_scrollbar = ttk.Scrollbar(
             panel, orient=tk.HORIZONTAL, command=text_area.xview
         )
         text_area.configure(xscrollcommand=h_scrollbar.set)
-        h_scrollbar.grid(row=2, column=0, columnspan=3, sticky=tk.EW)
+        h_scrollbar.grid(row=2, column=0, columnspan=4, sticky=tk.EW)
 
         # Store references
         if config["title"] == "File A":
