@@ -3159,29 +3159,52 @@ class GSynchro:
 
         def apply_options():
             """Apply selected options."""
-            # Update options dictionary
-            self.options.update(
-                {
-                    "font_family": font_family_var.get(),
-                    "font_size": font_size_var.get(),
-                    "auto_compare": auto_compare_var.get(),
-                }
+            # Store old values to check for changes
+            old_font_family = self.options["font_family"]
+            old_font_size = self.options["font_size"]
+            old_auto_compare = self.options["auto_compare"]
+            old_filters = [dict(item) for item in self.filter_rules]
+
+            # Get new values from dialog
+            new_font_family = font_family_var.get()
+            new_font_size = font_size_var.get()
+            new_auto_compare = auto_compare_var.get()
+            new_filters = temp_filters
+
+            # Determine what has changed
+            font_changed = (
+                new_font_family != old_font_family or new_font_size != old_font_size
+            )
+            other_options_changed = (
+                new_auto_compare != old_auto_compare or new_filters != old_filters
             )
 
-            # Update filter rules
-            self.filter_rules = temp_filters
+            # Update options dictionary with all new values
+            self.options.update(
+                {
+                    "font_family": new_font_family,
+                    "font_size": new_font_size,
+                    "auto_compare": new_auto_compare,
+                }
+            )
+            self.filter_rules = new_filters
             self.filter_rules.sort(key=lambda item: item["rule"])
 
-            # Apply font changes
+            # Apply font changes to styles and tags
             self._update_tree_fonts()
 
             # Save config and close dialog
             self._save_config()
             dialog.destroy()
 
-            # Refresh comparison if needed
-            if self.folder_a.get() and self.folder_b.get():
-                self.compare_folders()
+            # Decide whether to do a full refresh or just a font update
+            if other_options_changed:
+                self._log("Filters or other options changed, performing full refresh.")
+                if self.folder_a.get() and self.folder_b.get():
+                    self.compare_folders()
+            elif font_changed:
+                self._log("Only font changed, performing lightweight UI refresh.")
+                # The font update is handled by _update_tree_fonts, no further action needed.
 
         def reset_options():
             """Reset options to default values."""
@@ -3230,6 +3253,13 @@ class GSynchro:
         style.configure("TTreeview", font=(font_family, font_size))
 
         style.configure("TTreeview.Heading", font=(font_family, font_size, "bold"))
+
+        # Re-configure the custom_font tag on existing trees to apply the new font
+        # This is crucial for making the font change visible without a full refresh.
+        if self.tree_a:
+            self.tree_a.tag_configure("custom_font", font=(font_family, font_size))
+        if self.tree_b:
+            self.tree_b.tag_configure("custom_font", font=(font_family, font_size))
 
         # Save config
         self._save_config()
