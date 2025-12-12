@@ -47,6 +47,8 @@ CHECKED_CHAR = "✓"
 UNCHECKED_CHAR = "☐"
 MIN_WINDOW_WIDTH = 1024
 MIN_WINDOW_HEIGHT = 768
+DEFAULT_FONT_FAMILY = "Courier New"
+DEFAULT_FONT_SIZE = 11
 
 
 # ============================================================================
@@ -263,13 +265,10 @@ class GSynchro:
         self.filter_rules = []
         self.temp_files_to_clean = []
 
-        # Options for display and fonts
+        # Options for fonts
         self.options = {
-            "font_family": self._get_mono_font()[0],
-            "font_size": 11,
-            "tree_font_size": 10,
-            "show_file_sizes": True,
-            "show_timestamps": True,
+            "font_family": DEFAULT_FONT_FAMILY,
+            "font_size": DEFAULT_FONT_SIZE,
             "auto_compare": True,
         }
 
@@ -493,11 +492,15 @@ class GSynchro:
 
         # Configure Treeview heading font
         style.configure(
-            "TTreeview.Heading", font=(self._get_mono_font()[0], 10, "bold")
+            "TTreeview.Heading",
+            font=(self.options["font_family"], self.options["font_size"], "bold"),
         )
 
-        # Explicitly set font for tags
-        style.configure("TTreeview", rowheight=20)
+        # Configure treeview font - row height is determined by the font on the tags
+        style.configure(
+            "TTreeview", font=(self.options["font_family"], self.options["font_size"])
+        )
+
         style.map("TTreeview")  # Reset map to avoid conflicts
 
     def _create_main_frame(self) -> ttk.Frame:
@@ -559,25 +562,20 @@ class GSynchro:
                 side=tk.LEFT, padx=5, pady=5
             )
 
-    def _create_panels_frame(self, main_frame: ttk.Frame) -> ttk.Frame:
+    def _create_panels_frame(self, main_frame: ttk.Frame) -> ttk.PanedWindow:
         """Create panels frame for displays.
 
         Args:
             main_frame: Parent main frame
 
         Returns:
-            Panels frame widget
+            PanedWindow widget for the two main panels
         """
-        panels_frame = ttk.Frame(main_frame)
+        panels_frame = ttk.PanedWindow(main_frame, orient=tk.HORIZONTAL)
         panels_frame.grid(row=1, column=0, columnspan=3, sticky=tk.NSEW)
-
-        panels_frame.columnconfigure(0, weight=1)
-        panels_frame.columnconfigure(1, weight=1)
-        panels_frame.rowconfigure(0, weight=1)
-
         return panels_frame
 
-    def _create_panels(self, panels_frame: ttk.Frame):
+    def _create_panels(self, panels_frame: ttk.PanedWindow):
         """Create both Panel A and Panel B.
 
         Args:
@@ -586,7 +584,6 @@ class GSynchro:
         panel_configs = [
             {
                 "title": "Panel A",
-                "column": 0,
                 "padx": (0, 5),
                 "button_color": "lightgreen",
                 "folder_var": self.folder_a,
@@ -600,7 +597,6 @@ class GSynchro:
             },
             {
                 "title": "Panel B",
-                "column": 1,
                 "padx": (5, 0),
                 "button_color": "lightblue",
                 "folder_var": self.folder_b,
@@ -616,20 +612,16 @@ class GSynchro:
         for config in panel_configs:
             self._create_panel(panels_frame, config)
 
-    def _create_panel(self, parent: ttk.Frame, config: dict):
+    def _create_panel(self, parent: ttk.PanedWindow, config: dict):
         """Create an individual folder panel.
 
         Args:
             parent: Parent widget
             config: Configuration dictionary for the panel
         """
-        panel = ttk.LabelFrame(parent, text=config["title"], padding="5")
-        panel.grid(
-            row=0,
-            column=config["column"],
-            sticky=tk.NSEW,
-            padx=config["padx"],
-        )
+        panel_frame = ttk.Frame(parent, padding=0)
+        panel = ttk.LabelFrame(panel_frame, text=config["title"], padding="5")
+        panel.pack(fill=tk.BOTH, expand=True)
         panel.columnconfigure(0, weight=0)
         panel.columnconfigure(1, weight=1)  # Make path entry expandable
         panel.rowconfigure(4, weight=1)
@@ -742,6 +734,8 @@ class GSynchro:
         else:
             self.tree_b = tree
 
+        parent.add(panel_frame, weight=1)
+
     def _create_tree_view(self, parent: ttk.LabelFrame) -> ttk.Treeview:
         """Create file tree view.
 
@@ -773,14 +767,6 @@ class GSynchro:
         tree.heading("status", text="Status")
         tree.column("status", width=100, anchor="center")
 
-        # Define a monospace font
-        font_tuple = self._get_mono_font()
-
-        # Define a larger font for the "Sync" column characters
-        sync_font_family, sync_font_size = self._get_mono_font()
-        sync_font_size += 2
-        self.sync_font = tkfont.Font(family=sync_font_family, size=sync_font_size)
-
         # Configure tags for different status colors
         colors = {
             "green": "green",
@@ -791,8 +777,7 @@ class GSynchro:
             "black": "black",
         }
         for tag, color in colors.items():
-            tree.tag_configure(tag, foreground=color, font=font_tuple)
-        tree.tag_configure("sync_col_font", font=self.sync_font)
+            tree.tag_configure(tag, foreground=color)  # Font is applied later
 
         return tree
 
@@ -1631,7 +1616,7 @@ class GSynchro:
                         "end",
                         text=name,
                         values=(UNCHECKED_CHAR, "", "", ""),
-                        tags=("black",),
+                        tags=("black", "custom_font"),
                         open=False,
                     )
                     insert_items(
@@ -1653,10 +1638,15 @@ class GSynchro:
                                 self._format_time(content["modified"]),
                                 "",
                             ),
-                            tags=("black",),
+                            tags=("black", "custom_font"),
                         )
 
         insert_items("", structure, current_filter_rules, "")
+
+        # Configure the custom_font tag with current font settings
+        font_family = self.options["font_family"]
+        font_size = self.options["font_size"]
+        tree.tag_configure("custom_font", font=(font_family, font_size))
 
     def _build_tree_map(
         self, tree: Optional[ttk.Treeview], parent_item: str = "", path: str = ""
@@ -1717,7 +1707,7 @@ class GSynchro:
                 current_values[2] if len(current_values) > 2 else "",
                 status,
             ),
-            tags=(status_color, "sync_col_font"),
+            tags=(status_color, "custom_font"),
         )
 
     # ==========================================================================
@@ -2075,22 +2065,6 @@ class GSynchro:
             )
 
         self._apply_comparison_to_ui(item_statuses, stats, tree_a_map, tree_b_map)
-
-        # Configure tags
-        for tree in [self.tree_a, self.tree_b]:
-            if tree:
-                tree.tag_configure("black", foreground="black")
-                tree.tag_configure("green", foreground="green")
-                tree.tag_configure("orange", foreground="orange")
-                tree.tag_configure("blue", foreground="blue")
-                tree.tag_configure("magenta", foreground="magenta")
-                tree.tag_configure("red", foreground="red")
-
-        # Adjust column widths
-        if self.tree_a:
-            self._adjust_tree_column_widths(self.tree_a)
-        if self.tree_b:
-            self._adjust_tree_column_widths(self.tree_b)
 
     def _compare_files(
         self,
@@ -2981,15 +2955,15 @@ class GSynchro:
         )
         font_family_combo.grid(row=0, column=1, sticky=tk.W, padx=(0, 10), pady=5)
 
-        # Tree font size
-        ttk.Label(font_frame, text="Tree Font Size:").grid(
+        # Tree font size (using main font_size)
+        ttk.Label(font_frame, text="Font Size:").grid(
             row=1, column=0, sticky=tk.E, padx=(0, 5), pady=5
         )
-        tree_font_size_var = tk.IntVar(value=self.options["tree_font_size"])
-        tree_font_size_spinbox = tk.Spinbox(
-            font_frame, from_=8, to=20, textvariable=tree_font_size_var, width=5
+        font_size_var = tk.IntVar(value=self.options["font_size"])
+        font_size_spinbox = tk.Spinbox(
+            font_frame, from_=8, to=20, textvariable=font_size_var, width=5
         )
-        tree_font_size_spinbox.grid(row=1, column=1, sticky=tk.W, pady=5)
+        font_size_spinbox.grid(row=1, column=1, sticky=tk.W, pady=5)
 
         # Font example
         ttk.Label(font_frame, text="Example:").grid(
@@ -3006,45 +2980,27 @@ class GSynchro:
         def update_font_example(*args):
             """Update the font example when font family or size changes."""
             font_family = font_family_var.get()
-            tree_font_size = tree_font_size_var.get()
-            if font_family and tree_font_size:
-                font_example_label.configure(font=(font_family, tree_font_size))
+            font_size = font_size_var.get()
+            if font_family and font_size:
+                font_example_label.configure(font=(font_family, font_size))
 
         # Bind font changes to update example
         font_family_var.trace("w", update_font_example)
-        tree_font_size_var.trace("w", update_font_example)
+        font_size_var.trace("w", update_font_example)
 
         # Initialize font example
         update_font_example()
 
-        # Display tab
-        display_frame = ttk.Frame(notebook, padding="10")
-        notebook.add(display_frame, text="Display")
-
-        # Show file sizes
-        show_file_sizes_var = tk.BooleanVar(value=self.options["show_file_sizes"])
-        show_file_sizes_check = ttk.Checkbutton(
-            display_frame, text="Show File Sizes", variable=show_file_sizes_var
-        )
-        show_file_sizes_check.grid(row=0, column=0, sticky=tk.W, padx=(0, 20), pady=5)
-
-        # Show timestamps
-        show_timestamps_var = tk.BooleanVar(value=self.options["show_timestamps"])
-        show_timestamps_check = ttk.Checkbutton(
-            display_frame, text="Show Timestamps", variable=show_timestamps_var
-        )
-        show_timestamps_check.grid(row=0, column=1, sticky=tk.W, pady=5)
-
-        # Auto compare
-        auto_compare_var = tk.BooleanVar(value=self.options["auto_compare"])
-        auto_compare_check = ttk.Checkbutton(
-            display_frame, text="Auto Compare on Load", variable=auto_compare_var
-        )
-        auto_compare_check.grid(row=1, column=0, sticky=tk.W, padx=(0, 20), pady=5)
-
         # Filters tab
         filters_frame = ttk.Frame(notebook, padding="10")
         notebook.add(filters_frame, text="Filters")
+
+        # Auto compare option (moved from Display tab)
+        auto_compare_var = tk.BooleanVar(value=self.options["auto_compare"])
+        auto_compare_check = ttk.Checkbutton(
+            filters_frame, text="Auto Compare on Load", variable=auto_compare_var
+        )
+        auto_compare_check.pack(anchor=tk.W, pady=(0, 10))
 
         # Create a temporary copy to work with
         temp_filters = [dict(item) for item in self.filter_rules]
@@ -3207,9 +3163,7 @@ class GSynchro:
             self.options.update(
                 {
                     "font_family": font_family_var.get(),
-                    "tree_font_size": tree_font_size_var.get(),
-                    "show_file_sizes": show_file_sizes_var.get(),
-                    "show_timestamps": show_timestamps_var.get(),
+                    "font_size": font_size_var.get(),
                     "auto_compare": auto_compare_var.get(),
                 }
             )
@@ -3231,10 +3185,8 @@ class GSynchro:
 
         def reset_options():
             """Reset options to default values."""
-            font_family_var.set(self._get_mono_font()[0])
-            tree_font_size_var.set(10)
-            show_file_sizes_var.set(True)
-            show_timestamps_var.set(True)
+            font_family_var.set(DEFAULT_FONT_FAMILY)
+            font_size_var.set(DEFAULT_FONT_SIZE)
             auto_compare_var.set(True)
 
         # Buttons - centered
@@ -3271,44 +3223,41 @@ class GSynchro:
     def _update_tree_fonts(self):
         """Update tree fonts based on current options."""
         font_family = self.options["font_family"]
-        tree_font_size = self.options["tree_font_size"]
+        font_size = self.options["font_size"]
 
-        # Define font tuple for tree views
-        tree_font_tuple = (font_family, tree_font_size)
+        # Update treeview style and heading font
+        style = ttk.Style()
+        style.configure("TTreeview", font=(font_family, font_size))
 
-        # Update tree fonts if they exist
-        if self.tree_a:
-            self.tree_a.tag_configure("green", foreground="green", font=tree_font_tuple)
-            self.tree_a.tag_configure(
-                "orange", foreground="orange", font=tree_font_tuple
+        style.configure("TTreeview.Heading", font=(font_family, font_size, "bold"))
+
+        # Save config
+        self._save_config()
+
+    def _refresh_tree_views_after_font_change(self):
+        """Refresh tree views after font change - using a different approach."""
+        # We need to completely rebuild the trees
+        if self.tree_a and self.folder_a.get():
+            # Store current folder
+            folder = self.folder_a.get()
+            # Repopulate with current filters
+            self._populate_single_panel(
+                "A", folder, active_rules=self._get_active_filters()
             )
-            self.tree_a.tag_configure("blue", foreground="blue", font=tree_font_tuple)
-            self.tree_a.tag_configure("red", foreground="red", font=tree_font_tuple)
-            self.tree_a.tag_configure(
-                "magenta", foreground="magenta", font=tree_font_tuple
-            )
-            self.tree_a.tag_configure("black", foreground="black", font=tree_font_tuple)
-            self.tree_a.tag_configure("sync_col_font", font=self.sync_font)
 
-        if self.tree_b:
-            self.tree_b.tag_configure("green", foreground="green", font=tree_font_tuple)
-            self.tree_b.tag_configure(
-                "orange", foreground="orange", font=tree_font_tuple
+        if self.tree_b and self.folder_b.get():
+            # Store current folder
+            folder = self.folder_b.get()
+            # Repopulate with current filters
+            self._populate_single_panel(
+                "B", folder, active_rules=self._get_active_filters()
             )
-            self.tree_b.tag_configure("blue", foreground="blue", font=tree_font_tuple)
-            self.tree_b.tag_configure("red", foreground="red", font=tree_font_tuple)
-            self.tree_b.tag_configure(
-                "magenta", foreground="magenta", font=tree_font_tuple
-            )
-            self.tree_b.tag_configure("black", foreground="black", font=tree_font_tuple)
-            self.tree_b.tag_configure("sync_col_font", font=self.sync_font)
 
-        # Update sync font
-        sync_font_family, sync_font_size = self._get_mono_font()
-        sync_font_size = self.options["font_size"] + 2
-        self.sync_font = tkfont.Font(family=sync_font_family, size=sync_font_size)
+        # Run comparison again if needed
+        if self.files_a and self.files_b:
+            self.compare_folders()
 
-    def _create_filter_tree(self, parent: tk.Toplevel) -> tuple:
+    def _create_filter_tree(self, parent: Union[tk.Toplevel, tk.Widget]) -> tuple:
         """Create tree view for filter dialog.
 
         Args:
@@ -3820,24 +3769,29 @@ class GSynchro:
                 self._log(f"Deleting item: {full_path}")
                 if use_ssh:
                     # Remote deletion
-                    ssh_client = self._get_ssh_client(panel)
-                    is_dir = False
-                    if item_info:
-                        is_dir = item_info.get("type") == "dir"
-                    else:
-                        # Fallback: check remote system
-                        stdin, stdout, stderr = ssh_client.exec_command(
-                            f"if [ -d '{full_path}' ]; then echo 'dir'; fi"
+                    with self._create_ssh_for_panel(panel) as ssh_client:
+                        if ssh_client is None:
+                            raise ConnectionError(
+                                f"Could not connect to Panel {panel} for deletion."
+                            )
+                        is_dir = False
+                        if item_info:
+                            is_dir = item_info.get("type") == "dir"
+                        else:
+                            # Fallback: check remote system
+                            stdin, stdout, stderr = ssh_client.exec_command(
+                                f"if [ -d '{full_path}' ]; then echo 'dir'; fi"
+                            )
+                            if stdout.read().decode().strip() == "dir":
+                                is_dir = True
+
+                        command = (
+                            f"rm -rf '{full_path}'" if is_dir else f"rm '{full_path}'"
                         )
-                        if stdout.read().decode().strip() == "dir":
-                            is_dir = True
-
-                    command = f"rm -rf '{full_path}'" if is_dir else f"rm '{full_path}'"
-                    stdin, stdout, stderr = ssh_client.exec_command(command)
-                    error = stderr.read().decode()
-
-                    if error:
-                        raise Exception(error)
+                        stdin, stdout, stderr = ssh_client.exec_command(command)
+                        error = stderr.read().decode()
+                        if error:
+                            raise Exception(error)
                 else:
                     # Local deletion
                     is_dir = False
@@ -4074,7 +4028,8 @@ class GSynchro:
 
         try:
             # Ensure we measure with the same font
-            font_family, font_size = self._get_mono_font()
+            font_family = self.options["font_family"]
+            font_size = self.options["font_size"]
             font = tkfont.Font(family=font_family, size=font_size)
 
             # Adjust data columns
@@ -4292,33 +4247,6 @@ class GSynchro:
         x = parent_x + (parent_width // 2) - (dialog_width // 2)
         y = parent_y + (parent_height // 2) - (dialog_height // 2)
         dialog.geometry(f"+{x}+{y}")
-
-    def _get_mono_font(self) -> tuple:
-        """Returns a suitable monospace font family based on the current OS.
-
-        Returns:
-            Tuple of (font_family, font_size)
-        """
-        font_families = tkfont.families()
-
-        preferred_fonts = []
-
-        if sys.platform == "win32":
-            # Windows
-            preferred_fonts = ["Consolas", "Courier New", "Lucida Console"]
-        elif sys.platform == "darwin":
-            # macOS
-            preferred_fonts = ["Menlo", "Monaco", "Courier New"]
-        else:
-            # Linux and other Unix-like systems
-            preferred_fonts = ["DejaVu Sans Mono", "Liberation Mono", "Courier New"]
-
-        for font in preferred_fonts:
-            if font in font_families:
-                return (font, 11)
-
-        # Fallback to a generic monospace font
-        return ("Courier", 11)
 
     def _get_connection_pool_status(self) -> dict:
         """Get current connection pool status for debugging.

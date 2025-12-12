@@ -1665,32 +1665,6 @@ class GCompare:
 
         return False
 
-    def _get_mono_font(self) -> Tuple[str, int]:
-        """Return a suitable monospace font tuple for the platform.
-
-        Returns:
-            Tuple[str, int]: (font_family, font_size)
-        """
-        if self._font_families is None:
-            self._font_families = tkfont.families()
-        font_families = self._font_families
-
-        preferred_fonts = []
-
-        if sys.platform == "win32":
-            preferred_fonts = ["Consolas", "Courier New", "Lucida Console"]
-        elif sys.platform == "darwin":
-            preferred_fonts = ["Menlo", "Monaco", "Courier New"]
-        else:
-            preferred_fonts = ["DejaVu Sans Mono", "Liberation Mono", "Courier New"]
-
-        for font in preferred_fonts:
-            if font in font_families:
-                return (font, self.options["font_size"])
-
-        # Fallback
-        return ("Courier", self.options["font_size"])
-
     def _clear_diff_map(self):
         """Clear the diff map visualization."""
         if self.diff_map_canvas:
