@@ -3152,7 +3152,7 @@ class GSynchro:
         def remove_rules():
             selected_items = filter_tree.selection()
             if selected_items:
-                # Sort indices in descending order to avoid index shifting during deletion
+                # Delete in reverse order to preserve indices
                 indices = sorted(
                     [int(item_id) for item_id in selected_items], reverse=True
                 )
@@ -3170,11 +3170,11 @@ class GSynchro:
                     )
                 populate_tree()
 
-        # Filter buttons
+        # Filter management buttons
         filter_button_frame = ttk.Frame(filters_frame)
         filter_button_frame.pack(fill=tk.X, padx=5)
 
-        # Center the buttons
+        # Center button container
         filter_button_center = ttk.Frame(filter_button_frame)
         filter_button_center.pack(expand=True)
 
@@ -3819,31 +3819,25 @@ class GSynchro:
             try:
                 self._log(f"Deleting item: {full_path}")
                 if use_ssh:
-                    with self._create_ssh_for_panel(panel) as ssh_client:
-                        if ssh_client is None:
-                            raise ConnectionError(
-                                "Failed to establish SSH connection for deletion."
-                            )
-
-                        is_dir = False
-                        if item_info:
-                            is_dir = item_info.get("type") == "dir"
-                        else:
-                            # Fallback: check remote system
-                            stdin, stdout, stderr = ssh_client.exec_command(
-                                f"if [ -d '{full_path}' ]; then echo 'dir'; fi"
-                            )
-                            if stdout.read().decode().strip() == "dir":
-                                is_dir = True
-
-                        command = (
-                            f"rm -rf '{full_path}'" if is_dir else f"rm '{full_path}'"
+                    # Remote deletion
+                    ssh_client = self._get_ssh_client(panel)
+                    is_dir = False
+                    if item_info:
+                        is_dir = item_info.get("type") == "dir"
+                    else:
+                        # Fallback: check remote system
+                        stdin, stdout, stderr = ssh_client.exec_command(
+                            f"if [ -d '{full_path}' ]; then echo 'dir'; fi"
                         )
-                        stdin, stdout, stderr = ssh_client.exec_command(command)
-                        error = stderr.read().decode()
+                        if stdout.read().decode().strip() == "dir":
+                            is_dir = True
 
-                        if error:
-                            raise Exception(error)
+                    command = f"rm -rf '{full_path}'" if is_dir else f"rm '{full_path}'"
+                    stdin, stdout, stderr = ssh_client.exec_command(command)
+                    error = stderr.read().decode()
+
+                    if error:
+                        raise Exception(error)
                 else:
                     # Local deletion
                     is_dir = False

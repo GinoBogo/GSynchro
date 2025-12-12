@@ -453,30 +453,12 @@ class GCompare:
 
         # Bind scroll events to update line numbers
         text_area.bind(
-            "<MouseWheel>",
-            lambda e,
-            ln=line_numbers,
-            ta=text_area: self._update_line_numbers_on_scroll(ln, ta),
-        )
-        text_area.bind(
-            "<Button-4>",
-            lambda e,
-            ln=line_numbers,
-            ta=text_area: self._update_line_numbers_on_scroll(ln, ta),
-        )  # Linux scroll up
-        text_area.bind(
-            "<Button-5>",
-            lambda e,
-            ln=line_numbers,
-            ta=text_area: self._update_line_numbers_on_scroll(ln, ta),
-        )  # Linux scroll down
-        text_area.bind(
             "<Configure>",
             lambda e, ln=line_numbers, ta=text_area: self._update_line_numbers(ln, ta),
         )
 
         # Scrollbars
-        v_scrollbar = ttk.Scrollbar(panel, orient=tk.VERTICAL, command=text_area.yview)
+        v_scrollbar = ttk.Scrollbar(panel, orient=tk.VERTICAL)
         text_area.configure(yscrollcommand=v_scrollbar.set)
         v_scrollbar.grid(row=1, column=4, pady=(10, 0), sticky=tk.NS)
 
@@ -485,6 +467,15 @@ class GCompare:
         )
         text_area.configure(xscrollcommand=h_scrollbar.set)
         h_scrollbar.grid(row=2, column=0, columnspan=5, sticky=tk.EW)
+
+        # Disable mouse wheel scrolling
+        def disable_mouse_wheel(event):
+            """Disable mouse wheel events."""
+            return "break"
+
+        line_numbers.bind("<MouseWheel>", disable_mouse_wheel)
+        line_numbers.bind("<Button-4>", disable_mouse_wheel)
+        line_numbers.bind("<Button-5>", disable_mouse_wheel)
 
         # Store references
         if config["title"] == "File A":
@@ -905,11 +896,7 @@ class GCompare:
 
         # Get the text content
         text_content = text_widget.get("1.0", tk.END)
-        lines = text_content.split("\n")
-
-        # Remove the last empty line if it exists
-        if lines and lines[-1] == "":
-            lines = lines[:-1]
+        lines = text_content.splitlines()
 
         # Generate line numbers
         line_numbers_text = "\n".join(str(i) for i in range(1, len(lines) + 1))
@@ -921,23 +908,9 @@ class GCompare:
         line_numbers_widget.tag_add("right", "1.0", "end")
         line_numbers_widget.config(state=tk.DISABLED)
 
-        # Synchronize scrolling
-        text_widget.yview_moveto(line_numbers_widget.yview()[0])
-
-    def _update_line_numbers_on_scroll(
-        self, line_numbers_widget: tk.Text, text_widget: tk.Text
-    ):
-        """Update line numbers on scroll event.
-
-        Args:
-            line_numbers_widget: Line numbers widget
-            text_widget: Text widget
-
-        Returns:
-            "break" to prevent default scroll handling
-        """
-        self._update_line_numbers(line_numbers_widget, text_widget)
-        return "break"
+        # Synchronize scrolling - move line numbers to match text widget position
+        first, last = text_widget.yview()
+        line_numbers_widget.yview_moveto(first)
 
     def _toggle_line_numbers(self, show: bool):
         """Toggle line numbers visibility and adjust text area layout.
@@ -1518,6 +1491,11 @@ class GCompare:
                 first, last = self.text_view_a.yview()
                 self._update_scroll_marker(float(first), float(last))
 
+            # Update line numbers when view changes
+            if self.options["show_line_numbers"]:
+                self._update_line_numbers(self.line_numbers_a, self.text_view_a)
+                self._update_line_numbers(self.line_numbers_b, self.text_view_b)
+
         def _on_x_scroll(*args):
             """Handle horizontal scroll events."""
             text_view_a.xview(*args)
@@ -1539,46 +1517,6 @@ class GCompare:
         h_scrollbar_b.config(command=_on_x_scroll)
         text_view_a.config(xscrollcommand=_on_x_view_change)
         text_view_b.config(xscrollcommand=_on_x_view_change)
-
-        # Bind mouse wheel events
-        def _on_mouse_wheel(event: tk.Event):
-            """Handle mouse wheel scrolling.
-
-            Args:
-                event: Mouse wheel event
-            """
-            # Determine scroll direction
-            delta = -1 * (event.delta / 120) if event.delta != 0 else 0
-
-            # Handle touchpad scrolling
-            if event.num in (4, 5):
-                delta = -1 if event.num == 4 else 1
-
-            # Scroll both text widgets
-            text_view_a.yview_scroll(int(delta), "units")
-            text_view_b.yview_scroll(int(delta), "units")
-
-            return "break"
-
-        # Bind to text widgets
-        for widget in [text_view_a, text_view_b]:
-            if widget:
-                widget.bind("<MouseWheel>", _on_mouse_wheel, add=True)
-                widget.bind("<Button-4>", _on_mouse_wheel, add=True)  # Linux scroll up
-                widget.bind(
-                    "<Button-5>", _on_mouse_wheel, add=True
-                )  # Linux scroll down
-
-                # Bind to parent frames
-                if widget.master:
-                    widget.master.bind("<MouseWheel>", _on_mouse_wheel, add=True)
-                    widget.master.bind("<Button-4>", _on_mouse_wheel, add=True)
-                    widget.master.bind("<Button-5>", _on_mouse_wheel, add=True)
-
-        # Bind to root window
-        self.root.bind("<MouseWheel>", _on_mouse_wheel, add=True)
-        self.root.bind("<Button-4>", _on_mouse_wheel, add=True)
-        self.root.bind("<Button-5>", _on_mouse_wheel, add=True)
 
     def _update_scroll_marker(
         self, first_visible_fraction: float, last_visible_fraction: float
