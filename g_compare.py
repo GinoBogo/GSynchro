@@ -33,6 +33,8 @@ HISTORY_LENGTH = 10
 SCROLL_MARKER_WIDTH = 40
 MIN_WINDOW_WIDTH = 1024
 MIN_WINDOW_HEIGHT = 768
+DEFAULT_FONT_FAMILY = "Courier New"
+DEFAULT_FONT_SIZE = 12
 
 
 # ============================================================================
@@ -76,12 +78,27 @@ class GCompare:
         self.v_scrollbar_b: Optional[ttk.Scrollbar] = None
         self.h_scrollbar_a: Optional[ttk.Scrollbar] = None
         self.h_scrollbar_b: Optional[ttk.Scrollbar] = None
+        self.line_numbers_a: Optional[tk.Text] = None
+        self.line_numbers_b: Optional[tk.Text] = None
 
         # Status variables
         self.status_a = tk.StringVar()
         self.status_b = tk.StringVar()
 
         self._font_families: Optional[Tuple[str, ...]] = None
+
+        # Options
+        self.options = {
+            "font_family": DEFAULT_FONT_FAMILY,
+            "font_size": DEFAULT_FONT_SIZE,
+            "show_line_numbers": False,
+            "wrap_lines": False,
+            "tab_size": 4,
+            "auto_compare": True,
+            "ignore_whitespace": False,
+            "ignore_case": False,
+        }
+
         # Variables to manage scroll marker dragging
         self._marker_drag_start_y: Optional[float] = None
         self._marker_initial_scroll_fraction = 0.0
@@ -159,9 +176,8 @@ class GCompare:
             background=[("active", "#ADD8E6"), ("pressed", "#87CEFA")],
         )
 
-        # Configure monospace font
-        font_tuple = self._get_mono_font()
-        style.configure("TText", font=font_tuple)
+        # Configure monospace font with current options
+        self._update_font_style()
 
     # ========================================================================
     # CONFIGURATION METHODS
@@ -192,6 +208,10 @@ class GCompare:
                 if self.file_b_history:
                     self.file_b.set(self.file_b_history[0])
 
+            # Load options
+            if "OPTIONS" in config:
+                self.options.update(config["OPTIONS"])
+
         except json.JSONDecodeError:
             print(f"Warning: Could not parse {CONFIG_FILE}. Using defaults.")
 
@@ -207,10 +227,98 @@ class GCompare:
             "WINDOW": {"geometry": self.root.geometry()},
             "FILE_A_HISTORY": self.file_a_history,
             "FILE_B_HISTORY": self.file_b_history,
+            "OPTIONS": self.options,
         }
 
         with open(CONFIG_FILE, "w") as f:
             json.dump(config, f, indent=4)
+
+    def _update_font_style(self):
+        """Update the font style based on current options."""
+        style = ttk.Style()
+        font_tuple = (self.options["font_family"], self.options["font_size"])
+        style.configure("TText", font=font_tuple)
+
+        # Update text widgets if they exist
+        if self.file_view_a:
+            self.file_view_a.configure(font=font_tuple)
+        if self.file_view_b:
+            self.file_view_b.configure(font=font_tuple)
+
+        # Update line number widgets if they exist
+        if self.line_numbers_a:
+            self.line_numbers_a.configure(font=font_tuple)
+        if self.line_numbers_b:
+            self.line_numbers_b.configure(font=font_tuple)
+
+    def _update_line_numbers(self, line_numbers_widget: tk.Text, text_widget: tk.Text):
+        """Update line numbers to match the text widget."""
+        if (
+            not self.options["show_line_numbers"]
+            or not line_numbers_widget
+            or not text_widget
+        ):
+            return
+
+        # Get the text content
+        text_content = text_widget.get("1.0", tk.END)
+        lines = text_content.split("\n")
+
+        # Remove the last empty line if it exists
+        if lines and lines[-1] == "":
+            lines = lines[:-1]
+
+        # Generate line numbers
+        line_numbers_text = "\n".join(str(i) for i in range(1, len(lines) + 1))
+
+        # Update line numbers widget
+        line_numbers_widget.config(state=tk.NORMAL)
+        line_numbers_widget.delete("1.0", tk.END)
+        line_numbers_widget.insert("1.0", line_numbers_text)
+        line_numbers_widget.tag_add("right", "1.0", "end")
+        line_numbers_widget.config(state=tk.DISABLED)
+
+        # Synchronize scrolling
+        text_widget.yview_moveto(line_numbers_widget.yview()[0])
+
+    def _update_line_numbers_on_scroll(
+        self, line_numbers_widget: tk.Text, text_widget: tk.Text
+    ):
+        """Update line numbers on scroll event."""
+        self._update_line_numbers(line_numbers_widget, text_widget)
+        return "break"  # Prevent default scroll handling
+
+    def _toggle_line_numbers(self, show: bool):
+        """Toggle line numbers visibility and adjust text area layout."""
+        if self.line_numbers_a:
+            if show:
+                self.line_numbers_a.grid()
+                if self.file_view_a:
+                    self.file_view_a.grid(
+                        row=1, column=1, columnspan=3, pady=(10, 0), sticky=tk.NSEW
+                    )
+                self._update_line_numbers(self.line_numbers_a, self.file_view_a)
+            else:
+                self.line_numbers_a.grid_remove()
+                if self.file_view_a:
+                    self.file_view_a.grid(
+                        row=1, column=0, columnspan=4, pady=(10, 0), sticky=tk.NSEW
+                    )
+
+        if self.line_numbers_b:
+            if show:
+                self.line_numbers_b.grid()
+                if self.file_view_b:
+                    self.file_view_b.grid(
+                        row=1, column=1, columnspan=3, pady=(10, 0), sticky=tk.NSEW
+                    )
+                self._update_line_numbers(self.line_numbers_b, self.file_view_b)
+            else:
+                self.line_numbers_b.grid_remove()
+                if self.file_view_b:
+                    self.file_view_b.grid(
+                        row=1, column=0, columnspan=4, pady=(10, 0), sticky=tk.NSEW
+                    )
 
     def _is_temporary_path(self, path: str) -> bool:
         """Check if a path is a temporary file or directory.
@@ -297,10 +405,11 @@ class GCompare:
         button_container = ttk.Frame(control_frame)
         button_container.pack(expand=True)
 
-        # Button definitions
+        # Button definitions - added Options button
         buttons = [
             ("Compare", self._compare_files, None),
             ("Reload", self._reload_files, None),
+            ("Options", self._show_options_dialog, None),  # New button
         ]
 
         for text, command, color in buttons:
@@ -456,14 +565,75 @@ class GCompare:
             style=f"{config['button_color']}.TButton",
         ).grid(row=0, column=3, padx=5, pady=5, sticky=tk.E)
 
-        # Text area
-        text_area = tk.Text(panel, wrap=tk.NONE, state=tk.NORMAL)
-        text_area.grid(row=1, column=0, columnspan=4, pady=(10, 0), sticky=tk.NSEW)
+        # Define font tuple first
+        font_tuple = (self.options["font_family"], self.options["font_size"])
+
+        # Get button background color
+        style = ttk.Style()
+        button_bg = style.lookup("TButton", "background")
+
+        # Line numbers widget (initially hidden) - placed on the left
+        line_numbers = tk.Text(
+            panel,
+            width=4,
+            wrap=tk.NONE,
+            state=tk.DISABLED,
+            font=font_tuple,
+            bg=button_bg,
+            fg="#666666",
+            relief="flat",
+            takefocus=False,
+            highlightthickness=0,
+            highlightbackground=button_bg,
+            highlightcolor=button_bg,
+        )
+        line_numbers.grid(row=1, column=0, pady=(10, 0), sticky=tk.NS)
+
+        # Configure right alignment for line numbers
+        line_numbers.tag_configure("right", justify="right")
+
+        # Initially hide line numbers if option is False
+        if not self.options["show_line_numbers"]:
+            line_numbers.grid_remove()
+
+        # Text area with current font
+        wrap_option = tk.WORD if self.options["wrap_lines"] else tk.NONE
+        text_area = tk.Text(panel, wrap=wrap_option, state=tk.NORMAL, font=font_tuple)
+
+        # Set initial layout based on line numbers option
+        if self.options["show_line_numbers"]:
+            text_area.grid(row=1, column=1, columnspan=3, pady=(10, 0), sticky=tk.NSEW)
+        else:
+            text_area.grid(row=1, column=0, columnspan=4, pady=(10, 0), sticky=tk.NSEW)
 
         # Bind modified event
         text_area.bind(
             "<<Modified>>",
             lambda e, p=panel, t=config["title"]: self._on_text_modified(e, p, t),
+        )
+
+        # Bind scroll events to update line numbers
+        text_area.bind(
+            "<MouseWheel>",
+            lambda e,
+            ln=line_numbers,
+            ta=text_area: self._update_line_numbers_on_scroll(ln, ta),
+        )
+        text_area.bind(
+            "<Button-4>",
+            lambda e,
+            ln=line_numbers,
+            ta=text_area: self._update_line_numbers_on_scroll(ln, ta),
+        )  # Linux scroll up
+        text_area.bind(
+            "<Button-5>",
+            lambda e,
+            ln=line_numbers,
+            ta=text_area: self._update_line_numbers_on_scroll(ln, ta),
+        )  # Linux scroll down
+        text_area.bind(
+            "<Configure>",
+            lambda e, ln=line_numbers, ta=text_area: self._update_line_numbers(ln, ta),
         )
 
         # Scrollbars
@@ -475,7 +645,7 @@ class GCompare:
             panel, orient=tk.HORIZONTAL, command=text_area.xview
         )
         text_area.configure(xscrollcommand=h_scrollbar.set)
-        h_scrollbar.grid(row=2, column=0, columnspan=4, sticky=tk.EW)
+        h_scrollbar.grid(row=2, column=0, columnspan=5, sticky=tk.EW)
 
         # Store references
         if config["title"] == "File A":
@@ -483,11 +653,13 @@ class GCompare:
             self.panel_a = panel
             self.v_scrollbar_a = v_scrollbar
             self.h_scrollbar_a = h_scrollbar
+            self.line_numbers_a = line_numbers
         else:
             self.file_view_b = text_area
             self.panel_b = panel
             self.v_scrollbar_b = v_scrollbar
             self.h_scrollbar_b = h_scrollbar
+            self.line_numbers_b = line_numbers
 
     def _create_status_bar(self, parent: ttk.Frame):
         """Create status bar with legends."""
@@ -558,6 +730,242 @@ class GCompare:
             bd=1,
         )
         empty_square_b.pack(side=tk.LEFT, padx=(4, 4))
+
+    # ========================================================================
+    # OPTIONS DIALOG
+    # ========================================================================
+
+    def _show_options_dialog(self):
+        """Show the options configuration dialog."""
+        dialog = tk.Toplevel(self.root)
+        dialog.title("GCompare Options")
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        # Center the dialog relative to parent window
+        def center_dialog():
+            """Center the dialog after it's fully mapped."""
+            dialog.update_idletasks()
+
+            # Get parent window center
+            parent_x = self.root.winfo_rootx() + self.root.winfo_width() // 2
+            parent_y = self.root.winfo_rooty() + self.root.winfo_height() // 2
+
+            # Get dialog dimensions (including decorations)
+            dialog_width = dialog.winfo_width()
+            dialog_height = dialog.winfo_height()
+
+            # Calculate final position to center the dialog
+            dialog_x = parent_x - dialog_width // 2
+            dialog_y = parent_y - dialog_height // 2
+
+            dialog.geometry(f"+{dialog_x}+{dialog_y}")
+
+        # Schedule centering after dialog is mapped
+        dialog.after(100, center_dialog)
+
+        # Prevent resizing
+        dialog.resizable(False, False)
+
+        # Create main frame
+        main_frame = ttk.Frame(dialog, padding="20")
+        main_frame.pack(fill=tk.BOTH, expand=True)
+
+        # Font options
+        font_frame = ttk.LabelFrame(main_frame, text="Font", padding="10")
+        font_frame.pack(fill=tk.X, pady=(0, 10))
+
+        # Font family
+        ttk.Label(font_frame, text="Family:").grid(
+            row=0, column=0, sticky=tk.E, padx=(0, 5)
+        )
+
+        # Get available font families
+        if self._font_families is None:
+            self._font_families = tkfont.families()
+
+        # Filter to monospace fonts (simplified check)
+        mono_fonts = sorted(
+            set(
+                f
+                for f in self._font_families
+                if any(
+                    mono in f.lower()
+                    for mono in ["mono", "consolas", "courier", "fixedsys", "terminal"]
+                )
+            )
+        )
+        if not mono_fonts:  # Fallback to all fonts
+            mono_fonts = sorted(set(self._font_families))
+
+        font_family_var = tk.StringVar(value=self.options["font_family"])
+        font_family_combo = ttk.Combobox(
+            font_frame, textvariable=font_family_var, values=mono_fonts, width=30
+        )
+        font_family_combo.grid(row=0, column=1, sticky=tk.W, padx=(0, 10))
+
+        # Font size
+        ttk.Label(font_frame, text="Size:").grid(
+            row=0, column=2, sticky=tk.W, padx=(0, 5)
+        )
+        font_size_var = tk.IntVar(value=self.options["font_size"])
+        font_size_spinbox = tk.Spinbox(
+            font_frame, from_=8, to=24, textvariable=font_size_var, width=5
+        )
+        font_size_spinbox.grid(row=0, column=3, sticky=tk.W)
+
+        # Font example
+        ttk.Label(font_frame, text="Example:").grid(
+            row=1, column=0, sticky=tk.E, pady=(5, 0), padx=(0, 5)
+        )
+        font_example_label = ttk.Label(font_frame, text="AaBbCc 123")
+        font_example_label.grid(row=1, column=1, sticky=tk.W, pady=(5, 0))
+
+        def update_font_example(*args):
+            """Update the font example when font family or size changes."""
+            font_family = font_family_var.get()
+            font_size = font_size_var.get()
+            if font_family and font_size:
+                font_example_label.configure(font=(font_family, font_size))
+
+        # Bind font changes to update example
+        font_family_var.trace("w", update_font_example)
+        font_size_var.trace("w", update_font_example)
+
+        # Initialize font example
+        update_font_example()
+
+        # Display and Comparison options (merged)
+        options_frame = ttk.LabelFrame(main_frame, text="Options", padding="10")
+        options_frame.pack(fill=tk.X, pady=(0, 10))
+
+        # Show line numbers
+        line_numbers_var = tk.BooleanVar(value=self.options["show_line_numbers"])
+        line_numbers_check = ttk.Checkbutton(
+            options_frame, text="Show Line Numbers", variable=line_numbers_var
+        )
+        line_numbers_check.grid(row=0, column=0, sticky=tk.W, padx=(0, 20))
+
+        # Wrap lines
+        wrap_lines_var = tk.BooleanVar(value=self.options["wrap_lines"])
+        wrap_lines_check = ttk.Checkbutton(
+            options_frame, text="Wrap Lines", variable=wrap_lines_var
+        )
+        wrap_lines_check.grid(row=0, column=1, sticky=tk.W, pady=(5, 0))
+
+        # Tab size
+        ttk.Label(options_frame, text="Tab Size:").grid(
+            row=0, column=2, sticky=tk.W, padx=(20, 5), pady=(5, 0)
+        )
+        tab_size_var = tk.IntVar(value=self.options["tab_size"])
+        tab_size_spinbox = tk.Spinbox(
+            options_frame, from_=2, to=8, textvariable=tab_size_var, width=5
+        )
+        tab_size_spinbox.grid(row=0, column=3, sticky=tk.W, pady=(5, 0))
+
+        # Compare on change
+        auto_compare_var = tk.BooleanVar(value=self.options["auto_compare"])
+        auto_compare_check = ttk.Checkbutton(
+            options_frame, text="Compare on Change", variable=auto_compare_var
+        )
+        auto_compare_check.grid(row=1, column=0, sticky=tk.W, pady=(5, 0))
+
+        # Ignore whitespace
+        ignore_whitespace_var = tk.BooleanVar(value=self.options["ignore_whitespace"])
+        ignore_whitespace_check = ttk.Checkbutton(
+            options_frame, text="Ignore Whitespace", variable=ignore_whitespace_var
+        )
+        ignore_whitespace_check.grid(row=1, column=1, sticky=tk.W, pady=(5, 0))
+
+        # Ignore case
+        ignore_case_var = tk.BooleanVar(value=self.options["ignore_case"])
+        ignore_case_check = ttk.Checkbutton(
+            options_frame, text="Ignore Case", variable=ignore_case_var
+        )
+        ignore_case_check.grid(row=1, column=2, sticky=tk.W, padx=(20, 0), pady=(5, 0))
+
+        # Button frame
+        button_frame = ttk.Frame(main_frame)
+        button_frame.pack(fill=tk.X, pady=(10, 0))
+
+        def apply_options():
+            """Apply the selected options."""
+            # Update options dictionary
+            self.options.update(
+                {
+                    "font_family": font_family_var.get(),
+                    "font_size": font_size_var.get(),
+                    "show_line_numbers": line_numbers_var.get(),
+                    "wrap_lines": wrap_lines_var.get(),
+                    "tab_size": tab_size_var.get(),
+                    "auto_compare": auto_compare_var.get(),
+                    "ignore_whitespace": ignore_whitespace_var.get(),
+                    "ignore_case": ignore_case_var.get(),
+                }
+            )
+
+            # Apply font changes
+            self._update_font_style()
+
+            # Apply wrap lines
+            wrap_option = tk.WORD if self.options["wrap_lines"] else tk.NONE
+            if self.file_view_a:
+                self.file_view_a.configure(wrap=wrap_option)
+            if self.file_view_b:
+                self.file_view_b.configure(wrap=wrap_option)
+
+            # Apply line numbers
+            self._toggle_line_numbers(self.options["show_line_numbers"])
+
+            # Save config and close dialog
+            self.save_config()
+            dialog.destroy()
+
+            # Refresh comparison if needed
+            if self.file_a.get() and self.file_b.get():
+                self._compare_files()
+
+        def reset_options():
+            """Reset options to default values."""
+            font_family_var.set(DEFAULT_FONT_FAMILY)
+            font_size_var.set(DEFAULT_FONT_SIZE)
+            line_numbers_var.set(False)
+            wrap_lines_var.set(False)
+            tab_size_var.set(4)
+            auto_compare_var.set(True)
+            ignore_whitespace_var.set(False)
+            ignore_case_var.set(False)
+
+        # Buttons - centered
+        button_center_frame = ttk.Frame(button_frame)
+        button_center_frame.pack(expand=True)
+
+        button_row_frame = ttk.Frame(button_center_frame)
+        button_row_frame.pack()
+
+        ttk.Button(
+            button_row_frame,
+            text="Apply",
+            command=apply_options,
+            cursor="hand2",
+            width=12,
+        ).pack(side=tk.LEFT, padx=5)
+
+        ttk.Button(
+            button_row_frame,
+            text="Reset",
+            command=reset_options,
+            cursor="hand2",
+            width=12,
+        ).pack(side=tk.LEFT, padx=5)
+
+        ttk.Button(
+            button_row_frame,
+            text="Cancel",
+            command=dialog.destroy,
+            cursor="hand2",
+            width=12,
+        ).pack(side=tk.LEFT, padx=5)
 
     # ========================================================================
     # FILE OPERATIONS
@@ -762,6 +1170,13 @@ class GCompare:
                 char_count = len(content)
                 status_var.set(f"{line_count} lines, {char_count} characters")
 
+                # Update line numbers if enabled
+                if self.options["show_line_numbers"]:
+                    if panel_name == "A" and self.line_numbers_a:
+                        self._update_line_numbers(self.line_numbers_a, text_view)
+                    elif panel_name == "B" and self.line_numbers_b:
+                        self._update_line_numbers(self.line_numbers_b, text_view)
+
         except Exception as e:
             messagebox.showerror("Error", f"Failed to load file: {e}")
 
@@ -788,6 +1203,10 @@ class GCompare:
         if panel_widget and text_widget.edit_modified():
             panel_widget.config(text=f"{original_title}*")
             text_widget.edit_modified(False)
+
+            # Auto compare if enabled
+            if self.options["auto_compare"] and self.file_a.get() and self.file_b.get():
+                self._compare_files()
 
     def _compare_files(self, event=None):
         """Compare the two files and highlight differences.
@@ -822,6 +1241,15 @@ class GCompare:
         lines_b = (
             self.file_view_b.get("1.0", tk.END).splitlines() if self.file_view_b else []
         )
+
+        # Apply options if needed
+        if self.options["ignore_whitespace"]:
+            lines_a = [line.rstrip() for line in lines_a]
+            lines_b = [line.rstrip() for line in lines_b]
+
+        if self.options["ignore_case"]:
+            lines_a = [line.lower() for line in lines_a]
+            lines_b = [line.lower() for line in lines_b]
 
         # Perform comparison
         differ = difflib.Differ()
@@ -1254,10 +1682,10 @@ class GCompare:
 
         for font in preferred_fonts:
             if font in font_families:
-                return (font, 12)
+                return (font, self.options["font_size"])
 
         # Fallback
-        return ("Courier", 12)
+        return ("Courier", self.options["font_size"])
 
     def _clear_diff_map(self):
         """Clear the diff map visualization."""
