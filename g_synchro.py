@@ -263,6 +263,16 @@ class GSynchro:
         self.filter_rules = []
         self.temp_files_to_clean = []
 
+        # Options for display and fonts
+        self.options = {
+            "font_family": self._get_mono_font()[0],
+            "font_size": 11,
+            "tree_font_size": 10,
+            "show_file_sizes": True,
+            "show_timestamps": True,
+            "auto_compare": True,
+        }
+
         # Host histories: lists of dicts {'host','port','username'}
         self.hosts_a = []
         self.hosts_b = []
@@ -319,33 +329,13 @@ class GSynchro:
                 self.remote_port_b.set(config["SSH_B"].get("port", "22"))
                 self.remote_user_b.set(config["SSH_B"].get("username", ""))
 
-            # Load host histories (list of dicts)
-            if "HOSTS_A" in config:
-                self.hosts_a = config["HOSTS_A"] or []
-                # if no explicit host set, pick most recent
-                if not self.remote_host_a.get() and self.hosts_a:
-                    self.remote_host_a.set(self.hosts_a[0].get("host", ""))
-                    self.remote_port_a.set(
-                        self.hosts_a[0].get("port", self.remote_port_a.get())
-                    )
-                    self.remote_user_a.set(
-                        self.hosts_a[0].get("username", self.remote_user_a.get())
-                    )
-
-            if "HOSTS_B" in config:
-                self.hosts_b = config["HOSTS_B"] or []
-                if not self.remote_host_b.get() and self.hosts_b:
-                    self.remote_host_b.set(self.hosts_b[0].get("host", ""))
-                    self.remote_port_b.set(
-                        self.hosts_b[0].get("port", self.remote_port_b.get())
-                    )
-                    self.remote_user_b.set(
-                        self.hosts_b[0].get("username", self.remote_user_b.get())
-                    )
-
             # Filter rules
             if "FILTERS" in config and "rules" in config["FILTERS"]:
                 self._load_filter_rules(config["FILTERS"]["rules"])
+
+            # Load options
+            if "OPTIONS" in config:
+                self.options.update(config["OPTIONS"])
 
             # Panel A History
             if "FOLDER_A_HISTORY" in config:
@@ -428,6 +418,7 @@ class GSynchro:
             "HOSTS_A": self.hosts_a,
             "HOSTS_B": self.hosts_b,
             "FILTERS": {"rules": self.filter_rules},
+            "OPTIONS": self.options,
             "FOLDER_A_HISTORY": self.folder_a_history,
             "FOLDER_B_HISTORY": self.folder_b_history,
         }
@@ -548,7 +539,7 @@ class GSynchro:
             ("Compare", self.compare_folders, None),
             ("Sync  ▶", lambda: self.synchronize("a_to_b"), "lightgreen"),
             ("◀  Sync", lambda: self.synchronize("b_to_a"), "lightblue"),
-            ("Filters", self._show_filters_dialog, None),
+            ("Options", self._show_options_dialog, None),
         ]
 
         button_container = ttk.Frame(control_frame)
@@ -2913,6 +2904,409 @@ class GSynchro:
         # Center dialog
         self._center_dialog(dialog)
         self.root.wait_window(dialog)
+
+    def _show_options_dialog(self):
+        """Show the GSynchro options configuration dialog."""
+        dialog = tk.Toplevel(self.root)
+        dialog.title("GSynchro Options")
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        # Center the dialog relative to parent window
+        def center_dialog():
+            """Center the dialog after it's fully mapped."""
+            dialog.update_idletasks()
+
+            # Get parent window center
+            parent_x = self.root.winfo_rootx() + self.root.winfo_width() // 2
+            parent_y = self.root.winfo_rooty() + self.root.winfo_height() // 2
+
+            # Get dialog dimensions (including decorations)
+            dialog_width = dialog.winfo_width()
+            dialog_height = dialog.winfo_height()
+
+            # Calculate final position to center the dialog
+            dialog_x = parent_x - dialog_width // 2
+            dialog_y = parent_y - dialog_height // 2
+
+            dialog.geometry(f"+{dialog_x}+{dialog_y}")
+
+        # Schedule centering after dialog is mapped
+        dialog.after(100, center_dialog)
+
+        # Prevent resizing
+        dialog.resizable(False, False)
+
+        # Create main frame with notebook for tabs
+        main_frame = ttk.Frame(dialog, padding="20")
+        main_frame.pack(fill=tk.BOTH, expand=True)
+
+        notebook = ttk.Notebook(main_frame)
+        notebook.pack(fill=tk.BOTH, expand=True)
+
+        # Force equal-width tabs using style
+        style = ttk.Style()
+        style.configure("TNotebook", tabmargins=[0, 5, 0, 0])
+        style.configure("TNotebook.Tab", padding=[60, 5])
+
+        # Font tab
+        font_frame = ttk.Frame(notebook, padding="10")
+        notebook.add(font_frame, text="Font")
+
+        # Font family
+        ttk.Label(font_frame, text="Font Family:").grid(
+            row=0, column=0, sticky=tk.E, padx=(0, 5), pady=5
+        )
+
+        # Get available font families
+        font_families = tkfont.families()
+
+        # Filter to monospace fonts (simplified check)
+        mono_fonts = sorted(
+            set(
+                f
+                for f in font_families
+                if any(
+                    mono in f.lower()
+                    for mono in ["mono", "consolas", "courier", "fixedsys", "terminal"]
+                )
+            )
+        )
+        if not mono_fonts:  # Fallback to all fonts
+            mono_fonts = sorted(set(font_families))
+
+        font_family_var = tk.StringVar(value=self.options["font_family"])
+        font_family_combo = ttk.Combobox(
+            font_frame, textvariable=font_family_var, values=mono_fonts, width=30
+        )
+        font_family_combo.grid(row=0, column=1, sticky=tk.W, padx=(0, 10), pady=5)
+
+        # Tree font size
+        ttk.Label(font_frame, text="Tree Font Size:").grid(
+            row=1, column=0, sticky=tk.E, padx=(0, 5), pady=5
+        )
+        tree_font_size_var = tk.IntVar(value=self.options["tree_font_size"])
+        tree_font_size_spinbox = tk.Spinbox(
+            font_frame, from_=8, to=20, textvariable=tree_font_size_var, width=5
+        )
+        tree_font_size_spinbox.grid(row=1, column=1, sticky=tk.W, pady=5)
+
+        # Font example
+        ttk.Label(font_frame, text="Example:").grid(
+            row=2, column=0, sticky=tk.E, pady=(10, 5), padx=(0, 5)
+        )
+        font_example_label = ttk.Label(
+            font_frame,
+            text="ABCDEFGHIJKLMNOPQRSTUVWXYZ\nabcdefghijklmnopqrstuvwxyz\n0123456789\n!@#$%^&*()[]{}_+",
+        )
+        font_example_label.grid(
+            row=3, column=0, columnspan=2, sticky=tk.W, pady=(10, 5)
+        )
+
+        def update_font_example(*args):
+            """Update the font example when font family or size changes."""
+            font_family = font_family_var.get()
+            tree_font_size = tree_font_size_var.get()
+            if font_family and tree_font_size:
+                font_example_label.configure(font=(font_family, tree_font_size))
+
+        # Bind font changes to update example
+        font_family_var.trace("w", update_font_example)
+        tree_font_size_var.trace("w", update_font_example)
+
+        # Initialize font example
+        update_font_example()
+
+        # Display tab
+        display_frame = ttk.Frame(notebook, padding="10")
+        notebook.add(display_frame, text="Display")
+
+        # Show file sizes
+        show_file_sizes_var = tk.BooleanVar(value=self.options["show_file_sizes"])
+        show_file_sizes_check = ttk.Checkbutton(
+            display_frame, text="Show File Sizes", variable=show_file_sizes_var
+        )
+        show_file_sizes_check.grid(row=0, column=0, sticky=tk.W, padx=(0, 20), pady=5)
+
+        # Show timestamps
+        show_timestamps_var = tk.BooleanVar(value=self.options["show_timestamps"])
+        show_timestamps_check = ttk.Checkbutton(
+            display_frame, text="Show Timestamps", variable=show_timestamps_var
+        )
+        show_timestamps_check.grid(row=0, column=1, sticky=tk.W, pady=5)
+
+        # Auto compare
+        auto_compare_var = tk.BooleanVar(value=self.options["auto_compare"])
+        auto_compare_check = ttk.Checkbutton(
+            display_frame, text="Auto Compare on Load", variable=auto_compare_var
+        )
+        auto_compare_check.grid(row=1, column=0, sticky=tk.W, padx=(0, 20), pady=5)
+
+        # Filters tab
+        filters_frame = ttk.Frame(notebook, padding="10")
+        notebook.add(filters_frame, text="Filters")
+
+        # Create a temporary copy to work with
+        temp_filters = [dict(item) for item in self.filter_rules]
+
+        # Tree view for filters
+        tree_frame, filter_tree = self._create_filter_tree(filters_frame)
+        tree_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+
+        # Populate tree
+        def populate_tree():
+            for item in filter_tree.get_children():
+                filter_tree.delete(item)
+            for i, item in enumerate(temp_filters):
+                check_char = (
+                    CHECKED_CHAR if item.get("active", True) else UNCHECKED_CHAR
+                )
+                filter_tree.insert("", "end", iid=i, values=(check_char, item["rule"]))
+
+        def _create_rule_input_dialog(
+            title: str, prompt_text: str, initial_value: str = ""
+        ) -> Optional[str]:
+            """Create a dialog to get a filter rule from the user."""
+            entry_var = tk.StringVar(value=initial_value)
+            result = None
+
+            rule_dialog = tk.Toplevel(dialog)
+            rule_dialog.title(title)
+            rule_dialog.transient(dialog)
+            rule_dialog.grab_set()
+            rule_dialog.resizable(False, False)
+
+            # Center the dialog
+            def center_rule_dialog():
+                rule_dialog.update_idletasks()
+                parent_x = dialog.winfo_rootx() + dialog.winfo_width() // 2
+                parent_y = dialog.winfo_rooty() + dialog.winfo_height() // 2
+                dialog_width = rule_dialog.winfo_width()
+                dialog_height = rule_dialog.winfo_height()
+                dialog_x = parent_x - dialog_width // 2
+                dialog_y = parent_y - dialog_height // 2
+                rule_dialog.geometry(f"+{dialog_x}+{dialog_y}")
+
+            rule_dialog.after(100, center_rule_dialog)
+
+            main_frame = ttk.Frame(rule_dialog, padding="20")
+            main_frame.pack()
+
+            ttk.Label(main_frame, text=prompt_text).pack(anchor=tk.W, pady=(0, 5))
+            entry = ttk.Entry(main_frame, textvariable=entry_var, width=40)
+            entry.pack(pady=(0, 10))
+            entry.select_range(0, tk.END)
+            entry.focus()
+
+            button_frame = ttk.Frame(main_frame)
+            button_frame.pack()
+
+            def on_ok():
+                nonlocal result
+                result = entry_var.get().strip()
+                rule_dialog.destroy()
+
+            def on_cancel():
+                rule_dialog.destroy()
+
+            ttk.Button(button_frame, text="OK", command=on_ok, cursor="hand2").pack(
+                side=tk.LEFT, padx=5
+            )
+            ttk.Button(
+                button_frame, text="Cancel", command=on_cancel, cursor="hand2"
+            ).pack(side=tk.LEFT)
+
+            rule_dialog.bind("<Return>", lambda e: on_ok())
+            rule_dialog.bind("<Escape>", lambda e: on_cancel())
+            entry.focus()
+
+            rule_dialog.wait_window()
+            return result
+
+        def insert_rule():
+            new_rule = _create_rule_input_dialog(
+                "Add Filter Rule", "Enter filter pattern:"
+            )
+            if new_rule and new_rule.strip():
+                temp_filters.append({"rule": new_rule.strip(), "active": True})
+                temp_filters.sort(key=lambda item: item["rule"])
+                populate_tree()
+
+        def edit_rule():
+            selected_item = filter_tree.focus()
+            if not selected_item:
+                return
+
+            index = int(selected_item)
+            current_rule = temp_filters[index]["rule"]
+
+            edited_rule = _create_rule_input_dialog(
+                "Edit Rule", "Edit filter pattern:", initial_value=current_rule
+            )
+
+            if edited_rule and edited_rule.strip():
+                temp_filters[index]["rule"] = edited_rule.strip()
+                temp_filters.sort(key=lambda item: item["rule"])
+                populate_tree()
+
+        def remove_rules():
+            selected_items = filter_tree.selection()
+            if selected_items:
+                # Sort indices in descending order to avoid index shifting during deletion
+                indices = sorted(
+                    [int(item_id) for item_id in selected_items], reverse=True
+                )
+                for index in indices:
+                    del temp_filters[index]
+                populate_tree()
+
+        def toggle_rules():
+            selected_items = filter_tree.selection()
+            if selected_items:
+                for item_id in selected_items:
+                    index = int(item_id)
+                    temp_filters[index]["active"] = not temp_filters[index].get(
+                        "active", True
+                    )
+                populate_tree()
+
+        # Filter buttons
+        filter_button_frame = ttk.Frame(filters_frame)
+        filter_button_frame.pack(fill=tk.X, padx=5)
+
+        # Center the buttons
+        filter_button_center = ttk.Frame(filter_button_frame)
+        filter_button_center.pack(expand=True)
+
+        ttk.Button(
+            filter_button_center, text="Add", command=insert_rule, cursor="hand2"
+        ).pack(side=tk.LEFT, padx=2)
+        ttk.Button(
+            filter_button_center, text="Edit", command=edit_rule, cursor="hand2"
+        ).pack(side=tk.LEFT, padx=2)
+        ttk.Button(
+            filter_button_center, text="Remove", command=remove_rules, cursor="hand2"
+        ).pack(side=tk.LEFT, padx=2)
+        ttk.Button(
+            filter_button_center, text="Toggle", command=toggle_rules, cursor="hand2"
+        ).pack(side=tk.LEFT, padx=2)
+
+        # Bind double-click to toggle
+        filter_tree.bind("<Double-1>", lambda e: toggle_rules())
+
+        # Initialize filter tree
+        populate_tree()
+
+        # Button frame
+        button_frame = ttk.Frame(main_frame)
+        button_frame.pack(fill=tk.X, pady=(10, 0))
+
+        def apply_options():
+            """Apply selected options."""
+            # Update options dictionary
+            self.options.update(
+                {
+                    "font_family": font_family_var.get(),
+                    "tree_font_size": tree_font_size_var.get(),
+                    "show_file_sizes": show_file_sizes_var.get(),
+                    "show_timestamps": show_timestamps_var.get(),
+                    "auto_compare": auto_compare_var.get(),
+                }
+            )
+
+            # Update filter rules
+            self.filter_rules = temp_filters
+            self.filter_rules.sort(key=lambda item: item["rule"])
+
+            # Apply font changes
+            self._update_tree_fonts()
+
+            # Save config and close dialog
+            self._save_config()
+            dialog.destroy()
+
+            # Refresh comparison if needed
+            if self.folder_a.get() and self.folder_b.get():
+                self.compare_folders()
+
+        def reset_options():
+            """Reset options to default values."""
+            font_family_var.set(self._get_mono_font()[0])
+            tree_font_size_var.set(10)
+            show_file_sizes_var.set(True)
+            show_timestamps_var.set(True)
+            auto_compare_var.set(True)
+
+        # Buttons - centered
+        button_center_frame = ttk.Frame(button_frame)
+        button_center_frame.pack(expand=True)
+
+        button_row_frame = ttk.Frame(button_center_frame)
+        button_row_frame.pack()
+
+        ttk.Button(
+            button_row_frame,
+            text="Apply",
+            command=apply_options,
+            cursor="hand2",
+            width=12,
+        ).pack(side=tk.LEFT, padx=5)
+
+        ttk.Button(
+            button_row_frame,
+            text="Reset",
+            command=reset_options,
+            cursor="hand2",
+            width=12,
+        ).pack(side=tk.LEFT, padx=5)
+
+        ttk.Button(
+            button_row_frame,
+            text="Cancel",
+            command=dialog.destroy,
+            cursor="hand2",
+            width=12,
+        ).pack(side=tk.LEFT, padx=5)
+
+    def _update_tree_fonts(self):
+        """Update tree fonts based on current options."""
+        font_family = self.options["font_family"]
+        tree_font_size = self.options["tree_font_size"]
+
+        # Define font tuple for tree views
+        tree_font_tuple = (font_family, tree_font_size)
+
+        # Update tree fonts if they exist
+        if self.tree_a:
+            self.tree_a.tag_configure("green", foreground="green", font=tree_font_tuple)
+            self.tree_a.tag_configure(
+                "orange", foreground="orange", font=tree_font_tuple
+            )
+            self.tree_a.tag_configure("blue", foreground="blue", font=tree_font_tuple)
+            self.tree_a.tag_configure("red", foreground="red", font=tree_font_tuple)
+            self.tree_a.tag_configure(
+                "magenta", foreground="magenta", font=tree_font_tuple
+            )
+            self.tree_a.tag_configure("black", foreground="black", font=tree_font_tuple)
+            self.tree_a.tag_configure("sync_col_font", font=self.sync_font)
+
+        if self.tree_b:
+            self.tree_b.tag_configure("green", foreground="green", font=tree_font_tuple)
+            self.tree_b.tag_configure(
+                "orange", foreground="orange", font=tree_font_tuple
+            )
+            self.tree_b.tag_configure("blue", foreground="blue", font=tree_font_tuple)
+            self.tree_b.tag_configure("red", foreground="red", font=tree_font_tuple)
+            self.tree_b.tag_configure(
+                "magenta", foreground="magenta", font=tree_font_tuple
+            )
+            self.tree_b.tag_configure("black", foreground="black", font=tree_font_tuple)
+            self.tree_b.tag_configure("sync_col_font", font=self.sync_font)
+
+        # Update sync font
+        sync_font_family, sync_font_size = self._get_mono_font()
+        sync_font_size = self.options["font_size"] + 2
+        self.sync_font = tkfont.Font(family=sync_font_family, size=sync_font_size)
 
     def _create_filter_tree(self, parent: tk.Toplevel) -> tuple:
         """Create tree view for filter dialog.
