@@ -80,9 +80,9 @@ class TestGCompare:
         cprint(f"\n--- {self.test_load_file_a.__doc__}", "yellow")
 
         app, root, files = app_components
-        app._load_file_a(files["a"])
+        app.load_file_a(files["a"])
         root.update()  # Process events
-        content = app.file_view_a.get("1.0", tk.END)
+        content = app.text_view_a.get("1.0", tk.END)
         assert content.strip() == "line 1\nline 2\nline 3"
         # Updated to match actual status format
         status_text = app.status_a.get()
@@ -95,9 +95,9 @@ class TestGCompare:
         cprint(f"\n--- {self.test_load_file_b.__doc__}", "yellow")
 
         app, root, files = app_components
-        app._load_file_b(files["b"])
+        app.load_file_b(files["b"])
         root.update()
-        content = app.file_view_b.get("1.0", tk.END)
+        content = app.text_view_b.get("1.0", tk.END)
         assert content.strip() == "line 1\nline two\nline 3"
         # Updated to match actual status format
         status_text = app.status_b.get()
@@ -111,8 +111,8 @@ class TestGCompare:
         root.withdraw()
         files = base_test_files
         with (
-            patch.object(GCompare, "_load_file_a") as mock_load_a,
-            patch.object(GCompare, "_load_file_b") as mock_load_b,
+            patch.object(GCompare, "load_file_a") as mock_load_a,
+            patch.object(GCompare, "load_file_b") as mock_load_b,
         ):
             with patch.object(sys, "argv", ["g_compare.py", files["a"]]):
                 GCompare(root)
@@ -127,8 +127,8 @@ class TestGCompare:
         root.withdraw()
         files = base_test_files
         with (
-            patch.object(GCompare, "_load_file_a") as mock_load_a,
-            patch.object(GCompare, "_load_file_b") as mock_load_b,
+            patch.object(GCompare, "load_file_a") as mock_load_a,
+            patch.object(GCompare, "load_file_b") as mock_load_b,
         ):
             with patch.object(sys, "argv", ["g_compare.py", files["a"], files["b"]]):
                 GCompare(root)
@@ -145,31 +145,31 @@ class TestGCompare:
         cprint(f"\n--- {self.test_compare_identical_files.__doc__}", "yellow")
 
         app, root, files = app_components
-        app._load_file_a(files["a"])
-        app._load_file_b(files["c"])
+        app.load_file_a(files["a"])
+        app.load_file_b(files["c"])
         root.update()
 
-        app._compare_files()
+        app.compare_files()
         root.update()
 
         # The actual output shows "File A" for identical files
         # Let's just verify that comparison happened without errors
         # and that no difference tags were applied
-        assert len(app.file_view_a.tag_ranges("difference")) == 0
-        assert len(app.file_view_b.tag_ranges("difference")) == 0
-        assert len(app.file_view_a.tag_ranges("removed")) == 0
-        assert len(app.file_view_b.tag_ranges("added")) == 0
+        assert len(app.text_view_a.tag_ranges("difference")) == 0
+        assert len(app.text_view_b.tag_ranges("difference")) == 0
+        assert len(app.text_view_a.tag_ranges("removed")) == 0
+        assert len(app.text_view_b.tag_ranges("added")) == 0
 
     def test_compare_different_files(self, app_components):
         """Test comparing two different files."""
         cprint(f"\n--- {self.test_compare_different_files.__doc__}", "yellow")
 
         app, root, files = app_components
-        app._load_file_a(files["a"])
-        app._load_file_b(files["b"])
+        app.load_file_a(files["a"])
+        app.load_file_b(files["b"])
         root.update()
 
-        app._compare_files()
+        app.compare_files()
         root.update()
 
         # Updated based on actual output "Removed 1 lines"
@@ -184,14 +184,14 @@ class TestGCompare:
         assert "1" in status_a  # Should show "1" for the count
 
         # Check that 'difference' tags were applied
-        assert len(app.file_view_a.tag_ranges("removed")) > 0
-        assert len(app.file_view_b.tag_ranges("added")) > 0
+        assert len(app.text_view_a.tag_ranges("removed")) > 0
+        assert len(app.text_view_b.tag_ranges("added")) > 0
 
         # Check the correct lines are tagged
-        tagged_a = app.file_view_a.tag_ranges("removed")
+        tagged_a = app.text_view_a.tag_ranges("removed")
         assert str(tagged_a[0]) == "2.0"  # Start of line 2
 
-        tagged_b = app.file_view_b.tag_ranges("added")
+        tagged_b = app.text_view_b.tag_ranges("added")
         assert str(tagged_b[0]) == "2.0"  # Start of line 2
 
     # ==========================================================================
@@ -203,14 +203,14 @@ class TestGCompare:
         cprint(f"\n--- {self.test_dirty_state_on_edit.__doc__}", "yellow")
 
         app, root, files = app_components
-        app._load_file_a(files["a"])
+        app.load_file_a(files["a"])
         root.update()
 
         # Initial state should not be dirty
         assert app.panel_a.cget("text") == "File A"
 
         # Simulate user typing
-        app.file_view_a.insert("1.0", "new text")
+        app.text_view_a.insert("1.0", "new text")
         root.update()
 
         # State should now be dirty
@@ -225,16 +225,16 @@ class TestGCompare:
         cprint(f"\n--- {self.test_save_resets_dirty_state.__doc__}", "yellow")
 
         app, root, files = app_components
-        app._load_file_a(files["a"])
+        app.load_file_a(files["a"])
         root.update()
 
         # Make the file dirty
-        app.file_view_a.insert("1.0", "new text")
+        app.text_view_a.insert("1.0", "new text")
         root.update()
         assert app.panel_a.cget("text") == "File A*"
 
         # Save the file
-        app._save_file_a()
+        app.save_file_a()
         root.update()
 
         # Check that the dirty indicator is gone
