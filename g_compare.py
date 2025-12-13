@@ -438,7 +438,7 @@ class GCompare:
             """Update line numbers when text content changes."""
             self._update_line_numbers(line_numbers, text_area)
             # Also trigger comparison if auto-compare is enabled
-            if self.options["auto_compare"]:
+            if self.options["auto_compare"] and event:
                 self._on_text_modified(event, panel, config["title"])
 
         # Bind text modification events to update line numbers
@@ -925,7 +925,7 @@ class GCompare:
                     self.text_view_a.grid(
                         row=1, column=1, columnspan=3, pady=(10, 0), sticky=tk.NSEW
                     )
-                self._update_line_numbers(self.line_numbers_a, self.text_view_a)
+                    self._update_line_numbers(self.line_numbers_a, self.text_view_a)
             else:
                 self.line_numbers_a.grid_remove()
                 if self.text_view_a:
@@ -940,7 +940,7 @@ class GCompare:
                     self.text_view_b.grid(
                         row=1, column=1, columnspan=3, pady=(10, 0), sticky=tk.NSEW
                     )
-                self._update_line_numbers(self.line_numbers_b, self.text_view_b)
+                    self._update_line_numbers(self.line_numbers_b, self.text_view_b)
             else:
                 self.line_numbers_b.grid_remove()
                 if self.text_view_b:
@@ -1174,7 +1174,7 @@ class GCompare:
                 status_var.set(f"{line_count} lines, {char_count} characters")
 
                 # Update line numbers if enabled
-                if self.options["show_line_numbers"]:
+                if self.options["show_line_numbers"] and text_view:
                     if panel_name == "A" and self.line_numbers_a:
                         self._update_line_numbers(self.line_numbers_a, text_view)
                     elif panel_name == "B" and self.line_numbers_b:
@@ -1492,7 +1492,13 @@ class GCompare:
                 self._update_scroll_marker(float(first), float(last))
 
             # Update line numbers when view changes
-            if self.options["show_line_numbers"]:
+            if (
+                self.options["show_line_numbers"]
+                and self.line_numbers_a
+                and self.line_numbers_b
+                and self.text_view_a
+                and self.text_view_b
+            ):
                 self._update_line_numbers(self.line_numbers_a, self.text_view_a)
                 self._update_line_numbers(self.line_numbers_b, self.text_view_b)
 
