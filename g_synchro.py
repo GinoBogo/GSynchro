@@ -612,15 +612,26 @@ class GSynchro:
         for config in panel_configs:
             self._create_panel(panels_frame, config)
 
-    def _create_panel(self, parent: ttk.PanedWindow, config: dict):
+    def _create_panel(self, parent: ttk.PanedWindow, panel_config: dict):
         """Create an individual folder panel.
 
         Args:
             parent: Parent widget
-            config: Configuration dictionary for the panel
+            panel_config: Configuration dictionary for the panel
         """
+        title = panel_config["title"]
+        folder_var = panel_config["folder_var"]
+        folder_history = panel_config["folder_history"]
+        browse_command = panel_config["browse_command"]
+        host_var = panel_config["host_var"]
+        port_var = panel_config["port_var"]
+        user_var = panel_config["user_var"]
+        pass_var = panel_config["pass_var"]
+        button_color = panel_config["button_color"]
+        tree_attr = panel_config["tree_attr"]
+
         panel_frame = ttk.Frame(parent, padding=0)
-        panel = ttk.LabelFrame(panel_frame, text=config["title"], padding="5")
+        panel = ttk.LabelFrame(panel_frame, text=title, padding="5")
         panel.pack(fill=tk.BOTH, expand=True)
         panel.columnconfigure(0, weight=0)
         panel.columnconfigure(1, weight=1)  # Make path entry expandable
@@ -631,12 +642,13 @@ class GSynchro:
         ttk.Label(panel, text="Host:").grid(
             row=0, column=0, padx=5, pady=5, sticky=tk.E
         )
+
         # Use Combobox for Host so user can select previously saved host tuples
-        panel_name = config["title"].split(" ")[1]
+        panel_name = title.split(" ")[1]
         host_list = self.hosts_a if panel_name == "A" else self.hosts_b
         host_values = [h.get("host", "") for h in host_list]
         host_combobox = ttk.Combobox(
-            panel, textvariable=config["host_var"], values=host_values, width=15
+            panel, textvariable=host_var, values=host_values, width=15
         )
         host_combobox.grid(row=0, column=1, padx=5, pady=5, sticky=tk.EW)
         # When user selects a saved host, autofill port and username
@@ -647,31 +659,29 @@ class GSynchro:
         ttk.Label(panel, text="Port:").grid(
             row=0, column=2, padx=5, pady=5, sticky=tk.E
         )
-        port_entry = ttk.Entry(panel, textvariable=config["port_var"], width=8)
+        port_entry = ttk.Entry(panel, textvariable=port_var, width=8)
         port_entry.grid(row=0, column=3, padx=5, pady=5, sticky=tk.EW)
 
         ttk.Button(
             panel,
             text="Test",
-            command=lambda: self._test_ssh(config["title"]),
+            command=lambda: self._test_ssh(title),
             cursor="hand2",
             width=8,
-            style=f"{config['button_color']}.TButton",
+            style=f"{button_color}.TButton",
         ).grid(row=0, column=4, padx=5, pady=5)
 
         # Username and Password row
         ttk.Label(panel, text="Username:").grid(
             row=1, column=0, padx=5, pady=5, sticky=tk.E
         )
-        user_entry = ttk.Entry(panel, textvariable=config["user_var"], width=15)
+        user_entry = ttk.Entry(panel, textvariable=user_var, width=15)
         user_entry.grid(row=1, column=1, padx=5, pady=5, sticky=tk.EW)
 
         ttk.Label(panel, text="Password:").grid(
             row=1, column=2, padx=5, pady=5, sticky=tk.E
         )
-        pass_entry = ttk.Entry(
-            panel, textvariable=config["pass_var"], show="*", width=15
-        )
+        pass_entry = ttk.Entry(panel, textvariable=pass_var, show="*", width=15)
         pass_entry.grid(row=1, column=3, columnspan=2, padx=5, pady=5, sticky=tk.EW)
 
         # Folder controls
@@ -679,16 +689,13 @@ class GSynchro:
             row=2, column=0, padx=5, pady=5, sticky=tk.E
         )
         path_combobox = ttk.Combobox(
-            panel,
-            textvariable=config["folder_var"],
-            values=config["folder_history"],
-            width=20,
+            panel, textvariable=folder_var, values=folder_history, width=20
         )
         path_combobox.grid(row=2, column=1, columnspan=2, padx=5, pady=5, sticky=tk.EW)
 
         def on_go():
-            panel_name = config["title"].split(" ")[1]
-            folder_path = config["folder_var"].get()
+            panel_name = title.split(" ")[1]
+            folder_path = folder_var.get()
             if folder_path:
                 self._populate_single_panel(panel_name, folder_path)
 
@@ -698,16 +705,16 @@ class GSynchro:
             command=on_go,
             cursor="hand2",
             width=8,
-            style=f"{config['button_color']}.TButton",
+            style=f"{button_color}.TButton",
         ).grid(row=2, column=3, padx=5, pady=5)
 
         ttk.Button(
             panel,
             text="Browse",
-            command=config["browse_command"],
+            command=browse_command,
             cursor="hand2",
             width=8,
-            style=f"{config['button_color']}.TButton",
+            style=f"{button_color}.TButton",
         ).grid(row=2, column=4, padx=5, pady=5)
 
         # Tree view
@@ -729,7 +736,7 @@ class GSynchro:
         tree.bind("<Button-3>", self._on_tree_right_click)
 
         # Store tree reference
-        if config["tree_attr"] == "tree_a":
+        if tree_attr == "tree_a":
             self.tree_a = tree
         else:
             self.tree_b = tree
