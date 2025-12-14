@@ -339,21 +339,31 @@ class GCompare:
         # Create panel B
         self._create_single_panel(parent, panel_b_config)
 
-    def _create_single_panel(self, parent: ttk.Frame, config: Dict):
+    def _create_single_panel(
+        self,
+        parent: ttk.Frame,
+        config: Dict,  # Keep for grid layout, could be refactored further
+    ):
         """Create a single file panel.
 
         Args:
             parent: Parent widget
             config: Dictionary containing panel configuration
         """
-        panel = ttk.LabelFrame(parent, text=config["title"], padding="5")
+        title = config["title"]
+        file_var = config["file_var"]
+        file_history = config["file_history"]
+        open_command = config["open_command"]
+        save_command = config["save_command"]
+        button_color = config["button_color"]
+
+        panel = ttk.LabelFrame(parent, text=title, padding="5")
         panel.grid(
             row=0,
             column=config["column"],
             sticky=tk.NSEW,
             padx=config["padx"],
         )
-
         panel.columnconfigure(0, weight=0)  # For Path label
         panel.columnconfigure(1, weight=1)  # For combobox
         panel.columnconfigure(2, weight=0)  # For Open button
@@ -369,8 +379,8 @@ class GCompare:
         # File path combobox
         path_combobox = ttk.Combobox(
             panel,
-            textvariable=config["file_var"],
-            values=config["file_history"],
+            textvariable=file_var,
+            values=file_history,
         )
         path_combobox.grid(row=0, column=1, padx=5, pady=5, sticky=tk.EW)
 
@@ -378,18 +388,18 @@ class GCompare:
         ttk.Button(
             panel,
             text="Open",
-            command=config["open_command"],
+            command=open_command,
             cursor="hand2",
-            style=f"{config['button_color']}.TButton",
+            style=f"{button_color}.TButton",
         ).grid(row=0, column=2, padx=5, pady=5, sticky=tk.E)
 
         # Save button
         ttk.Button(
             panel,
             text="Save",
-            command=config["save_command"],
+            command=save_command,
             cursor="hand2",
-            style=f"{config['button_color']}.TButton",
+            style=f"{button_color}.TButton",
         ).grid(row=0, column=3, padx=5, pady=5, sticky=tk.E)
 
         # Define font tuple
@@ -439,7 +449,7 @@ class GCompare:
             self._update_line_numbers(line_numbers, text_area)
             # Also trigger comparison if auto-compare is enabled
             if self.options["auto_compare"] and event:
-                self._on_text_modified(event, panel, config["title"])
+                self._on_text_modified(event, panel, title)
 
         # Bind text modification events to update line numbers
         text_area.bind("<<Modified>>", lambda e: on_text_change())
@@ -448,7 +458,7 @@ class GCompare:
         # Also bind the original modified event for panel marking
         text_area.bind(
             "<<Modified>>",
-            lambda e, p=panel, t=config["title"]: self._on_text_modified(e, p, t),
+            lambda e, p=panel, t=title: self._on_text_modified(e, p, t),
         )
 
         # Bind scroll events to update line numbers
@@ -478,7 +488,7 @@ class GCompare:
         line_numbers.bind("<Button-5>", disable_mouse_wheel)
 
         # Store references
-        if config["title"] == "File A":
+        if title == "File A":
             self.text_view_a = text_area
             self.panel_a = panel
             self.v_scrollbar_a = v_scrollbar
