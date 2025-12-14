@@ -218,6 +218,148 @@ class ConnectionManager:
 
 
 # ============================================================================
+# COMPARER CLASS
+# ============================================================================
+
+
+class Comparer:
+    """Handles the logic for comparing file and directory structures."""
+
+    def __init__(self, logger_func, connection_manager, root_widget):
+        """Initialize the Comparer.
+
+        Args:
+            logger_func: A function to call for logging messages.
+            connection_manager: An instance of ConnectionManager.
+            root_widget: The root Tkinter widget for scheduling UI updates.
+        """
+        self.log = logger_func
+        self.connection_manager = connection_manager
+        self.root = root_widget
+
+    def _compare_files(
+        self,
+        file_a: Optional[dict],
+        file_b: Optional[dict],
+        use_ssh_a: bool,
+        use_ssh_b: bool,
+        ssh_client_a: Optional[paramiko.SSHClient],
+        ssh_client_b: Optional[paramiko.SSHClient],
+    ) -> tuple:
+        """Compare two files and return status.
+
+        Args:
+            file_a: File info from Panel A
+            file_b: File info from Panel B
+            use_ssh_a: Whether Panel A uses SSH
+            use_ssh_b: Whether Panel B uses SSH
+            ssh_client_a: The SSH client for panel A
+            ssh_client_b: The SSH client for panel B
+
+        Returns:
+            Tuple of (status_text, color)
+        """
+        if file_a and file_b:
+            is_a_file = file_a.get("type") == "file"
+            is_b_file = file_b.get("type") == "file"
+
+            if is_a_file and not is_b_file:
+                return "Conflict", "black"
+            if not is_a_file and is_b_file:
+                return "Conflict", "black"
+            if file_a.get("size") != file_b.get("size"):
+                return "Different", "orange"
+
+            if (
+                isinstance(file_a, dict)
+                and "size" in file_a
+                and isinstance(file_b, dict)
+                and "size" in file_b
+            ):
+                try:
+                    with (
+                        self._open_file_handle(
+                            file_a, use_ssh_a, ssh_client_a
+                        ) as file_a_handle,
+                        self._open_file_handle(
+                            file_b, use_ssh_b, ssh_client_b
+                        ) as file_b_handle,
+                    ):
+                        if not self._are_chunks_identical(file_a_handle, file_b_handle):
+                            return "Different", "orange"
+
+                    return "Identical", "green"
+
+                except Exception as e:
+                    self.log(f"Error during chunked file comparison: {e}")
+                    return "Different", "orange"
+            else:
+                # Fallback for items that exist in both but aren't comparable as files
+                return "Different", "orange"
+        elif file_a:
+            return "Only in A", "blue"
+        else:
+            return "Only in B", "red"
+
+    @contextmanager
+    def _open_file_handle(
+        self,
+        file_info: dict,
+        use_ssh: bool,
+        ssh_client: Optional[paramiko.SSHClient],
+    ) -> Iterator:
+        """A context manager to open a file handle, local or remote.
+
+        Args:
+            file_info: File information dictionary
+            use_ssh: Whether to use SSH
+            ssh_client: SSH client for remote access
+
+        Yields:
+            File handle object
+
+        Raises:
+            ConnectionError: If SSH client is not connected
+        """
+        if use_ssh:
+            if not ssh_client:
+                raise ConnectionError("SSH client is not connected.")
+            transport = ssh_client.get_transport()
+            if not transport or not transport.is_active():
+                raise ConnectionError("SSH client transport is not active.")
+            sftp = ssh_client.open_sftp()
+            file_handle = sftp.open(file_info["full_path"], "rb")
+            try:
+                yield file_handle
+            finally:
+                file_handle.close()
+                sftp.close()
+        else:
+            with open(file_info["full_path"], "rb") as file_handle:
+                yield file_handle
+
+    def _are_chunks_identical(self, file_a_handle, file_b_handle) -> bool:
+        """Compare two file handles chunk by chunk.
+
+        Args:
+            file_a_handle: First file handle
+            file_b_handle: Second file handle
+
+        Returns:
+            True if files are identical, False otherwise
+        """
+        while True:
+            chunk_a = file_a_handle.read(CHUNK_SIZE)
+            chunk_b = file_b_handle.read(CHUNK_SIZE)
+
+            if chunk_a != chunk_b:
+                return False
+
+            if not chunk_a:  # End of file, and all previous chunks matched
+                return True
+
+
+# ============================================================================
 # MAIN APPLICATION CLASS
 # ============================================================================
 
@@ -239,6 +381,9 @@ class GSynchro:
 
         # Connection Manager
         self.connection_manager = ConnectionManager(self._log, pool_size=4)
+
+        # Comparer instance
+        self.comparer = Comparer(self._log, self.connection_manager, self.root)
         self.remote_host_a = tk.StringVar()
         self.remote_user_a = tk.StringVar()
         self.remote_pass_a = tk.StringVar()
@@ -285,6 +430,9 @@ class GSynchro:
 
         self.status_a = tk.StringVar()
         self.status_b = tk.StringVar()
+
+        # Threading lock for progress bar updates
+        self._progress_lock = threading.Lock()
 
         self._load_config()
         self._init_window()
@@ -1723,58 +1871,66 @@ class GSynchro:
 
     def compare_folders(self):
         """Compare files between panels."""
+        # Prepare UI-related data on the main thread before starting the background thread
+        folder_a_path = self.folder_a.get()
+        folder_b_path = self.folder_b.get()
+
+        if not folder_a_path or not folder_b_path:
+            messagebox.showerror("Error", "Please select both folders to compare")
+            return
 
         def compare_thread():
             self._log("Starting folder comparison...")
 
-            folder_a_path = self.folder_a.get()
-            folder_b_path = self.folder_b.get()
-
-            if not folder_a_path or not folder_b_path:
-                messagebox.showerror("Error", "Please select both folders to compare")
-                return
-
             try:
-                self.root.after(0, self._start_progress, None, 0, "Scanning...")
+                # Start progress bar for scanning
+                self.root.after(0, self._start_progress, None, 0, "Scanning folders...")
 
-                # Rescan both folders to get the latest state
-                with self._create_ssh_for_panel("A", optional=True) as ssh_a:
-                    with self._create_ssh_for_panel("B", optional=True) as ssh_b:
-                        use_ssh_a = ssh_a is not None
-                        use_ssh_b = ssh_b is not None
-                        rules = self._get_active_filters()
+                # Step 1: Scan folders in parallel
+                use_ssh_a = self._has_ssh_a()
+                use_ssh_b = self._has_ssh_b()
+                rules = self._get_active_filters()
 
-                        # Scan folders
-                        self.files_a = self._scan_folder(
-                            folder_a_path, use_ssh_a, ssh_a, "A", rules
-                        )
-                        self.files_b = self._scan_folder(
-                            folder_b_path, use_ssh_b, ssh_b, "B", rules
-                        )
+                with ThreadPoolExecutor(max_workers=2) as executor:
+                    future_a = executor.submit(
+                        self._scan_folder, folder_a_path, use_ssh_a, None, "A", rules
+                    )
+                    future_b = executor.submit(
+                        self._scan_folder, folder_b_path, use_ssh_b, None, "B", rules
+                    )
+                    self.files_a = future_a.result()
+                    self.files_b = future_b.result()
 
-                        # Update UI with new file lists
-                        tree_structure_a = self._build_tree_structure(self.files_a)
-                        tree_structure_b = self._build_tree_structure(self.files_b)
+                # Step 2: Prepare for comparison (still in background thread)
+                total_items = len(set(self.files_a.keys()) | set(self.files_b.keys()))
+                self.root.after(
+                    0, self._start_progress, None, total_items, "Comparing files..."
+                )
 
-                        if self.tree_a:
-                            self._batch_populate_tree(
-                                self.tree_a, tree_structure_a, rules
-                            )
-                        if self.tree_b:
-                            self._batch_populate_tree(
-                                self.tree_b, tree_structure_b, rules
-                            )
+                # Step 3: Run the comparison logic (still in background thread)
+                item_statuses, stats = self._run_comparison_logic(use_ssh_a, use_ssh_b)
 
-                        # Now run the comparison on the fresh data
-                        total_items = len(
-                            set(self.files_a.keys()) | set(self.files_b.keys())
-                        )
-                        self.root.after(
-                            0, self._start_progress, None, total_items, "Comparing..."
-                        )
-                        self._update_trees_with_comparison(
-                            self.files_a, self.files_b, use_ssh_a, use_ssh_b
-                        )
+                # Step 4: Schedule final UI updates on the main thread
+                def final_ui_update():
+                    """This function runs on the main thread to update the UI safely."""
+                    # Populate trees with scanned data
+                    tree_structure_a = self._build_tree_structure(self.files_a)
+                    tree_structure_b = self._build_tree_structure(self.files_b)
+                    if self.tree_a:
+                        self._batch_populate_tree(self.tree_a, tree_structure_a, rules)
+                    if self.tree_b:
+                        self._batch_populate_tree(self.tree_b, tree_structure_b, rules)
+
+                    # Rebuild tree maps AFTER trees are populated with new items
+                    fresh_tree_a_map = self._build_tree_map(self.tree_a)
+                    fresh_tree_b_map = self._build_tree_map(self.tree_b)
+
+                    # Apply comparison results to the UI
+                    self._apply_comparison_to_ui(
+                        item_statuses, stats, fresh_tree_a_map, fresh_tree_b_map
+                    )
+
+                self.root.after(0, final_ui_update)
 
             except Exception as e:
                 self._log(f"Error during comparison: {str(e)}")
@@ -1782,6 +1938,47 @@ class GSynchro:
                 self.root.after(0, self._stop_progress)
 
         threading.Thread(target=compare_thread, daemon=True).start()
+
+    def _run_comparison_logic(self, use_ssh_a: bool, use_ssh_b: bool) -> tuple:
+        """
+        Executes the file comparison logic. This method is designed to be run
+        in a background thread.
+
+        Args:
+            use_ssh_a: Whether Panel A uses SSH.
+            use_ssh_b: Whether Panel B uses SSH.
+
+        Returns:
+            A tuple containing (item_statuses, stats).
+        """
+        all_paths = set(self.files_a.keys()) | set(self.files_b.keys())
+        if use_ssh_a or use_ssh_b:
+            self._log("Parallel comparison (remote)")
+            ssh_config_a = self._get_ssh_config_for_panel("A")
+            ssh_config_b = self._get_ssh_config_for_panel("B")
+            item_statuses, stats = self._calculate_item_statuses_parallel(
+                all_paths,
+                self.files_a,
+                self.files_b,
+                use_ssh_a,
+                use_ssh_b,
+                ssh_config_a,
+                ssh_config_b,
+            )
+        else:
+            self._log("Parallel comparison (local)")
+            item_statuses, stats = self._calculate_item_statuses_parallel(
+                all_paths,
+                self.files_a,
+                self.files_b,
+                False,
+                False,
+                {},
+                {},
+                max_workers=os.cpu_count() or 4,
+            )
+
+        return item_statuses, stats
 
     def _prepare_comparison_data(self) -> tuple:
         """Prepare data structures needed for comparison.
@@ -1795,6 +1992,23 @@ class GSynchro:
         self.sync_states.clear()
         return tree_a_map, tree_b_map, all_visible_paths
 
+    def _get_ssh_config_for_panel(self, panel_name: str) -> dict:
+        """Get SSH configuration for a given panel."""
+        if panel_name == "A":
+            return {
+                "host": self.remote_host_a.get(),
+                "user": self.remote_user_a.get(),
+                "password": self.remote_pass_a.get(),
+                "port": int(self.remote_port_a.get()),
+            }
+        else:
+            return {
+                "host": self.remote_host_b.get(),
+                "user": self.remote_user_b.get(),
+                "password": self.remote_pass_b.get(),
+                "port": int(self.remote_port_b.get()),
+            }
+
     def _calculate_item_statuses_parallel(
         self,
         all_visible_paths: set,
@@ -1802,8 +2016,8 @@ class GSynchro:
         files_b: dict,
         use_ssh_a: bool,
         use_ssh_b: bool,
-        ssh_client_a: Optional[paramiko.SSHClient] = None,
-        ssh_client_b: Optional[paramiko.SSHClient] = None,
+        ssh_config_a: dict,
+        ssh_config_b: dict,
         max_workers: int = 4,
     ) -> tuple:
         """Calculate the status of all files and directories in parallel.
@@ -1814,8 +2028,8 @@ class GSynchro:
             files_b: Files in Panel B
             use_ssh_a: Whether Panel A uses SSH
             use_ssh_b: Whether Panel B uses SSH
-            ssh_client_a: The SSH client for panel A (not used in parallel version)
-            ssh_client_b: The SSH client for panel B (not used in parallel version)
+            ssh_config_a: SSH configuration for panel A
+            ssh_config_b: SSH configuration for panel B
             max_workers: Maximum number of parallel workers
 
         Returns:
@@ -1871,47 +2085,27 @@ class GSynchro:
             if use_ssh_a and use_ssh_b:
                 # Both sides are remote - use two connections
                 with (
-                    self.connection_manager.get_connection(
-                        self.remote_host_a.get(),
-                        self.remote_user_a.get(),
-                        self.remote_pass_a.get(),
-                        int(self.remote_port_a.get()),
-                    ) as ssh_a,
-                    self.connection_manager.get_connection(
-                        self.remote_host_b.get(),
-                        self.remote_user_b.get(),
-                        self.remote_pass_b.get(),
-                        int(self.remote_port_b.get()),
-                    ) as ssh_b,
+                    self.connection_manager.get_connection(**ssh_config_a) as ssh_a,
+                    self.connection_manager.get_connection(**ssh_config_b) as ssh_b,
                 ):
-                    status, status_color = self._compare_files(
+                    status, status_color = self.comparer._compare_files(
                         file_a_info, file_b_info, use_ssh_a, use_ssh_b, ssh_a, ssh_b
                     )
             elif use_ssh_a:
                 # Only Panel A is remote - use one connection
-                with self.connection_manager.get_connection(
-                    self.remote_host_a.get(),
-                    self.remote_user_a.get(),
-                    self.remote_pass_a.get(),
-                    int(self.remote_port_a.get()),
-                ) as ssh_a:
-                    status, status_color = self._compare_files(
+                with self.connection_manager.get_connection(**ssh_config_a) as ssh_a:
+                    status, status_color = self.comparer._compare_files(
                         file_a_info, file_b_info, use_ssh_a, False, ssh_a, None
                     )
             elif use_ssh_b:
                 # Only Panel B is remote - use one connection
-                with self.connection_manager.get_connection(
-                    self.remote_host_b.get(),
-                    self.remote_user_b.get(),
-                    self.remote_pass_b.get(),
-                    int(self.remote_port_b.get()),
-                ) as ssh_b:
-                    status, status_color = self._compare_files(
+                with self.connection_manager.get_connection(**ssh_config_b) as ssh_b:
+                    status, status_color = self.comparer._compare_files(
                         file_a_info, file_b_info, False, use_ssh_b, None, ssh_b
                     )
             else:
                 # Both sides are local - no SSH needed
-                status, status_color = self._compare_files(
+                status, status_color = self.comparer._compare_files(
                     file_a_info, file_b_info, False, False, None, None
                 )
 
@@ -2036,164 +2230,6 @@ class GSynchro:
         self.status_a.set(status_summary)
         self.status_b.set("")
 
-    def _update_trees_with_comparison(
-        self, files_a: dict, files_b: dict, use_ssh_a: bool, use_ssh_b: bool
-    ):
-        """Update tree views with comparison results.
-
-        Args:
-            files_a: Files in Panel A
-            files_b: Files in Panel B
-            use_ssh_a: Whether Panel A uses SSH
-            use_ssh_b: Whether Panel B uses SSH
-        """
-        tree_a_map, tree_b_map, all_visible_paths = self._prepare_comparison_data()
-
-        # Choose comparison method based on SSH usage
-        if use_ssh_a or use_ssh_b:
-            self._log("Parallel comparison (remote)")
-            item_statuses, stats = self._calculate_item_statuses_parallel(
-                all_visible_paths,
-                files_a,
-                files_b,
-                use_ssh_a,
-                use_ssh_b,
-                max_workers=4,
-            )
-        else:
-            self._log("Parallel comparison (local)")
-            item_statuses, stats = self._calculate_item_statuses_parallel(
-                all_visible_paths,
-                files_a,
-                files_b,
-                False,
-                False,
-                max_workers=4,
-            )
-
-        self._apply_comparison_to_ui(item_statuses, stats, tree_a_map, tree_b_map)
-
-    def _compare_files(
-        self,
-        file_a: Optional[dict],
-        file_b: Optional[dict],
-        use_ssh_a: bool,
-        use_ssh_b: bool,
-        ssh_client_a: Optional[paramiko.SSHClient],
-        ssh_client_b: Optional[paramiko.SSHClient],
-    ) -> tuple:
-        """Compare two files and return status.
-
-        Args:
-            file_a: File info from Panel A
-            file_b: File info from Panel B
-            use_ssh_a: Whether Panel A uses SSH
-            use_ssh_b: Whether Panel B uses SSH
-            ssh_client_a: The SSH client for panel A
-            ssh_client_b: The SSH client for panel B
-
-        Returns:
-            Tuple of (status_text, color)
-        """
-        if file_a and file_b:
-            is_a_file = file_a.get("type") == "file"
-            is_b_file = file_b.get("type") == "file"
-
-            if is_a_file and not is_b_file:
-                return "Conflict", "black"
-            if not is_a_file and is_b_file:
-                return "Conflict", "black"
-            if file_a.get("size") != file_b.get("size"):
-                return "Different", "orange"
-
-            if (
-                isinstance(file_a, dict)
-                and "size" in file_a
-                and isinstance(file_b, dict)
-                and "size" in file_b
-            ):
-                try:
-                    with (
-                        self._open_file_handle(
-                            file_a, use_ssh_a, ssh_client_a
-                        ) as file_a_handle,
-                        self._open_file_handle(
-                            file_b, use_ssh_b, ssh_client_b
-                        ) as file_b_handle,
-                    ):
-                        if not self._are_chunks_identical(file_a_handle, file_b_handle):
-                            return "Different", "orange"
-
-                    return "Identical", "green"
-
-                except Exception as e:
-                    self._log(f"Error during chunked file comparison: {e}")
-                    return "Different", "orange"
-            else:
-                # Fallback for items that exist in both but aren't comparable as files
-                return "Different", "orange"
-        elif file_a:
-            return "Only in A", "blue"
-        else:
-            return "Only in B", "red"
-
-    @contextmanager
-    def _open_file_handle(
-        self,
-        file_info: dict,
-        use_ssh: bool,
-        ssh_client: Optional[paramiko.SSHClient],
-    ) -> Iterator:
-        """A context manager to open a file handle, local or remote.
-
-        Args:
-            file_info: File information dictionary
-            use_ssh: Whether to use SSH
-            ssh_client: SSH client for remote access
-
-        Yields:
-            File handle object
-
-        Raises:
-            ConnectionError: If SSH client is not connected
-        """
-        if use_ssh:
-            if not ssh_client:
-                raise ConnectionError("SSH client is not connected.")
-            transport = ssh_client.get_transport()
-            if not transport or not transport.is_active():
-                raise ConnectionError("SSH client transport is not active.")
-            sftp = ssh_client.open_sftp()
-            file_handle = sftp.open(file_info["full_path"], "rb")
-            try:
-                yield file_handle
-            finally:
-                file_handle.close()
-                sftp.close()
-        else:
-            with open(file_info["full_path"], "rb") as file_handle:
-                yield file_handle
-
-    def _are_chunks_identical(self, file_a_handle, file_b_handle) -> bool:
-        """Compare two file handles chunk by chunk.
-
-        Args:
-            file_a_handle: First file handle
-            file_b_handle: Second file handle
-
-        Returns:
-            True if files are identical, False otherwise
-        """
-        while True:
-            chunk_a = file_a_handle.read(CHUNK_SIZE)
-            chunk_b = file_b_handle.read(CHUNK_SIZE)
-
-            if chunk_a != chunk_b:
-                return False
-
-            if not chunk_a:  # End of file, and all previous chunks matched
-                return True
-
     # ==========================================================================
     # SYNCHRONIZATION METHODS
     # ==========================================================================
@@ -2274,18 +2310,11 @@ class GSynchro:
                     )
 
                 # Rescan target folder
-                self._log("Synchronization completed. Refreshing view...")
-                self._rescan_target_panel(
-                    direction,
-                    target_path,
-                    use_ssh_a,
-                    use_ssh_b,
-                )
+                self._log("Synchronization completed. Refreshing comparison...")
 
-                # Trigger UI refresh on the main thread
-                self.root.after(
-                    0, lambda: self._refresh_ui_after_sync(use_ssh_a, use_ssh_b)
-                )
+                # Trigger UI refresh on the main thread After a sync, a full
+                # comparison is the cleanest way to update the UI state.
+                self.root.after(0, self.compare_folders)
 
                 self._log("Synchronization completed")
                 self.status_a.set("Synchronization completed successfully!")
@@ -2300,6 +2329,32 @@ class GSynchro:
                 self.root.after(0, self._stop_progress)
 
         threading.Thread(target=sync_thread, daemon=True).start()
+
+    def _rescan_target_panel(
+        self,
+        direction: str,
+        target_path: str,
+        use_ssh_a: bool,
+        use_ssh_b: bool,
+    ):
+        """Rescan target panel after sync.
+
+        Args:
+            direction: Sync direction
+            target_path: Target folder path
+            use_ssh_a: Whether Panel A uses SSH
+            use_ssh_b: Whether Panel B uses SSH
+        """
+        if direction == "a_to_b":
+            with self._create_ssh_for_panel("B", optional=True) as ssh_b:
+                self._log("Rescanning Panel B...")
+                self.files_b = self._scan_folder(target_path, use_ssh_b, ssh_b, "B")
+                self._update_status("B", self.files_b)
+        else:
+            with self._create_ssh_for_panel("A", optional=True) as ssh_a:
+                self._log("Rescanning Panel A...")
+                self.files_a = self._scan_folder(target_path, use_ssh_a, ssh_a, "A")
+                self._update_status("A", self.files_a)
 
     def _get_files_to_copy(self, source_files_dict: dict) -> list:
         """Get list of files to copy based on sync states.
@@ -2349,73 +2404,22 @@ class GSynchro:
         source_use_ssh: bool,
         target_use_ssh: bool,
     ):
-        """Perform file synchronization.
-
-        Args:
-            files_to_copy: List of files to copy
-            source_files_dict: Dictionary of source files
-            target_path: Target folder path
-            source_ssh: Source SSH client
-            target_ssh: Target SSH client
-            source_use_ssh: Whether source uses SSH
-            target_use_ssh: Whether target uses SSH
-
-        Raises:
-            ConnectionError: If SSH connections are required but not available
-        """
+        """Perform file synchronization."""
         # Determine sync type based on source and target locations
         if source_use_ssh and target_use_ssh:  # Remote to Remote
-            if source_ssh is None or target_ssh is None:
-                raise ConnectionError(
-                    "Both source and target SSH clients must be connected for remote-to-remote sync."
-                )
             self._sync_remote_to_remote(
                 files_to_copy, source_files_dict, target_path, source_ssh, target_ssh
             )
         elif source_use_ssh:  # Remote to Local
-            if source_ssh is None:
-                raise ConnectionError(
-                    "Source SSH client must be connected for remote-to-local sync."
-                )
             self._sync_remote_to_local(
                 files_to_copy, source_files_dict, target_path, source_ssh
             )
         elif target_use_ssh:  # Local to Remote
-            if target_ssh is None:
-                raise ConnectionError(
-                    "Target SSH client must be connected for local-to-remote sync."
-                )
             self._sync_local_to_remote(
                 files_to_copy, source_files_dict, target_path, target_ssh
             )
         else:  # Local to Local
             self._sync_local_to_local(files_to_copy, source_files_dict, target_path)
-
-    def _rescan_target_panel(
-        self,
-        direction: str,
-        target_path: str,
-        use_ssh_a: bool,
-        use_ssh_b: bool,
-    ):
-        """Rescan target panel after sync.
-
-        Args:
-            direction: Sync direction
-            target_path: Target folder path
-            use_ssh_a: Whether Panel A uses SSH
-            use_ssh_b: Whether Panel B uses SSH
-        """
-        if direction == "a_to_b":
-            with self._create_ssh_for_panel("B", optional=True) as ssh_b:
-                self._log("Rescanning Panel B...")
-                self.files_b = self._scan_folder(target_path, use_ssh_b, ssh_b, "B")
-                self._update_status("B", self.files_b)
-        else:
-            with self._create_ssh_for_panel("A", optional=True) as ssh_a:
-                self._log("Rescanning Panel A...")
-                self.files_a = self._scan_folder(target_path, use_ssh_a, ssh_a, "A")
-                self._update_status("A", self.files_a)
 
     def _sync_local_to_local(
         self, files_to_copy: list, source_files_dict: dict, target_path: str
@@ -4152,7 +4156,8 @@ class GSynchro:
         Args:
             step: Step size to increment
         """
-        self.progress_bar.step(step)
+        with self._progress_lock:
+            self.progress_bar.step(step)
 
     def _stop_progress(self):
         """Hide the progress bar."""
@@ -4160,66 +4165,6 @@ class GSynchro:
         self.progress_bar.grid_remove()
         if self.status_label_a:
             self.status_label_a.grid()
-        if self.status_label_b:
-            self.status_label_b.grid()
-
-        # Clear any "syncing..." or "scanning..." messages
-        self._update_status("A", self.files_a)
-        self._update_status("B", self.files_b)
-
-    def _refresh_ui_after_sync(self, use_ssh_a: bool, use_ssh_b: bool):
-        """Refreshes both tree views and runs comparison after sync.
-
-        Args:
-            use_ssh_a: Whether Panel A uses SSH
-            use_ssh_b: Whether Panel B uses SSH
-        """
-        rules = self._get_active_filters()
-
-        # Clear existing trees
-        if self.tree_a:
-            self.root.after(0, lambda: self._batch_populate_tree(self.tree_a, {}))
-        if self.tree_b:
-            self.root.after(0, lambda: self._batch_populate_tree(self.tree_b, {}))
-
-        try:
-            with self._create_ssh_for_panel("A", optional=True) as ssh_a:
-                self.files_a = self._scan_folder(
-                    self.folder_a.get(), use_ssh_a, ssh_a, "A", rules
-                )
-
-            with self._create_ssh_for_panel("B", optional=True) as ssh_b:
-                self.files_b = self._scan_folder(
-                    self.folder_b.get(), use_ssh_b, ssh_b, "B", rules
-                )
-
-            tree_structure_a = self._build_tree_structure(self.files_a)
-            if self.tree_a:
-                self.root.after(
-                    0,
-                    lambda: self._batch_populate_tree(
-                        self.tree_a,
-                        tree_structure_a,
-                        rules,
-                    ),
-                )
-
-            tree_structure_b = self._build_tree_structure(self.files_b)
-            if self.tree_b:
-                self.root.after(
-                    0,
-                    lambda: self._batch_populate_tree(
-                        self.tree_b,
-                        tree_structure_b,
-                        rules,
-                    ),
-                )
-
-            self._update_trees_with_comparison(
-                self.files_a, self.files_b, use_ssh_a, use_ssh_b
-            )
-        finally:
-            pass  # Connections are now managed by the ConnectionManager
 
     # ==========================================================================
     # HELPER METHODS
