@@ -12,11 +12,12 @@ Version: 1.0
 
 from __future__ import annotations
 
+import atexit
 import fnmatch
 import json
 import os
-import stat
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -439,6 +440,9 @@ class GSynchro:
 
         # Bind Escape key to clear selection and focus
         self.root.bind("<Escape>", self._on_escape_key)
+
+        # Ensure temporary files are cleaned up on exit
+        atexit.register(self._cleanup_temp_files)
 
     def _init_window(self):
         """Initialize main window properties."""
