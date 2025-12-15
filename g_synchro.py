@@ -2942,7 +2942,7 @@ class GSynchro:
 
         # Tree view for filters
         tree_frame, filter_tree = self._create_filter_tree(filters_frame)
-        tree_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+        tree_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 0))
 
         # Populate tree
         def populate_tree():
@@ -2955,7 +2955,9 @@ class GSynchro:
                 filter_tree.insert("", "end", iid=i, values=(check_char, item["rule"]))
 
         def _create_rule_input_dialog(
-            title: str, prompt_text: str, initial_value: str = ""
+            title: str,
+            prompt_text: str,
+            initial_value: str = "",  # type: ignore
         ) -> Optional[str]:
             """Create a dialog to get a filter rule from the user."""
             entry_var = tk.StringVar(value=initial_value)
@@ -3040,6 +3042,16 @@ class GSynchro:
                 temp_filters.sort(key=lambda item: item["rule"])
                 populate_tree()
 
+        def select_all_rules():
+            for item in temp_filters:
+                item["active"] = True
+            populate_tree()
+
+        def deselect_all_rules():
+            for item in temp_filters:
+                item["active"] = False
+            populate_tree()
+
         def remove_rules():
             selected_items = filter_tree.selection()
             if selected_items:
@@ -3052,6 +3064,8 @@ class GSynchro:
                 populate_tree()
 
         def toggle_rules():
+            # This function is also bound to double-click, so it needs to handle
+            # both single-item and multi-item selection.
             selected_items = filter_tree.selection()
             if selected_items:
                 for item_id in selected_items:
@@ -3059,28 +3073,42 @@ class GSynchro:
                     temp_filters[index]["active"] = not temp_filters[index].get(
                         "active", True
                     )
-                populate_tree()
+            populate_tree()
 
-        # Filter management buttons
-        filter_button_frame = ttk.Frame(filters_frame)
-        filter_button_frame.pack(fill=tk.X, padx=5)
+        # Create context menu for filter tree
+        filter_context_menu = tk.Menu(filters_frame, tearoff=0)
+        filter_context_menu.add_command(label="Add Rule", command=insert_rule)
+        filter_context_menu.add_command(label="Edit Rule", command=edit_rule)
+        filter_context_menu.add_command(label="Remove Rule", command=remove_rules)
+        filter_context_menu.add_separator()
+        filter_context_menu.add_command(label="Toggle Active", command=toggle_rules)
+        filter_context_menu.add_separator()
+        filter_context_menu.add_command(label="Select All", command=select_all_rules)
+        filter_context_menu.add_command(
+            label="Deselect All", command=deselect_all_rules
+        )
 
-        # Center button container
-        filter_button_center = ttk.Frame(filter_button_frame)
-        filter_button_center.pack(expand=True)
+        def show_filter_context_menu(event: tk.Event):
+            item_id = filter_tree.identify_row(event.y)
+            if item_id:
+                filter_tree.selection_set(item_id)
+                filter_tree.focus(item_id)
+                filter_context_menu.entryconfig("Edit Rule", state="normal")
+                filter_context_menu.entryconfig("Remove Rule", state="normal")
+                filter_context_menu.entryconfig("Toggle Active", state="normal")
+            else:
+                # If clicked on empty space, disable edit/remove/toggle for specific items
+                filter_tree.selection_remove(filter_tree.selection())
+                filter_tree.focus("")
+                filter_context_menu.entryconfig("Edit Rule", state="disabled")
+                filter_context_menu.entryconfig("Remove Rule", state="disabled")
+                filter_context_menu.entryconfig("Toggle Active", state="disabled")
 
-        ttk.Button(
-            filter_button_center, text="Add", command=insert_rule, cursor="hand2"
-        ).pack(side=tk.LEFT, padx=2)
-        ttk.Button(
-            filter_button_center, text="Edit", command=edit_rule, cursor="hand2"
-        ).pack(side=tk.LEFT, padx=2)
-        ttk.Button(
-            filter_button_center, text="Remove", command=remove_rules, cursor="hand2"
-        ).pack(side=tk.LEFT, padx=2)
-        ttk.Button(
-            filter_button_center, text="Toggle", command=toggle_rules, cursor="hand2"
-        ).pack(side=tk.LEFT, padx=2)
+            # Always enable Add, Select All, Deselect All
+            filter_context_menu.entryconfig("Add Rule", state="normal")
+            filter_context_menu.entryconfig("Select All", state="normal")
+            filter_context_menu.entryconfig("Deselect All", state="normal")
+            filter_context_menu.tk_popup(event.x_root, event.y_root)
 
         # Bind double-click to toggle
         filter_tree.bind("<Double-1>", lambda e: toggle_rules())
@@ -3088,6 +3116,7 @@ class GSynchro:
         # Initialize filter tree
         populate_tree()
 
+        filter_tree.bind("<Button-3>", show_filter_context_menu)
         # Font tab
         font_frame = ttk.Frame(notebook, padding="10")
         notebook.add(font_frame, text="Font")
