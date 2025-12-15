@@ -414,7 +414,6 @@ class GSynchro:
         self.options = {
             "font_family": DEFAULT_FONT_FAMILY,
             "font_size": DEFAULT_FONT_SIZE,
-            "auto_compare": True,
         }
 
         # Host histories: lists of dicts {'host','port','username'}
@@ -2934,84 +2933,9 @@ class GSynchro:
         style.configure("TNotebook", tabmargins=[0, 5, 0, 0])
         style.configure("TNotebook.Tab", padding=[60, 5])
 
-        # Font tab
-        font_frame = ttk.Frame(notebook, padding="10")
-        notebook.add(font_frame, text="Font")
-
-        # Font family
-        ttk.Label(font_frame, text="Font Family:").grid(
-            row=0, column=0, sticky=tk.E, padx=(0, 5), pady=5
-        )
-
-        # Get available font families
-        font_families = tkfont.families()
-
-        # Filter to monospace fonts (simplified check)
-        mono_fonts = sorted(
-            set(
-                f
-                for f in font_families
-                if any(
-                    mono in f.lower()
-                    for mono in ["mono", "consolas", "courier", "fixedsys", "terminal"]
-                )
-            )
-        )
-        if not mono_fonts:  # Fallback to all fonts
-            mono_fonts = sorted(set(font_families))
-
-        font_family_var = tk.StringVar(value=self.options["font_family"])
-        font_family_combo = ttk.Combobox(
-            font_frame, textvariable=font_family_var, values=mono_fonts, width=30
-        )
-        font_family_combo.grid(row=0, column=1, sticky=tk.W, padx=(0, 10), pady=5)
-
-        # Tree font size (using main font_size)
-        ttk.Label(font_frame, text="Font Size:").grid(
-            row=1, column=0, sticky=tk.E, padx=(0, 5), pady=5
-        )
-        font_size_var = tk.IntVar(value=self.options["font_size"])
-        font_size_spinbox = tk.Spinbox(
-            font_frame, from_=8, to=20, textvariable=font_size_var, width=5
-        )
-        font_size_spinbox.grid(row=1, column=1, sticky=tk.W, pady=5)
-
-        # Font example
-        ttk.Label(font_frame, text="Example:").grid(
-            row=2, column=0, sticky=tk.E, pady=(10, 5), padx=(0, 5)
-        )
-        font_example_label = ttk.Label(
-            font_frame,
-            text="ABCDEFGHIJKLMNOPQRSTUVWXYZ\nabcdefghijklmnopqrstuvwxyz\n0123456789\n!@#$%^&*()[]{}_+",
-        )
-        font_example_label.grid(
-            row=3, column=0, columnspan=2, sticky=tk.W, pady=(10, 5)
-        )
-
-        def update_font_example(*args):
-            """Update the font example when font family or size changes."""
-            font_family = font_family_var.get()
-            font_size = font_size_var.get()
-            if font_family and font_size:
-                font_example_label.configure(font=(font_family, font_size))
-
-        # Bind font changes to update example
-        font_family_var.trace("w", update_font_example)
-        font_size_var.trace("w", update_font_example)
-
-        # Initialize font example
-        update_font_example()
-
         # Filters tab
         filters_frame = ttk.Frame(notebook, padding="10")
         notebook.add(filters_frame, text="Filters")
-
-        # Auto compare option (moved from Display tab)
-        auto_compare_var = tk.BooleanVar(value=self.options["auto_compare"])
-        auto_compare_check = ttk.Checkbutton(
-            filters_frame, text="Auto Compare on Load", variable=auto_compare_var
-        )
-        auto_compare_check.pack(anchor=tk.W, pady=(0, 10))
 
         # Create a temporary copy to work with
         temp_filters = [dict(item) for item in self.filter_rules]
@@ -3164,6 +3088,60 @@ class GSynchro:
         # Initialize filter tree
         populate_tree()
 
+        # Font tab
+        font_frame = ttk.Frame(notebook, padding="10")
+        notebook.add(font_frame, text="Font")
+
+        # Font family
+        ttk.Label(font_frame, text="Font Family:").grid(
+            row=0, column=0, sticky=tk.E, padx=(0, 5), pady=5
+        )
+
+        # Get available font families
+        font_families = tkfont.families()
+
+        # Filter to monospace fonts (simplified check)
+        mono_fonts = sorted(
+            set(
+                f
+                for f in font_families
+                if any(
+                    mono in f.lower()
+                    for mono in ["mono", "consolas", "courier", "fixedsys", "terminal"]
+                )
+            )
+        )
+        if not mono_fonts:  # Fallback to all fonts
+            mono_fonts = sorted(set(font_families))
+
+        font_family_var = tk.StringVar(value=self.options["font_family"])
+        font_family_combo = ttk.Combobox(
+            font_frame, textvariable=font_family_var, values=mono_fonts, width=30
+        )
+        font_family_combo.grid(row=0, column=1, sticky=tk.W, padx=(0, 10), pady=5)
+
+        # Tree font size (using main font_size)
+        ttk.Label(font_frame, text="Font Size:").grid(
+            row=1, column=0, sticky=tk.E, padx=(0, 5), pady=5
+        )
+        font_size_var = tk.IntVar(value=self.options["font_size"])
+        font_size_spinbox = tk.Spinbox(
+            font_frame, from_=8, to=20, textvariable=font_size_var, width=5
+        )
+        font_size_spinbox.grid(row=1, column=1, sticky=tk.W, pady=5)
+
+        # Font example
+        ttk.Label(font_frame, text="Example:").grid(
+            row=2, column=0, sticky=tk.E, pady=(10, 5), padx=(0, 5)
+        )
+        font_example_label = ttk.Label(
+            font_frame,
+            text="ABCDEFGHIJKLMNOPQRSTUVWXYZ\nabcdefghijklmnopqrstuvwxyz\n0123456789\n!@#$%^&*()[]{}_+",
+        )
+        font_example_label.grid(
+            row=3, column=0, columnspan=2, sticky=tk.W, pady=(10, 5)
+        )
+
         # Button frame
         button_frame = ttk.Frame(main_frame)
         button_frame.pack(fill=tk.X, pady=(10, 0))
@@ -3173,29 +3151,24 @@ class GSynchro:
             # Store old values to check for changes
             old_font_family = self.options["font_family"]
             old_font_size = self.options["font_size"]
-            old_auto_compare = self.options["auto_compare"]
             old_filters = [dict(item) for item in self.filter_rules]
 
             # Get new values from dialog
             new_font_family = font_family_var.get()
             new_font_size = font_size_var.get()
-            new_auto_compare = auto_compare_var.get()
             new_filters = temp_filters
 
             # Determine what has changed
             font_changed = (
                 new_font_family != old_font_family or new_font_size != old_font_size
             )
-            other_options_changed = (
-                new_auto_compare != old_auto_compare or new_filters != old_filters
-            )
+            other_options_changed = new_filters != old_filters
 
             # Update options dictionary with all new values
             self.options.update(
                 {
                     "font_family": new_font_family,
                     "font_size": new_font_size,
-                    "auto_compare": new_auto_compare,
                 }
             )
             self.filter_rules = new_filters
@@ -3214,14 +3187,30 @@ class GSynchro:
                 if self.folder_a.get() and self.folder_b.get():
                     self.compare_folders()
             elif font_changed:
-                self._log("Only font changed, performing lightweight UI refresh.")
-                # The font update is handled by _update_tree_fonts, no further action needed.
+                self._log(
+                    "Only font changed, adjusting column widths for new font size."
+                )
+                self._adjust_tree_column_widths(self.tree_a)
+                self._adjust_tree_column_widths(self.tree_b)
+
+        def update_font_example(*args):
+            """Update the font example when font family or size changes."""
+            font_family = font_family_var.get()
+            font_size = font_size_var.get()
+            if font_family and font_size:
+                font_example_label.configure(font=(font_family, font_size))
+
+        # Bind font changes to update example
+        font_family_var.trace("w", update_font_example)
+        font_size_var.trace("w", update_font_example)
+
+        # Initialize font example
+        update_font_example()
 
         def reset_options():
             """Reset options to default values."""
             font_family_var.set(DEFAULT_FONT_FAMILY)
             font_size_var.set(DEFAULT_FONT_SIZE)
-            auto_compare_var.set(True)
 
         # Buttons - centered
         button_center_frame = ttk.Frame(button_frame)
