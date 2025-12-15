@@ -1331,16 +1331,18 @@ class GSynchro:
                 if path != "/":
                     listbox.insert(tk.END, "..")
 
-                command = (
-                    f"find '{path}' -maxdepth 1 -mindepth 1 -type d -printf '%f\\n'"
-                )
+                # Use a more portable find command without -printf for BusyBox
+                # compatibility
+                command = f"find '{path}' -maxdepth 1 -mindepth 1 -type d"
                 stdin, stdout, stderr = ssh_client.exec_command(command)
                 error = stderr.read().decode().strip()
                 if error:
                     raise Exception(error)
 
                 for line in stdout:
-                    listbox.insert(tk.END, line.strip())
+                    full_dir_path = line.strip()
+                    dir_name = full_dir_path.split("/")[-1]
+                    listbox.insert(tk.END, dir_name)
             except Exception as e:
                 messagebox.showerror("Error", f"Failed to load folders: {str(e)}")
 
