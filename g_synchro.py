@@ -1613,22 +1613,31 @@ class GSynchro:
         if rules is None:
             rules = []
 
-        # Determine the correct stat command format (GNU vs. BSD)
+        # Determine the correct stat command format (GNU, BusyBox, or BSD)
         try:
-            # Try running 'stat --version', which is typical for GNU stat
+            # 1. Check for GNU stat
             stdin, stdout, stderr = ssh_client.exec_command(
                 "stat --version > /dev/null 2>&1"
             )
-            exit_code = stdout.channel.recv_exit_status()
-
-            if exit_code == 0:
-                # GNU stat
+            if stdout.channel.recv_exit_status() == 0:
                 stat_command = "stat -c '%n|%F|%s|%Y'"
+                is_busybox = False
                 self._log("Remote system uses GNU stat.")
             else:
-                # BSD stat (e.g., on macOS, FreeBSD)
-                stat_command = "stat -f '%N|%HT|%z|%m'"
-                self._log("Remote system uses BSD stat.")
+                # 2. Check for BusyBox stat
+                stdin, stdout, stderr = ssh_client.exec_command(
+                    "stat --help 2>&1 | grep -q BusyBox"
+                )
+                if stdout.channel.recv_exit_status() == 0:
+                    # BusyBox stat. We get type separately.
+                    stat_command = "stat -c '%n|%s|%Y'"
+                    is_busybox = True
+                    self._log("Remote system uses BusyBox stat.")
+                else:
+                    # 3. Fallback to BSD stat
+                    stat_command = "stat -f '%N|%HT|%z|%m'"
+                    is_busybox = False
+                    self._log("Remote system uses BSD stat.")
 
             # Construct the full find command
             find_command = f"find '{folder_path}' -mindepth 1 -exec {stat_command} {{}} \\; 2>/dev/null"
@@ -1637,42 +1646,49 @@ class GSynchro:
 
             for line in stdout.readlines():
                 line = line.strip()
-                if line:
-                    try:
+                if not line:
+                    continue
+
+                try:
+                    filepath = ""
+                    if is_busybox:
+                        filepath, size, mtime = line.split("|")
+                        # For BusyBox, we determine type with a separate check
+                        is_dir_stdin, is_dir_stdout, _ = ssh_client.exec_command(
+                            f"if [ -d '{filepath}' ]; then echo 'dir'; fi"
+                        )
+                        filetype = (
+                            "directory"
+                            if is_dir_stdout.read().decode().strip() == "dir"
+                            else "regular file"
+                        )
+                    else:
                         filepath, filetype, size, mtime = line.split("|")
 
-                        if filepath.startswith(folder_path):
-                            rel_path = filepath[len(folder_path) :].lstrip("/")
-                        else:
-                            continue
+                    if not filepath.startswith(folder_path):
+                        continue
 
-                        # Apply filtering logic
-                        is_excluded = False
-                        for pattern in rules:
-                            if fnmatch.fnmatch(rel_path, pattern):
-                                is_excluded = True
-                                break
-                            if any(
-                                fnmatch.fnmatch(part, pattern)
-                                for part in rel_path.split("/")
-                            ):
-                                is_excluded = True
-                                break
+                    rel_path = filepath[len(folder_path) :].lstrip("/")
 
-                        if is_excluded:
-                            continue
+                    # Apply filtering logic (simplified for clarity)
+                    if any(fnmatch.fnmatch(rel_path, r) for r in rules) or any(
+                        fnmatch.fnmatch(part, r)
+                        for r in rules
+                        for part in rel_path.split("/")
+                    ):
+                        continue
 
-                        if "directory" in filetype.lower():
-                            files[rel_path] = {"type": "dir"}
-                        else:
-                            files[rel_path] = {
-                                "size": int(size),
-                                "modified": float(mtime),
-                                "full_path": filepath,
-                                "type": "file",
-                            }
-                    except ValueError:
-                        self._log(f"Warning: Could not parse stat line: '{line}'")
+                    if "directory" in filetype.lower():
+                        files[rel_path] = {"type": "dir", "full_path": filepath}
+                    else:
+                        files[rel_path] = {
+                            "size": int(size),
+                            "modified": float(mtime),
+                            "full_path": filepath,
+                            "type": "file",
+                        }
+                except (ValueError, IndexError):
+                    self._log(f"Warning: Could not parse stat line: '{line}'")
 
         except Exception as e:
             self._log(f"Error scanning remote folder {folder_path}: {str(e)}")
