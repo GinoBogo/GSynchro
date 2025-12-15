@@ -974,6 +974,9 @@ class GSynchro:
             label="Open...", command=self._open_selected_item
         )
         self.tree_context_menu.add_command(
+            label="Open Folder", command=self._open_selected_folder
+        )
+        self.tree_context_menu.add_command(
             label="Compare...", command=self._compare_selected_files
         )
         self.tree_context_menu.add_command(
@@ -3444,8 +3447,12 @@ class GSynchro:
         # Enable/disable menu items based on context
         if item_info and item_info.get("type") == "file":
             self.tree_context_menu.entryconfig("Open...", state="normal")
+            self.tree_context_menu.entryconfig("Open Folder", state="normal")
         else:
             self.tree_context_menu.entryconfig("Open...", state="disabled")
+            self.tree_context_menu.entryconfig(
+                "Open Folder", state="normal" if item_id else "disabled"
+            )
 
         # Show/hide sync options based on the panel and whether an item is
         # selected
@@ -3808,6 +3815,61 @@ class GSynchro:
 
         except Exception as e:
             messagebox.showerror("Error", f"Could not open file: {e}")
+        finally:
+            self._clear_context_menu_state()
+
+    def _open_selected_folder(self):
+        """Open the folder containing the selected item."""
+        tree = self._context_menu_tree
+        item_id = self._context_menu_item_id
+
+        if tree is None or item_id is None:
+            self._log("No item selected for opening folder via context menu.")
+            self._clear_context_menu_state()
+            return
+
+        try:
+            rel_path = self._get_relative_path(tree, item_id)
+            if not rel_path:
+                return
+
+            panel = "A" if tree is self.tree_a else "B"
+            files_dict = self.files_a if panel == "A" else self.files_b
+            item_info = files_dict.get(rel_path)
+
+            if not item_info:
+                return
+
+            # Determine the path to open
+            if item_info.get("type") == "dir":
+                folder_path = item_info.get("full_path")
+            else:
+                folder_path = os.path.dirname(item_info.get("full_path", ""))
+
+            if not folder_path:
+                self._log(f"Could not determine folder path for {rel_path}")
+                return
+
+            self._log(f"Opening folder: {folder_path}")
+            if sys.platform == "win32":
+                os.startfile(folder_path)
+            elif sys.platform == "darwin":  # macOS
+                subprocess.Popen(["open", folder_path])
+            else:  # Linux and other Unix-like systems
+                process = subprocess.Popen(
+                    ["xdg-open", folder_path],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                )
+                stdout, stderr = process.communicate()
+                if process.returncode != 0:
+                    error_message = stderr.decode().strip()
+                    self._log(f"xdg-open error: {error_message}")
+                    messagebox.showwarning(
+                        "Warning", f"Could not open folder: {error_message}"
+                    )
+        except Exception as e:
+            messagebox.showerror("Error", f"Could not open folder: {e}")
         finally:
             self._clear_context_menu_state()
 
