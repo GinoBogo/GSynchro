@@ -12,31 +12,32 @@ Version: 1.0
 
 from __future__ import annotations
 
+# Standard library imports
 import atexit
 import fnmatch
 import json
 import os
+import posixpath
 import shutil
 import stat
 import subprocess
 import sys
 import tempfile
 import threading
-from queue import Queue
-from concurrent.futures import ThreadPoolExecutor, as_completed
-
 import tkinter as tk
 import tkinter.font as tkfont
-from tkinter import filedialog, messagebox, ttk
+import shlex
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
 from datetime import datetime
+from queue import Queue
 from typing import Optional, Iterator, cast, Union
+from tkinter import filedialog, messagebox, ttk
 
+# Third-party imports
 import paramiko
 from scp import SCPClient
-import shlex
-import posixpath
 
 
 # ============================================================================
