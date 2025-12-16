@@ -249,23 +249,27 @@ class GCompare:
 
     def _go_to_next_change(self):
         """Move both text views to the next change location."""
-        if not getattr(self, "_diff_changes", None):
-            messagebox.showinfo("Navigation", "No differences to navigate.")
-            return
-        self._diff_index = (getattr(self, "_diff_index", -1) + 1) % len(
-            self._diff_changes
-        )
-        self._goto_change(self._diff_index)
+        # Next navigation disabled per user request. Button remains visible
+        # but this handler intentionally does nothing.
+        try:
+            messagebox.showinfo(
+                "Navigation Disabled",
+                "Next/Prev navigation is temporarily disabled.",
+            )
+        except Exception:
+            pass
 
     def _go_to_prev_change(self):
         """Move both text views to the previous change location."""
-        if not getattr(self, "_diff_changes", None):
-            messagebox.showinfo("Navigation", "No differences to navigate.")
-            return
-        self._diff_index = (getattr(self, "_diff_index", 0) - 1) % len(
-            self._diff_changes
-        )
-        self._goto_change(self._diff_index)
+        # Prev navigation disabled per user request. Button remains visible
+        # but this handler intentionally does nothing.
+        try:
+            messagebox.showinfo(
+                "Navigation Disabled",
+                "Next/Prev navigation is temporarily disabled.",
+            )
+        except Exception:
+            pass
 
     def _goto_change(self, index: int):
         """Scroll both text views to the change at `index`.
@@ -281,35 +285,76 @@ class GCompare:
             return
 
         change_type, line_num, _ = changes[index]
-        total = getattr(self, "_diff_total_lines", 1)
 
-        # Clamp line_num
+        # Use per-panel lengths for mapping between panels
+        len_a = getattr(self, "_diff_len_a", 0) or 0
+        len_b = getattr(self, "_diff_len_b", 0) or 0
+
+        # Clamp the source line number within the combined total
+        total = getattr(self, "_diff_total_lines", 1)
         line_num = max(1, min(line_num, total))
 
-        # Determine fractions for proportional scrolling
+        # Compute a fraction representing the position in the combined space
         frac = (line_num - 1) / max(1, total)
 
-        # Show/align on File A
-        if self.text_view_a:
-            try:
-                # If the change is in File A (removed), scroll to that exact line.
-                if change_type.startswith("removed"):
-                    self.text_view_a.see(f"{line_num}.0")
-                else:
-                    # For added changes, align proportionally
-                    self.text_view_a.yview_moveto(frac)
-            except Exception:
-                pass
+        # Map to per-panel target lines
+        if change_type.startswith("removed"):
+            target_a = line_num
+            target_b = int(frac * max(1, len_b)) + 1 if len_b > 0 else 1
+        else:
+            target_b = line_num
+            target_a = int(frac * max(1, len_a)) + 1 if len_a > 0 else 1
 
-        # Show/align on File B
-        if self.text_view_b:
-            try:
-                if change_type.startswith("added"):
-                    self.text_view_b.see(f"{line_num}.0")
-                else:
-                    self.text_view_b.yview_moveto(frac)
-            except Exception:
-                pass
+        # Helper to clamp and format a line number for see()
+        def fmt(n, length):
+            n = max(1, min(n, max(1, length)))
+            return f"{n}.0"
+
+        # Suspend nav sync while we programmatically move views to avoid
+        # callbacks overwriting our intended index.
+        self._nav_sync_suspended = True
+        try:
+            if self.text_view_a:
+                try:
+                    if len_a > 0:
+                        frac_a = (target_a - 1) / max(1, len_a)
+                        first_a, last_a = self.text_view_a.yview()
+                        viewport_a = max(0.01, last_a - first_a)
+                        desired_first_a = frac_a - (viewport_a / 2.0)
+                        desired_first_a = max(
+                            0.0, min(desired_first_a, 1.0 - viewport_a)
+                        )
+                        self.text_view_a.yview_moveto(desired_first_a)
+                        self.text_view_a.see(fmt(target_a, len_a))
+                    else:
+                        self.text_view_a.see(fmt(target_a, len_a))
+                except Exception:
+                    try:
+                        self.text_view_a.yview_moveto(frac)
+                    except Exception:
+                        pass
+
+            if self.text_view_b:
+                try:
+                    if len_b > 0:
+                        frac_b = (target_b - 1) / max(1, len_b)
+                        first_b, last_b = self.text_view_b.yview()
+                        viewport_b = max(0.01, last_b - first_b)
+                        desired_first_b = frac_b - (viewport_b / 2.0)
+                        desired_first_b = max(
+                            0.0, min(desired_first_b, 1.0 - viewport_b)
+                        )
+                        self.text_view_b.yview_moveto(desired_first_b)
+                        self.text_view_b.see(fmt(target_b, len_b))
+                    else:
+                        self.text_view_b.see(fmt(target_b, len_b))
+                except Exception:
+                    try:
+                        self.text_view_b.yview_moveto(frac)
+                    except Exception:
+                        pass
+        finally:
+            self._nav_sync_suspended = False
 
     def _create_panels_frame(self, parent: ttk.Frame) -> ttk.Frame:
         """Create panels container.
@@ -1309,6 +1354,14 @@ class GCompare:
         self._diff_total_lines = diff_result.get("total_lines", 0)
         # Reset index when new comparison is run
         self._diff_index = -1
+
+        # Precompute per-change viewport fractions (0..1) for simple navigation.
+        # Using fractions avoids line-mapping edge cases and makes Next/Prev
+        # operate relative to the visible viewport.
+        total = max(1, self._diff_total_lines or 1)
+        self._diff_positions = [
+            max(0.0, min(1.0, (c[1] - 1) / total)) for c in self._diff_changes
+        ]
 
         # Apply visual changes
         self._apply_highlights(diff_result)
