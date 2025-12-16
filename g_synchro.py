@@ -2613,9 +2613,23 @@ class GSynchro:
             with SCPClient(source_transport) as scp_source:
                 with SCPClient(target_transport) as scp_target:
                     self._log(f"Copying remote-to-remote: {rel_path}")
-                    with tempfile.NamedTemporaryFile() as temp_f:
-                        scp_source.get(source_file_path, temp_f.name)
-                        scp_target.put(temp_f.name, target_file_path)
+
+                    # Use a NamedTemporaryFile with delete=False and close it
+                    # before calling external tools (SCP) so the file is
+                    # accessible on platforms like Windows where an open file
+                    # can be locked by the creating process.
+                    temp_f = tempfile.NamedTemporaryFile(delete=False)
+                    temp_name = temp_f.name
+                    try:
+                        temp_f.close()
+                        scp_source.get(source_file_path, temp_name)
+                        scp_target.put(temp_name, target_file_path)
+                    finally:
+                        try:
+                            os.remove(temp_name)
+                        except Exception:
+                            # Best-effort cleanup; log and continue
+                            self._log(f"Warning: could not remove temp file {temp_name}")
 
             self.root.after(0, self._update_progress)
 
