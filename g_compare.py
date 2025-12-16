@@ -225,6 +225,8 @@ class GCompare:
         buttons = [
             ("Compare", self.compare_files, None),
             ("Reload", self.reload_files, None),
+            ("Prev", self._go_to_prev_change, None),
+            ("Next", self._go_to_next_change, None),
             ("Options", self.show_options_dialog, None),
         ]
 
@@ -242,6 +244,70 @@ class GCompare:
             ttk.Button(button_container, **button_kwargs).pack(
                 side=tk.LEFT, padx=5, pady=5
             )
+
+    def _go_to_next_change(self):
+        """Move both text views to the next change location."""
+        if not getattr(self, "_diff_changes", None):
+            messagebox.showinfo("Navigation", "No differences to navigate.")
+            return
+        self._diff_index = (getattr(self, "_diff_index", -1) + 1) % len(
+            self._diff_changes
+        )
+        self._goto_change(self._diff_index)
+
+    def _go_to_prev_change(self):
+        """Move both text views to the previous change location."""
+        if not getattr(self, "_diff_changes", None):
+            messagebox.showinfo("Navigation", "No differences to navigate.")
+            return
+        self._diff_index = (getattr(self, "_diff_index", 0) - 1) % len(
+            self._diff_changes
+        )
+        self._goto_change(self._diff_index)
+
+    def _goto_change(self, index: int):
+        """Scroll both text views to the change at `index`.
+
+        The `changes` list contains tuples of (type, line_num, is_empty).
+        For 'removed' types the line_num refers to File A; for 'added' it
+        refers to File B. We ensure both views show a corresponding position
+        by using `see` for the exact line and `yview_moveto` for proportional
+        alignment of the other view.
+        """
+        changes = self._diff_changes
+        if not changes:
+            return
+
+        change_type, line_num, _ = changes[index]
+        total = getattr(self, "_diff_total_lines", 1)
+
+        # Clamp line_num
+        line_num = max(1, min(line_num, total))
+
+        # Determine fractions for proportional scrolling
+        frac = (line_num - 1) / max(1, total)
+
+        # Show/align on File A
+        if self.text_view_a:
+            try:
+                # If the change is in File A (removed), scroll to that exact line.
+                if change_type.startswith("removed"):
+                    self.text_view_a.see(f"{line_num}.0")
+                else:
+                    # For added changes, align proportionally
+                    self.text_view_a.yview_moveto(frac)
+            except Exception:
+                pass
+
+        # Show/align on File B
+        if self.text_view_b:
+            try:
+                if change_type.startswith("added"):
+                    self.text_view_b.see(f"{line_num}.0")
+                else:
+                    self.text_view_b.yview_moveto(frac)
+            except Exception:
+                pass
 
     def _create_panels_frame(self, parent: ttk.Frame) -> ttk.Frame:
         """Create panels container.
@@ -1236,6 +1302,12 @@ class GCompare:
         # Compute differences
         diff_result = self._compute_diff()
 
+        # Store diff navigation state for Prev/Next buttons
+        self._diff_changes = diff_result.get("changes", [])
+        self._diff_total_lines = diff_result.get("total_lines", 0)
+        # Reset index when new comparison is run
+        self._diff_index = -1
+
         # Apply visual changes
         self._apply_highlights(diff_result)
         self._update_diff_map(diff_result)
@@ -1501,6 +1573,14 @@ class GCompare:
                 first, last = self.text_view_a.yview()
                 self._update_scroll_marker(float(first), float(last))
 
+            # Keep navigation index in sync with manual scrolling
+            try:
+                self._update_nav_index_from_view()
+            except Exception:
+                # Non-fatal: keep UI responsive even if navigation state isn't
+                # available
+                pass
+
             # Update line numbers when view changes
             if (
                 self.options["show_line_numbers"]
@@ -1560,6 +1640,45 @@ class GCompare:
             self.diff_map_canvas.coords(
                 self.scroll_marker_id, 2, y1 + 2, SCROLL_MARKER_WIDTH - 1, y2 - 3
             )
+
+    def _update_nav_index_from_view(self):
+        """Update the stored diff navigation index to match the current view.
+
+        Finds the nearest change at or after the current top-visible line
+        and sets `self._diff_index` so Prev/Next navigation reflects manual
+        scrolling or minimap dragging.
+        """
+        # Require diff state and a text view
+        if not hasattr(self, "_diff_changes") or not self._diff_changes:
+            return
+        if not getattr(self, "text_view_a", None):
+            return
+
+        total_lines = getattr(self, "_diff_total_lines", 0)
+        if total_lines <= 0:
+            return
+
+        first_frac = float(self.text_view_a.yview()[0])
+        # Convert fraction to a 1-based line number estimate
+        current_line = int(first_frac * total_lines) + 1
+
+        # Find the first change at or after current_line
+        chosen_idx = None
+        for i, change in enumerate(self._diff_changes):
+            _, line_num, _ = change
+            if line_num >= current_line:
+                chosen_idx = i
+                break
+
+        if chosen_idx is None:
+            chosen_idx = len(self._diff_changes) - 1
+
+        # Update the index so Prev/Next will operate relative to current view
+        try:
+            self._diff_index = int(chosen_idx)
+        except Exception:
+            # If assignment fails for any reason, leave index unchanged
+            pass
 
     def _on_marker_press(self, event: tk.Event):
         """Handle mouse button press on the scroll marker.
@@ -1622,6 +1741,11 @@ class GCompare:
 
         self._marker_drag_start_y = None  # Reset drag state
         self.diff_map_canvas.config(cursor="")  # Reset cursor to default
+        # After a manual marker move, update the navigation index to match view
+        try:
+            self._update_nav_index_from_view()
+        except Exception:
+            pass
 
     def _on_marker_enter(self, event: tk.Event):
         """Change cursor to a hand when entering the scroll marker.
