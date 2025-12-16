@@ -2258,12 +2258,17 @@ class GSynchro:
             tree_a_map: Panel A tree map
             tree_b_map: Panel B tree map
         """
+        # Process items and apply status only to the panels where they exist.
         for rel_path, (status, status_color) in item_statuses.items():
             self.root.after(0, self._update_progress, 1)
+
+            # Update Panel A if the item exists in its tree
             if rel_path in tree_a_map:
                 self._update_tree_item(
                     self.tree_a, tree_a_map[rel_path], rel_path, status, status_color
                 )
+
+            # Update Panel B if the item exists in its tree
             if rel_path in tree_b_map:
                 self._update_tree_item(
                     self.tree_b, tree_b_map[rel_path], rel_path, status, status_color
