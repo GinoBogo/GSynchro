@@ -35,6 +35,8 @@ from typing import Optional, Iterator, cast, Union
 
 import paramiko
 from scp import SCPClient
+import shlex
+import posixpath
 
 
 # ============================================================================
@@ -50,6 +52,24 @@ MIN_WINDOW_WIDTH = 1024
 MIN_WINDOW_HEIGHT = 768
 DEFAULT_FONT_FAMILY = "Courier New"
 DEFAULT_FONT_SIZE = 11
+
+
+# ---------------------------------------------------------------------------
+# Helper utilities for remote path handling
+# ---------------------------------------------------------------------------
+
+
+def _posix_quote(path: str) -> str:
+    """Return a POSIX-shell-quoted version of `path` for safe exec_command use.
+
+    This uses `shlex.quote` which is suitable for POSIX shells on remote hosts.
+    """
+    return shlex.quote(path)
+
+
+def _posix_join(*parts: str) -> str:
+    """Join path components using POSIX semantics for remote path construction."""
+    return posixpath.join(*parts)
 
 
 # ============================================================================
@@ -1339,8 +1359,8 @@ class GSynchro:
                     listbox.insert(tk.END, "..")
 
                 # Use a more portable find command without -printf for BusyBox
-                # compatibility
-                command = f"find '{path}' -maxdepth 1 -mindepth 1 -type d"
+                # compatibility. Quote the remote path for safety.
+                command = f"find {_posix_quote(path)} -maxdepth 1 -mindepth 1 -type d"
                 stdin, stdout, stderr = ssh_client.exec_command(command)
                 error = stderr.read().decode().strip()
                 if error:
@@ -1646,8 +1666,10 @@ class GSynchro:
                     is_busybox = False
                     self._log("Remote system uses BSD stat.")
 
-            # Construct the full find command
-            find_command = f"find '{folder_path}' -mindepth 1 -exec {stat_command} {{}} \\; 2>/dev/null"
+            # Construct the full find command; quote the remote folder_path
+            # Use a raw f-string so the backslash-semicolon sequence is preserved
+            # without triggering Python's invalid-escape warnings.
+            find_command = rf"find {_posix_quote(folder_path)} -mindepth 1 -exec {stat_command} {{}} \; 2>/dev/null"
 
             stdin, stdout, stderr = ssh_client.exec_command(find_command)
 
@@ -1662,7 +1684,7 @@ class GSynchro:
                         filepath, size, mtime = line.split("|")
                         # For BusyBox, we determine type with a separate check
                         is_dir_stdin, is_dir_stdout, _ = ssh_client.exec_command(
-                            f"if [ -d '{filepath}' ]; then echo 'dir'; fi"
+                            f"if [ -d {_posix_quote(filepath)} ]; then echo 'dir'; fi"
                         )
                         filetype = (
                             "directory"
@@ -2512,17 +2534,17 @@ class GSynchro:
         with SCPClient(transport) as scp:
             for rel_path in files_to_copy:
                 local_file = source_files_dict[rel_path]["full_path"]
-                remote_file = os.path.join(remote_path, rel_path).replace(os.sep, "/")
+                remote_file = _posix_join(remote_path, rel_path)
 
                 # Create remote directory
-                remote_dir = os.path.dirname(remote_file).replace(os.sep, "/")
+                remote_dir = posixpath.dirname(remote_file)
                 try:
                     sftp = ssh_client.open_sftp()
                     sftp.stat(remote_dir)
                 except FileNotFoundError:
                     self._log(f"Creating remote directory: {remote_dir}")
                     stdin, stdout, stderr = ssh_client.exec_command(
-                        f"mkdir -p '{remote_dir}'"
+                        f"mkdir -p {_posix_quote(remote_dir)}"
                     )
                     stderr.read()
 
@@ -2596,11 +2618,11 @@ class GSynchro:
 
         for rel_path in files_to_copy:
             source_file_path = source_files_dict[rel_path]["full_path"]
-            target_file_path = os.path.join(target_path, rel_path).replace(os.sep, "/")
+            target_file_path = _posix_join(target_path, rel_path)
 
             # Create target directory
-            target_dir = os.path.dirname(target_file_path)
-            target_ssh.exec_command(f"mkdir -p '{target_dir}'")
+            target_dir = posixpath.dirname(target_file_path)
+            target_ssh.exec_command(f"mkdir -p {_posix_quote(target_dir)}")
 
             source_transport = source_ssh.get_transport()
             target_transport = target_ssh.get_transport()
@@ -2629,7 +2651,9 @@ class GSynchro:
                             os.remove(temp_name)
                         except Exception:
                             # Best-effort cleanup; log and continue
-                            self._log(f"Warning: could not remove temp file {temp_name}")
+                            self._log(
+                                f"Warning: could not remove temp file {temp_name}"
+                            )
 
             self.root.after(0, self._update_progress)
 
@@ -3937,13 +3961,14 @@ class GSynchro:
                         else:
                             # Fallback: check remote system
                             stdin, stdout, stderr = ssh_client.exec_command(
-                                f"if [ -d '{full_path}' ]; then echo 'dir'; fi"
+                                f"if [ -d {_posix_quote(full_path)} ]; then echo 'dir'; fi"
                             )
                             if stdout.read().decode().strip() == "dir":
                                 is_dir = True
-
                         command = (
-                            f"rm -rf '{full_path}'" if is_dir else f"rm '{full_path}'"
+                            f"rm -rf {_posix_quote(full_path)}"
+                            if is_dir
+                            else f"rm {_posix_quote(full_path)}"
                         )
                         stdin, stdout, stderr = ssh_client.exec_command(command)
                         error = stderr.read().decode()
