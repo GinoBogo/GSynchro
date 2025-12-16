@@ -164,6 +164,106 @@ class TestComparePanels:
         assert actual_statuses.get("conflict") == ("Conflict", "black")
 
 
+class TestUIComparisonDisplay:
+    """Test suite for UI display after comparison."""
+
+    def test_only_in_b_item_not_in_panel_a(self, comparison_test_environment):
+        """Verify that an item 'Only in B' does not appear in Panel A's UI."""
+        cprint(f"\n--- {self.test_only_in_b_item_not_in_panel_a.__doc__}", "yellow")
+        app, panel_a_dir, panel_b_dir = comparison_test_environment
+        root = app.root
+
+        # 1. Scan folders and populate UI trees
+        app.files_a = app._scan_local(str(panel_a_dir))
+        app.files_b = app._scan_local(str(panel_b_dir))
+
+        tree_structure_a = app._build_tree_structure(app.files_a)
+        tree_structure_b = app._build_tree_structure(app.files_b)
+
+        app._batch_populate_tree(app.tree_a, tree_structure_a)
+        app._batch_populate_tree(app.tree_b, tree_structure_b)
+        root.update()
+
+        # 2. Run comparison logic to get statuses
+        all_paths = set(app.files_a.keys()) | set(app.files_b.keys())
+        item_statuses, stats = app._calculate_item_statuses_parallel(
+            all_paths, app.files_a, app.files_b, False, False, {}, {}
+        )
+
+        # 3. Build tree maps and apply results to UI
+        tree_a_map = app._build_tree_map(app.tree_a)
+        tree_b_map = app._build_tree_map(app.tree_b)
+        app._apply_comparison_to_ui(item_statuses, stats, tree_a_map, tree_b_map)
+        root.update()
+
+        # 4. Assertions
+        # Check Panel B for 'only_in_b.txt'
+        item_id_b = tree_b_map.get("only_in_b.txt")
+        assert item_id_b is not None, "'only_in_b.txt' should exist in Panel B map"
+        values_b = app.tree_b.item(item_id_b, "values")
+        status_b = values_b[3]
+        assert status_b == "Only in B", "Status in Panel B should be 'Only in B'"
+
+        # Check Panel A to ensure 'only_in_b.txt' was NOT added
+        item_id_a = tree_a_map.get("only_in_b.txt")
+        assert item_id_a is None, (
+            "Placeholder for 'only_in_b.txt' should NOT exist in Panel A map"
+        )
+
+        # Verify no item with that text was added to tree_a
+        found_in_a = False
+        for item in app.tree_a.get_children():
+            if app.tree_a.item(item, "text") == "only_in_b.txt":
+                found_in_a = True
+                break
+        assert not found_in_a, (
+            "Item 'only_in_b.txt' should not be present in Panel A's tree view"
+        )
+
+    def test_only_in_a_item_not_in_panel_b(self, comparison_test_environment):
+        """Verify that an item 'Only in A' does not appear in Panel B's UI."""
+        cprint(f"\n--- {self.test_only_in_a_item_not_in_panel_b.__doc__}", "yellow")
+        app, panel_a_dir, panel_b_dir = comparison_test_environment
+        root = app.root
+
+        # 1. Scan folders and populate UI trees
+        app.files_a = app._scan_local(str(panel_a_dir))
+        app.files_b = app._scan_local(str(panel_b_dir))
+
+        tree_structure_a = app._build_tree_structure(app.files_a)
+        tree_structure_b = app._build_tree_structure(app.files_b)
+
+        app._batch_populate_tree(app.tree_a, tree_structure_a)
+        app._batch_populate_tree(app.tree_b, tree_structure_b)
+        root.update()
+
+        # 2. Run comparison logic to get statuses
+        all_paths = set(app.files_a.keys()) | set(app.files_b.keys())
+        item_statuses, stats = app._calculate_item_statuses_parallel(
+            all_paths, app.files_a, app.files_b, False, False, {}, {}
+        )
+
+        # 3. Build tree maps and apply results to UI
+        tree_a_map = app._build_tree_map(app.tree_a)
+        tree_b_map = app._build_tree_map(app.tree_b)
+        app._apply_comparison_to_ui(item_statuses, stats, tree_a_map, tree_b_map)
+        root.update()
+
+        # 4. Assertions
+        # Check Panel A for 'only_in_a.txt'
+        item_id_a = tree_a_map.get("only_in_a.txt")
+        assert item_id_a is not None, "'only_in_a.txt' should exist in Panel A map"
+        values_a = app.tree_a.item(item_id_a, "values")
+        status_a = values_a[3]
+        assert status_a == "Only in A", "Status in Panel A should be 'Only in A'"
+
+        # Check Panel B to ensure 'only_in_a.txt' was NOT added
+        item_id_b = tree_b_map.get("only_in_a.txt")
+        assert item_id_b is None, (
+            "Placeholder for 'only_in_a.txt' should NOT exist in Panel B map"
+        )
+
+
 @pytest.fixture
 def filtering_test_environment():
     """Set up test environment for filtering tests."""
