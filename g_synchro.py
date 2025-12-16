@@ -932,19 +932,19 @@ class GSynchro:
 
         # Configure columns
         tree.heading("#0", text="Name")
-        tree.column("#0", width=200, anchor="w")
+        tree.column("#0", width=200, anchor="w", stretch=True)  # Stretch initially
 
         tree.heading("sync", text="Sync")
-        tree.column("sync", width=20, anchor="center")
+        tree.column("sync", width=50, anchor="center", stretch=False)
 
         tree.heading("size", text="Size")
-        tree.column("size", width=80, anchor="e")
+        tree.column("size", width=80, anchor="e", stretch=False)
 
         tree.heading("modified", text="Modified")
-        tree.column("modified", width=120, anchor="center")
+        tree.column("modified", width=120, anchor="center", stretch=False)
 
         tree.heading("status", text="Status")
-        tree.column("status", width=100, anchor="center")
+        tree.column("status", width=100, anchor="center", stretch=False)
 
         # Configure tags for different status colors
         colors = {
@@ -1773,6 +1773,10 @@ class GSynchro:
         if not tree:
             return
 
+        # If populating with data, disable stretching on the Name column to enable horizontal scroll
+        if structure:
+            tree.column("#0", stretch=False)
+
         # Clear existing items
         for item in tree.get_children():
             tree.delete(item)
@@ -1976,6 +1980,12 @@ class GSynchro:
                     self._apply_comparison_to_ui(
                         item_statuses, stats, fresh_tree_a_map, fresh_tree_b_map
                     )
+
+                    # Adjust column widths after applying comparison results
+                    if self.tree_a:
+                        self._adjust_tree_column_widths(self.tree_a)
+                    if self.tree_b:
+                        self._adjust_tree_column_widths(self.tree_b)
 
                 self.root.after(0, final_ui_update)
 
@@ -4220,30 +4230,35 @@ class GSynchro:
             font_size = self.options["font_size"]
             font = tkfont.Font(family=font_family, size=font_size)
 
-            # Adjust data columns
-            columns = list(tree["columns"])
-            columns.insert(0, "#0")  # Add 'Name' column to be processed
-            for col in columns:
-                # Start with the heading width
-                heading_text = tree.heading(col, "text")
-                max_width = font.measure(heading_text)
+            # Create a dictionary to hold the max width for each column
+            col_widths = {
+                col: font.measure(tree.heading(col, "text"))
+                for col in list(tree["columns"]) + ["#0"]
+            }
 
-                def find_max_width(item_id=""):
-                    nonlocal max_width
-                    for child_id in tree.get_children(item_id):
-                        if col == "#0":
-                            cell_value = tree.item(child_id, "text")
-                        else:
-                            cell_value = tree.set(child_id, col)
-                        if isinstance(cell_value, str) and cell_value:
-                            width = font.measure(cell_value)
-                            if width > max_width:
-                                max_width = width
+            def find_max_widths_recursive(item_id=""):
+                """Recursively traverse the tree to find the max width for each column."""
+                for child_id in tree.get_children(item_id):
+                    # Check the 'Name' column (#0)
+                    text = tree.item(child_id, "text")
+                    col_widths["#0"] = max(col_widths["#0"], font.measure(text))
 
-                find_max_width()
+                    # Check other data columns
+                    for col in tree["columns"]:
+                        cell_value = tree.set(child_id, col)
+                        if isinstance(cell_value, str):
+                            col_widths[col] = max(
+                                col_widths[col], font.measure(cell_value)
+                            )
 
-                # Apply the new width with padding
-                tree.column(col, width=max_width + 20, minwidth=40)
+                    # Recurse
+                    find_max_widths_recursive(child_id)
+
+            find_max_widths_recursive()
+
+            # Apply the calculated widths with some padding
+            for col, width in col_widths.items():
+                tree.column(col, width=width + 20, minwidth=40)
 
         except Exception as e:
             self._log(
