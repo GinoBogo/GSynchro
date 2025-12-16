@@ -249,27 +249,31 @@ class GCompare:
 
     def _go_to_next_change(self):
         """Move both text views to the next change location."""
-        # Next navigation disabled per user request. Button remains visible
-        # but this handler intentionally does nothing.
-        try:
-            messagebox.showinfo(
-                "Navigation Disabled",
-                "Next/Prev navigation is temporarily disabled.",
-            )
-        except Exception:
-            pass
+        if not hasattr(self, "_diff_changes") or not self._diff_changes:
+            return
+
+        # If the index is at the end of the list or uninitialized, loop to the start.
+        if self._diff_index >= len(self._diff_changes) - 1:
+            self._diff_index = 0
+        else:
+            # Otherwise, simply increment the index.
+            self._diff_index += 1
+
+        self._goto_change(self._diff_index)
 
     def _go_to_prev_change(self):
         """Move both text views to the previous change location."""
-        # Prev navigation disabled per user request. Button remains visible
-        # but this handler intentionally does nothing.
-        try:
-            messagebox.showinfo(
-                "Navigation Disabled",
-                "Next/Prev navigation is temporarily disabled.",
-            )
-        except Exception:
-            pass
+        if not hasattr(self, "_diff_changes") or not self._diff_changes:
+            return
+
+        # If the index is at the beginning of the list or uninitialized, loop to the end.
+        if self._diff_index <= 0:
+            self._diff_index = len(self._diff_changes) - 1
+        else:
+            # Otherwise, simply decrement the index.
+            self._diff_index -= 1
+
+        self._goto_change(self._diff_index)
 
     def _goto_change(self, index: int):
         """Scroll both text views to the change at `index`.
@@ -308,7 +312,7 @@ class GCompare:
         # Helper to clamp and format a line number for see()
         def fmt(n, length):
             n = max(1, min(n, max(1, length)))
-            return f"{n}.0"
+            return f"{n if n is not None else 1}.0"
 
         # Suspend nav sync while we programmatically move views to avoid
         # callbacks overwriting our intended index.
@@ -328,11 +332,9 @@ class GCompare:
                         self.text_view_a.see(fmt(target_a, len_a))
                     else:
                         self.text_view_a.see(fmt(target_a, len_a))
-                except Exception:
-                    try:
-                        self.text_view_a.yview_moveto(frac)
-                    except Exception:
-                        pass
+                except Exception as _e:
+                    # Ignore errors if the widget is not ready
+                    pass
 
             if self.text_view_b:
                 try:
@@ -348,11 +350,8 @@ class GCompare:
                         self.text_view_b.see(fmt(target_b, len_b))
                     else:
                         self.text_view_b.see(fmt(target_b, len_b))
-                except Exception:
-                    try:
-                        self.text_view_b.yview_moveto(frac)
-                    except Exception:
-                        pass
+                except Exception as _e:
+                    pass
         finally:
             self._nav_sync_suspended = False
 
@@ -1352,6 +1351,8 @@ class GCompare:
         # Store diff navigation state for Prev/Next buttons
         self._diff_changes = diff_result.get("changes", [])
         self._diff_total_lines = diff_result.get("total_lines", 0)
+        self._diff_len_a = len(diff_result.get("lines_a", []))
+        self._diff_len_b = len(diff_result.get("lines_b", []))
         # Reset index when new comparison is run
         self._diff_index = -1
 
@@ -1628,13 +1629,14 @@ class GCompare:
                 first, last = self.text_view_a.yview()
                 self._update_scroll_marker(float(first), float(last))
 
-            # Keep navigation index in sync with manual scrolling
-            try:
-                self._update_nav_index_from_view()
-            except Exception:
-                # Non-fatal: keep UI responsive even if navigation state isn't
-                # available
-                pass
+            # Only update navigation index if not suspended (i.e., manual scroll)
+            if not getattr(self, "_nav_sync_suspended", False):
+                try:
+                    self._update_nav_index_from_view()
+                except Exception:
+                    # Non-fatal: keep UI responsive even if navigation state isn't
+                    # available
+                    pass
 
             # Update line numbers when view changes
             if (
@@ -1713,27 +1715,29 @@ class GCompare:
         if total_lines <= 0:
             return
 
+        if self.text_view_a is None:
+            return
+
         first_frac = float(self.text_view_a.yview()[0])
         # Convert fraction to a 1-based line number estimate
         current_line = int(first_frac * total_lines) + 1
 
-        # Find the first change at or after current_line
+        # Find the index of the change that is closest to the current line
         chosen_idx = None
+        min_distance = float("inf")
+
         for i, change in enumerate(self._diff_changes):
-            _, line_num, _ = change
-            if line_num >= current_line:
+            _, line_num_a, _, _ = change
+            distance = abs(line_num_a - current_line)
+
+            if distance < min_distance:
+                min_distance = distance
                 chosen_idx = i
-                break
 
-        if chosen_idx is None:
-            chosen_idx = len(self._diff_changes) - 1
-
-        # Update the index so Prev/Next will operate relative to current view
-        try:
-            self._diff_index = int(chosen_idx)
-        except Exception:
-            # If assignment fails for any reason, leave index unchanged
-            pass
+        # If a closest change was found, update the index.
+        # This prevents Prev/Next from being reset by a manual scroll.
+        if chosen_idx is not None:
+            self._diff_index = chosen_idx
 
     def _on_marker_press(self, event: tk.Event):
         """Handle mouse button press on the scroll marker.
