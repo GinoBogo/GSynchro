@@ -18,10 +18,12 @@ import json
 import os
 import sys
 import tempfile
+
 import tkinter as tk
 import tkinter.font as tkfont
-from tkinter import ttk, filedialog, messagebox
-from typing import Dict, List, Tuple, Optional, cast
+from tkinter import filedialog, messagebox, ttk
+
+from typing import Dict, List, Optional, Tuple, cast
 
 
 # ============================================================================
