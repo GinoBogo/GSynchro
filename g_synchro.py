@@ -906,6 +906,7 @@ class GSynchro:
         # Bind events
         tree.bind("<Button-1>", self._on_tree_click)
         tree.bind("<Button-3>", self._on_tree_right_click)
+        tree.bind("<Double-1>", self._on_tree_header_double_click)
 
         # Store tree reference
         if tree_attr == "tree_a":
@@ -3559,6 +3560,60 @@ class GSynchro:
             self.tree_context_menu.entryconfig("Compare...", state="normal")
         else:
             self.tree_context_menu.entryconfig("Compare...", state="disabled")
+
+    def _on_tree_header_double_click(self, event: tk.Event):
+        """Handle double-click on a treeview header to resize the column."""
+        widget = event.widget
+        if not isinstance(widget, ttk.Treeview):
+            return
+        tree = cast(ttk.Treeview, widget)
+
+        region = tree.identify("region", event.x, event.y)
+        if region != "heading":
+            return
+
+        column_id = tree.identify_column(event.x)
+        if column_id:
+            self._log(f"Adjusting width for column {column_id}")
+            self._adjust_single_column_width(tree, column_id)
+
+    def _adjust_single_column_width(self, tree: ttk.Treeview, column_id: str):
+        """Adjust the width of a single column to fit its content.
+
+        Args:
+            tree: The treeview widget.
+            column_id: The identifier of the column to resize (e.g., '#0', 'size').
+        """
+        if not tree:
+            return
+
+        try:
+            font_family = self.options["font_family"]
+            font_size = self.options["font_size"]
+            font = tkfont.Font(family=font_family, size=font_size)
+
+            # Start with the width of the header text
+            max_width = font.measure(tree.heading(column_id, "text"))
+
+            def find_max_width_recursive(item_id=""):
+                """Recursively find the maximum content width in the column."""
+                nonlocal max_width
+                for child_id in tree.get_children(item_id):
+                    if column_id == "#0":  # The 'Name' column
+                        cell_value = tree.item(child_id, "text")
+                    else:
+                        cell_value = tree.set(child_id, column_id)
+
+                    if isinstance(cell_value, str):
+                        max_width = max(max_width, font.measure(cell_value))
+
+                    find_max_width_recursive(child_id)
+
+            find_max_width_recursive()
+
+            tree.column(column_id, width=max_width + 20)
+        except Exception as e:
+            self._log(f"Could not adjust column width for {column_id}: {e}")
 
     # ==========================================================================
     # CONTEXT MENU ACTIONS
