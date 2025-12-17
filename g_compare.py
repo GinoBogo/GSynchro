@@ -178,6 +178,34 @@ class GCompare:
             background=[("active", "#ADD8E6"), ("pressed", "#87CEFA")],
         )
 
+        # Light gray button style
+        style.configure(
+            "lightgray.TButton",
+            background="#F8F9FA",
+            foreground="#495057",
+            borderwidth=1,
+            focuscolor="none",
+            relief="raised",
+        )
+        style.map(
+            "lightgray.TButton",
+            background=[("active", "#E9ECEF"), ("pressed", "#DEE2E6")],
+        )
+
+        # Primary blue button style
+        style.configure(
+            "primaryblue.TButton",
+            background="#007BFF",
+            foreground="white",
+            borderwidth=1,
+            focuscolor="none",
+            relief="raised",
+        )
+        style.map(
+            "primaryblue.TButton",
+            background=[("active", "#0056B3"), ("pressed", "#004085")],
+        )
+
         # Configure monospace font with current options
         self._update_font_style()
 
@@ -227,8 +255,8 @@ class GCompare:
         buttons = [
             ("Compare", self.compare_files, None),
             ("Reload", self.reload_files, None),
-            ("Prev", self._go_to_prev_change, None),
-            ("Next", self._go_to_next_change, None),
+            ("Prev ▲", self._go_to_prev_change, "lightgray"),
+            ("Next ▼", self._go_to_next_change, "primaryblue"),
             ("Options", self.show_options_dialog, None),
         ]
 
