@@ -1960,7 +1960,9 @@ class GSynchro:
                 )
 
                 # Step 3: Run the comparison logic (still in background thread)
-                item_statuses, stats = self._run_comparison_logic(use_ssh_a, use_ssh_b)
+                item_statuses, stats = self._run_comparison_logic(
+                    use_ssh_a, use_ssh_b, self.files_a, self.files_b
+                )
 
                 # Step 4: Schedule final UI updates on the main thread
                 def final_ui_update():
@@ -1997,7 +1999,9 @@ class GSynchro:
 
         threading.Thread(target=compare_thread, daemon=True).start()
 
-    def _run_comparison_logic(self, use_ssh_a: bool, use_ssh_b: bool) -> tuple:
+    def _run_comparison_logic(
+        self, use_ssh_a: bool, use_ssh_b: bool, files_a: dict, files_b: dict
+    ) -> tuple:
         """
         Executes the file comparison logic. This method is designed to be run
         in a background thread.
@@ -2005,38 +2009,65 @@ class GSynchro:
         Args:
             use_ssh_a: Whether Panel A uses SSH.
             use_ssh_b: Whether Panel B uses SSH.
+            files_a: The file dictionary for panel A.
+            files_b: The file dictionary for panel B.
 
         Returns:
             A tuple containing (item_statuses, stats).
         """
-        all_paths = set(self.files_a.keys()) | set(self.files_b.keys())
+        all_paths = set(files_a.keys()) | set(files_b.keys())
         if use_ssh_a or use_ssh_b:
             self._log("Parallel comparison (remote)")
             ssh_config_a = self._get_ssh_config_for_panel("A")
             ssh_config_b = self._get_ssh_config_for_panel("B")
-            item_statuses, stats = self._calculate_item_statuses_parallel(
-                all_paths,
-                self.files_a,
-                self.files_b,
-                use_ssh_a,
-                use_ssh_b,
-                ssh_config_a,
-                ssh_config_b,
+            item_statuses, stats, dirty_folders = (
+                self._calculate_item_statuses_parallel(
+                    all_paths,
+                    self.files_a,
+                    self.files_b,
+                    use_ssh_a,
+                    use_ssh_b,
+                    ssh_config_a,
+                    ssh_config_b,
+                )
             )
         else:
             self._log("Parallel comparison (local)")
-            item_statuses, stats = self._calculate_item_statuses_parallel(
-                all_paths,
-                self.files_a,
-                self.files_b,
-                False,
-                False,
-                {},
-                {},
-                max_workers=os.cpu_count() or 4,
+            item_statuses, stats, dirty_folders = (
+                self._calculate_item_statuses_parallel(
+                    all_paths,
+                    self.files_a,
+                    self.files_b,
+                    False,
+                    False,
+                    {},
+                    {},
+                    max_workers=os.cpu_count() or 4,
+                )
             )
 
+        # Propagate the dirty status up the hierarchy
+        self._propagate_dirty_folders(item_statuses, dirty_folders)
+
         return item_statuses, stats
+
+    def _propagate_dirty_folders(self, item_statuses: dict, dirty_folders: set):
+        """
+        Recursively mark all parent directories of dirty folders as "Different".
+
+        Args:
+            item_statuses: The dictionary of item statuses to update.
+            dirty_folders: The set of folders initially marked as dirty.
+        """
+        all_dirty_parents = set()
+        for path in dirty_folders:
+            current_path = path
+            while current_path and current_path != ".":
+                all_dirty_parents.add(current_path)
+                parent = os.path.dirname(current_path)
+                current_path = parent
+        for path in all_dirty_parents:
+            item_statuses[path] = ("Different", "magenta")
 
     def _prepare_comparison_data(self) -> tuple:
         """Prepare data structures needed for comparison.
@@ -2078,7 +2109,7 @@ class GSynchro:
         ssh_config_b: dict,
         max_workers: int = 4,
     ) -> tuple:
-        """Calculate the status of all files and directories in parallel.
+        """Calculate the status of all files and dirs in parallel.
 
         Args:
             all_visible_paths: Set of all visible paths
@@ -2091,7 +2122,7 @@ class GSynchro:
             max_workers: Maximum number of parallel workers
 
         Returns:
-            Tuple of (item_statuses, stats)
+            Tuple of (item_statuses, stats, dirty_folders)
         """
         import time
 
@@ -2115,13 +2146,23 @@ class GSynchro:
         for rel_path in all_visible_paths:
             file_a_info = files_a.get(rel_path)
             file_b_info = files_b.get(rel_path)
-            is_file = (file_a_info and file_a_info.get("type") == "file") or (
-                file_b_info and file_b_info.get("type") == "file"
-            )
 
-            if is_file:
+            is_file_a = file_a_info and file_a_info.get("type") == "file"
+            is_dir_a = file_a_info and file_a_info.get("type") == "dir"
+            is_file_b = file_b_info and file_b_info.get("type") == "file"
+            is_dir_b = file_b_info and file_b_info.get("type") == "dir"
+
+            # Handle file vs. directory conflicts
+            if (is_file_a and is_dir_b) or (is_dir_a and is_file_b):
+                item_statuses[rel_path] = ("Conflict", "black")
+                stats["conflicts"] += 1
+                self.sync_states[rel_path] = True
+                dirty_folders.add(os.path.dirname(rel_path))
+            # If it's a file on at least one side (and not a conflict)
+            elif is_file_a or is_file_b:
                 file_paths.append(rel_path)
             else:
+                # It's a directory on both sides, or only on one (and not a conflict)
                 dir_paths.append(rel_path)
 
         self._log(f"Processing {len(file_paths)} files, {len(dir_paths)} dirs")
@@ -2189,20 +2230,17 @@ class GSynchro:
                 else:
                     if status == "Different":
                         stats["different"] += 1
-                        dirty_folders.add(
-                            os.path.dirname(rel_path)
-                        )  # Add parent folder
+                        dirty_folders.add(os.path.dirname(rel_path))
                     elif status == "Conflict":
                         stats["conflicts"] += 1
-                        dirty_folders.add(
-                            os.path.dirname(rel_path)
-                        )  # Add parent folder
+                        dirty_folders.add(os.path.dirname(rel_path))
                     elif status == "Only in A":
                         stats["only_a"] += 1
                         dirty_folders.add(os.path.dirname(rel_path))
                     elif status == "Only in B":
                         stats["only_b"] += 1
                         dirty_folders.add(os.path.dirname(rel_path))
+
                     self.sync_states[rel_path] = True
 
                 # Update progress
@@ -2226,20 +2264,6 @@ class GSynchro:
                 self.sync_states[rel_path] = True
                 dirty_folders.add(os.path.dirname(rel_path))
 
-        # Process shared directories
-        for rel_path in sorted(dirty_folders):
-            if (
-                files_a.get(rel_path, {}).get("type") == "dir"
-                and files_b.get(rel_path, {}).get("type") == "dir"
-            ):
-                if rel_path in dirty_folders:
-                    status, status_color = "Different", "magenta"
-                    self.sync_states[rel_path] = True
-                else:
-                    status, status_color = "Identical", "green"
-                    self.sync_states[rel_path] = False
-                item_statuses[rel_path] = (status, status_color)
-
         # Mark remaining shared directories as identical
         for rel_path in sorted(all_visible_paths):
             is_dir_in_both = (
@@ -2252,7 +2276,7 @@ class GSynchro:
         elapsed_time = time.time() - start_time
         self._log(f"Parallel comparison done: {elapsed_time:.2f}s")
 
-        return item_statuses, stats
+        return item_statuses, stats, dirty_folders
 
     def _apply_comparison_to_ui(
         self,
