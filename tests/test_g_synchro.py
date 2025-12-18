@@ -174,6 +174,96 @@ class TestComparePanels:
         assert actual_statuses.get("conflict") == ("Conflict", "black")
 
 
+class TestSync:
+    """Test suite for synchronization functionality."""
+
+    def test_sync_conflict_resolution(self, comparison_test_environment):
+        """Test that syncing a file over a conflicting directory resolves the conflict."""
+        cprint(f"\n--- {self.test_sync_conflict_resolution.__doc__}", "yellow")
+        app, panel_a_dir, panel_b_dir = comparison_test_environment
+
+        # Run comparison to set up sync states
+        _run_comparison(app, panel_a_dir, panel_b_dir)
+
+        # The conflict is: directory in A, file in B
+        # Syncing A to B should replace the file in B with the directory from A
+        # But since sync only copies files, and "conflict" is the directory in A, but wait
+
+        # Actually, the conflict is "conflict": dir in A, file in B
+        # But sync_states for "conflict" is True, but since it's a dir, _get_files_to_copy doesn't include it
+        # So no files are synced for "conflict"
+
+        # To test, I need a file in one panel and dir in the other with the same name as a file.
+
+        # The fixture has (panel_a_dir / "conflict").mkdir()  # dir in A
+        # (panel_b_dir / "conflict").write_text("I am a file")  # file in B
+
+        # But to sync a file over the dir, I need a file in A with the same name as the dir in B.
+
+        # The fixture doesn't have that. The "conflict" is dir in A, file in B.
+
+        # To test syncing a file over a dir, I need to create a file in A named "conflict", but then it's not a dir.
+
+        # Perhaps modify the fixture for this test.
+
+        # Let's create a file in A and dir in B with the same name.
+
+        # For this test, let's create a specific setup.
+
+        # Add to the fixture or create a new one.
+
+        # For simplicity, let's modify the test to create the conflict.
+
+        # In the test, before running comparison, create a file in A and dir in B.
+
+        # But the fixture already has the conflict as dir in A, file in B.
+
+        # To test file over dir, I need file in A, dir in B.
+
+        # So, let's change the fixture for this test.
+
+        # But since it's a fixture, perhaps create a new fixture or modify in the test.
+
+        # Let's remove the existing conflict and create a new one.
+
+        # In the test:
+
+        # Remove the existing conflict
+        if (panel_a_dir / "conflict").exists():
+            shutil.rmtree(panel_a_dir / "conflict")
+        if (panel_b_dir / "conflict").exists():
+            if (panel_b_dir / "conflict").is_file():
+                (panel_b_dir / "conflict").unlink()
+            else:
+                shutil.rmtree(panel_b_dir / "conflict")
+
+        # Create file in A, dir in B
+        (panel_a_dir / "conflict").write_text("File from A")
+        (panel_b_dir / "conflict").mkdir()
+
+        # Now run comparison
+        actual_statuses = _run_comparison(app, panel_a_dir, panel_b_dir)
+        assert actual_statuses.get("conflict") == ("Conflict", "black")
+
+        # Now sync A to B
+        # Since it's threaded, perhaps call the sync method directly.
+
+        # To test, I can call app._sync_local_to_local directly.
+
+        # Get files_to_copy
+        files_to_copy = app._get_files_to_copy(app.files_a)
+        assert "conflict" in files_to_copy  # since it's a file in A
+
+        # Call _sync_local_to_local
+        app._sync_local_to_local(files_to_copy, app.files_a, str(panel_b_dir), app.files_b)
+
+        # Check that the dir in B is replaced by the file from A
+        assert (panel_b_dir / "conflict").is_file()
+        assert (panel_b_dir / "conflict").read_text() == "File from A"
+
+
+
+
 class TestUIComparisonDisplay:
     """Test suite for UI display after comparison."""
 

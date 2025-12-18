@@ -2387,6 +2387,9 @@ class GSynchro:
 
                 # Get files to copy.
                 files_to_copy = self._get_files_to_copy(source_files_dict)
+                target_files_dict = (
+                    self.files_b if direction == "a_to_b" else self.files_a
+                )
 
                 if not files_to_copy:
                     self._log("No files selected for synchronization.")
@@ -2427,6 +2430,7 @@ class GSynchro:
                         ssh_tgt,
                         source_use_ssh,
                         target_use_ssh,
+                        target_files_dict,
                     )
 
                 # Rescan target folder.
@@ -2524,27 +2528,47 @@ class GSynchro:
         target_ssh: Optional[paramiko.SSHClient],
         source_use_ssh: bool,
         target_use_ssh: bool,
+        target_files_dict: dict,
     ):
         """Perform file synchronization."""
         # Determine sync type based on source and target locations.
 
         if source_use_ssh and target_use_ssh:  # Remote to Remote.
             self._sync_remote_to_remote(
-                files_to_copy, source_files_dict, target_path, source_ssh, target_ssh
+                files_to_copy,
+                source_files_dict,
+                target_path,
+                source_ssh,
+                target_ssh,
+                target_files_dict,
             )
         elif source_use_ssh:  # Remote to Local.
             self._sync_remote_to_local(
-                files_to_copy, source_files_dict, target_path, source_ssh
+                files_to_copy,
+                source_files_dict,
+                target_path,
+                source_ssh,
+                target_files_dict,
             )
         elif target_use_ssh:  # Local to Remote.
             self._sync_local_to_remote(
-                files_to_copy, source_files_dict, target_path, target_ssh
+                files_to_copy,
+                source_files_dict,
+                target_path,
+                target_ssh,
+                target_files_dict,
             )
         else:  # Local to Local.
-            self._sync_local_to_local(files_to_copy, source_files_dict, target_path)
+            self._sync_local_to_local(
+                files_to_copy, source_files_dict, target_path, target_files_dict
+            )
 
     def _sync_local_to_local(
-        self, files_to_copy: list, source_files_dict: dict, target_path: str
+        self,
+        files_to_copy: list,
+        source_files_dict: dict,
+        target_path: str,
+        target_files_dict: dict,
     ):
         """Sync between local folders.
 
@@ -2575,6 +2599,11 @@ class GSynchro:
                 else:
                     raise NotImplementedError(f"Unsupported OS: {os.name}")
 
+            # Resolve conflicts by deleting target if it's a directory.
+            target_item = target_files_dict.get(rel_path)
+            if target_item and target_item.get("type") == "dir":
+                shutil.rmtree(target_file)
+
             self._log(f"Copying: {rel_path}")
             try:
                 shutil.copy2(source_file, target_file)
@@ -2589,6 +2618,7 @@ class GSynchro:
         source_files_dict: dict,
         remote_path: str,
         ssh_client: Optional[paramiko.SSHClient],
+        target_files_dict: dict,
     ):
         """Sync local to remote using SCP.
 
@@ -2624,6 +2654,14 @@ class GSynchro:
                     )
                     stderr.read()
 
+                # Resolve conflicts by deleting target if it's a directory.
+                target_item = target_files_dict.get(rel_path)
+                if target_item and target_item.get("type") == "dir":
+                    stdin, stdout, stderr = ssh_client.exec_command(
+                        f"rm -rf {_posix_quote(remote_file)}"
+                    )
+                    stderr.read()
+
                 scp.put(local_file, remote_file)
                 self.root.after(0, self._update_progress)
 
@@ -2633,6 +2671,7 @@ class GSynchro:
         source_files_dict: dict,
         local_path: str,
         ssh_client: Optional[paramiko.SSHClient],
+        target_files_dict: dict,
     ):
         """Sync remote to local using SCP.
 
@@ -2664,6 +2703,11 @@ class GSynchro:
                 local_dir = os.path.dirname(local_file)
                 os.makedirs(local_dir, exist_ok=True)
 
+                # Resolve conflicts by deleting target if it's a directory.
+                target_item = target_files_dict.get(rel_path)
+                if target_item and target_item.get("type") == "dir":
+                    shutil.rmtree(local_file)
+
                 self._log(f"Downloading: {rel_path}")
                 scp.get(remote_file, local_file)
                 self.root.after(0, self._update_progress)
@@ -2675,6 +2719,7 @@ class GSynchro:
         target_path: str,
         source_ssh: Optional[paramiko.SSHClient],
         target_ssh: Optional[paramiko.SSHClient],
+        target_files_dict: dict,
     ):
         """Sync between remote folders.
 
@@ -2721,6 +2766,14 @@ class GSynchro:
                     try:
                         temp_f.close()
                         scp_source.get(source_file_path, temp_name)
+
+                        # Resolve conflicts by deleting target if it's a directory.
+                        target_item = target_files_dict.get(rel_path)
+                        if target_item and target_item.get("type") == "dir":
+                            target_ssh.exec_command(
+                                f"rm -rf {_posix_quote(target_file_path)}"
+                            )
+
                         scp_target.put(temp_name, target_file_path)
                     finally:  # noqa: B007
                         try:
@@ -3774,6 +3827,9 @@ class GSynchro:
 
                 # Remove duplicates.
                 files_to_copy = sorted(list(set(files_to_copy)))
+                target_files_dict = (
+                    self.files_b if direction == "a_to_b" else self.files_a
+                )
 
                 self.root.after(
                     0,
@@ -3799,6 +3855,7 @@ class GSynchro:
                             ssh_tgt,
                             source_use_ssh,
                             target_use_ssh,
+                            target_files_dict,
                         )
 
                 self._log("Successfully synced items. Refreshing view...")
