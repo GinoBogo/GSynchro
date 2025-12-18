@@ -56,7 +56,7 @@ DEFAULT_FONT_SIZE = 11
 
 
 # ============================================================================
-# Helper utilities for remote path handling
+# HELPER UTILITIES (for remote path handling)
 # ============================================================================
 
 
@@ -3531,31 +3531,35 @@ class GSynchro:
 
         item_id = tree.identify_row(event.y)
 
-        # Store context menu tree reference
+        # Store context menu tree reference.
         self._context_menu_tree = tree
         self._context_menu_item_id = item_id
 
-        # If clicking on empty space, still show context menu but don't
-        # select/focus
         if item_id:
-            tree.selection_set(item_id)
+            # If right-clicking on an item that is not already part of the
+            # current selection, clear the old selection and select only the new
+            # item.
+            if item_id not in tree.selection():
+                tree.selection_set(item_id)
             tree.focus(item_id)
-        else:
-            # Clear selection when clicking on empty space
+        else:  # Click was on empty space.
             tree.selection_remove(tree.selection())
             tree.set("")
 
-        # Only get item info if we have an item
-        if item_id:
+        selected_items = tree.selection()
+
+        # Only get item info if we have a single item selected.
+        if len(selected_items) == 1:
+            item_id = selected_items[0]
             rel_path = self._get_relative_path(tree, item_id)
             if not rel_path:
                 return
 
-            # Determine which file dictionary to use
+            # Determine which file dictionary to use.
             files_dict = self.files_a if tree is self.tree_a else self.files_b
             item_info = files_dict.get(rel_path)
         else:
-            # No item selected - set default states
+            # Multiple or no items selected - set default states.
             item_info = None
             rel_path = None
 
@@ -3582,11 +3586,11 @@ class GSynchro:
                 self.tree_context_menu.entryconfig("Sync  ▶", state="disabled")
                 self.tree_context_menu.entryconfig("◀  Sync", state="disabled")
         else:
-            # No item selected - disable sync options
+            # No item selected - disable sync options.
             self.tree_context_menu.entryconfig("Sync  ▶", state="disabled")
             self.tree_context_menu.entryconfig("◀  Sync", state="disabled")
 
-        # Enable/disable Delete menu item based on whether an item is selected
+        # Enable/disable Delete menu item based on whether an item is selected.
         if item_id:
             self.tree_context_menu.entryconfig("Delete", state="normal")
         else:
@@ -3680,28 +3684,30 @@ class GSynchro:
         if not self.tree_a:
             return
         selected_items = self.tree_a.selection()
-        if len(selected_items) != 1:
+        if not selected_items:
             messagebox.showwarning(
-                "Sync Error", "Please select exactly one item to sync."
+                "Sync Error", "Please select one or more items to sync."
             )
             return
-        rel_path = self._get_relative_path(self.tree_a, selected_items[0])
-        if rel_path:
-            self._sync_single_item(rel_path, "a_to_b")
+        rel_paths = [
+            self._get_relative_path(self.tree_a, item) for item in selected_items
+        ]
+        self._sync_items([p for p in rel_paths if p], "a_to_b")
 
     def _sync_selected_b_to_a(self):
         """Sync the selected item from Panel B to Panel A."""
         if not self.tree_b:
             return
         selected_items = self.tree_b.selection()
-        if len(selected_items) != 1:
+        if not selected_items:
             messagebox.showwarning(
-                "Sync Error", "Please select exactly one item to sync."
+                "Sync Error", "Please select one or more items to sync."
             )
             return
-        rel_path = self._get_relative_path(self.tree_b, selected_items[0])
-        if rel_path:
-            self._sync_single_item(rel_path, "b_to_a")
+        rel_paths = [
+            self._get_relative_path(self.tree_b, item) for item in selected_items
+        ]
+        self._sync_items([p for p in rel_paths if p], "b_to_a")
 
     def _sync_single_item(self, rel_path: str, direction: str):
         """Handle the synchronization of a single file or directory.
@@ -3709,6 +3715,15 @@ class GSynchro:
         Args:
             rel_path: Relative path of the item
             direction: Sync direction ("a_to_b" or "b_to_a")
+        """
+        self._sync_items([rel_path], direction)
+
+    def _sync_items(self, rel_paths: list[str], direction: str):
+        """Handle the synchronization of multiple files or directories.
+
+        Args:
+            rel_paths: List of relative paths of the items.
+            direction: Sync direction ("a_to_b" or "b_to_a").
         """
 
         def sync_thread():
@@ -3728,38 +3743,41 @@ class GSynchro:
                         self._has_ssh_a(),
                     )
 
-                source_item = source_files_dict.get(rel_path)
-                if not source_item:
-                    raise ValueError(f"Source item '{rel_path}' not found.")
-
-                # Build files_to_copy:
-                # - if a file was selected, sync that file
-                # - if a directory was selected, only include files under it
-                #   that are marked in sync_states
                 files_to_copy = []
-                if source_item.get("type") == "file":
-                    files_to_copy = [rel_path]
-                else:
-                    # Directory: include only those child files that are marked
-                    # for sync
-                    dir_prefix = rel_path.rstrip(os.sep).replace(os.sep, "/") + "/"
-                    for p, info in source_files_dict.items():
-                        if info.get("type") != "file":
-                            continue
-                        if p.replace(os.sep, "/").startswith(
-                            dir_prefix
-                        ) and self.sync_states.get(p, False):
-                            files_to_copy.append(p)
+                for rel_path in rel_paths:
+                    source_item = source_files_dict.get(rel_path)
+                    if not source_item:
+                        self._log(
+                            f"Warning: Source item '{rel_path}' not found, skipping."
+                        )
+                        continue
+
+                    # Build files_to_copy:
+                    # - if a file was selected, sync that file
+                    # - if a directory was selected, sync all files under it
+                    if source_item.get("type") == "file":
+                        files_to_copy.append(rel_path)
+                    else:
+                        # Directory: include all child files.
+                        dir_prefix = rel_path.rstrip(os.sep).replace(os.sep, "/") + "/"
+                        for p, info in source_files_dict.items():
+                            if info.get("type") != "file":
+                                continue
+                            if p.replace(os.sep, "/").startswith(dir_prefix):
+                                files_to_copy.append(p)
+
+                # Remove duplicates.
+                files_to_copy = sorted(list(set(files_to_copy)))
 
                 self.root.after(
                     0,
                     self._start_progress,
                     None,
                     len(files_to_copy),
-                    f"Syncing {rel_path}...",
+                    f"Syncing {len(files_to_copy)} items...",
                 )
 
-                # Correctly handle SSH clients
+                # Correctly handle SSH clients.
                 with self._create_ssh_for_panel("A", optional=True) as ssh_a:
                     with self._create_ssh_for_panel("B", optional=True) as ssh_b:
                         if direction == "a_to_b":
@@ -3777,13 +3795,13 @@ class GSynchro:
                             target_use_ssh,
                         )
 
-                self._log(f"Successfully synced '{rel_path}'. Refreshing view...")
+                self._log("Successfully synced items. Refreshing view...")
 
-                self.root.after(0, self._refresh_tree_after_sync, direction, rel_path)
+                self.root.after(0, self.compare_folders)
 
             except Exception as e:
-                self._log(f"Error syncing '{rel_path}': {e}")
-                messagebox.showerror("Sync Error", f"Failed to sync item: {e}")
+                self._log(f"Error syncing items: {e}")
+                messagebox.showerror("Sync Error", f"Failed to sync items: {e}")
             finally:
                 self.root.after(0, self._stop_progress)
 
