@@ -94,11 +94,15 @@ def _run_comparison(app, panel_a_dir, panel_b_dir):
 
     all_paths = set(app.files_a.keys()) | set(app.files_b.keys())
 
-    item_statuses, stats = app._calculate_item_statuses_parallel(
+    # Correctly unpack the three return values from the parallel status calculation.
+    item_statuses, stats, dirty_folders = app._calculate_item_statuses_parallel(
         all_paths, app.files_a, app.files_b, False, False, {}, {}
     )
 
-    return {k.replace("/", os.sep): v for k, v in item_statuses.items()}
+    # Mimic the application's logic by propagating the "dirty" status to parent folders.
+    app._propagate_dirty_folders(item_statuses, dirty_folders)
+
+    return {k.replace(os.sep, "/"): v for k, v in item_statuses.items()}
 
 
 class TestComparePanels:
@@ -115,6 +119,8 @@ class TestComparePanels:
         actual_statuses = _run_comparison(app, panel_a_dir, panel_b_dir)
         assert actual_statuses.get("identical.txt") == ("Identical", "green")
         assert actual_statuses.get("different.txt") == ("Different", "orange")
+        # After propagation, the root folder should be marked as different.
+        assert actual_statuses.get(".") == ("Different", "magenta")
 
     def test_unique_files_and_directories(self, comparison_test_environment):
         """Test items that exist only in one panel."""
@@ -124,22 +130,26 @@ class TestComparePanels:
         assert actual_statuses.get("only_in_a.txt") == ("Only in A", "blue")
         assert actual_statuses.get("only_in_b.txt") == ("Only in B", "red")
         assert actual_statuses.get("subdir") == ("Only in A", "blue")
-        assert actual_statuses.get(os.path.join("subdir", "subfile.txt")) == (
+        assert actual_statuses.get("subdir/subfile.txt") == (
             "Only in A",
             "blue",
         )
         assert actual_statuses.get("subdir_b") == ("Only in B", "red")
+        assert actual_statuses.get(".") == ("Different", "magenta")
 
     def test_deeply_nested_structure(self, comparison_test_environment):
         """Test deeply nested unique items."""
         cprint(f"\n--- {self.test_deeply_nested_structure.__doc__}", "yellow")
         app, panel_a_dir, panel_b_dir = comparison_test_environment
         actual_statuses = _run_comparison(app, panel_a_dir, panel_b_dir)
-        assert actual_statuses.get("deep") == ("Only in A", "blue")
-        assert actual_statuses.get(os.path.join("deep", "a", "deep_file.txt")) == (
+        assert actual_statuses.get("deep/a/deep_file.txt") == (
             "Only in A",
             "blue",
         )
+        # The unique directory itself should be "Only in A".
+        assert actual_statuses.get("deep/a") == ("Only in A", "blue")
+        # Its parent, however, contains differences and should be marked as such.
+        assert actual_statuses.get("deep") == ("Only in A", "blue")
 
     def test_shared_directory_with_differences(self, comparison_test_environment):
         """Test a directory that exists in both panels but has different content."""
@@ -147,11 +157,11 @@ class TestComparePanels:
         app, panel_a_dir, panel_b_dir = comparison_test_environment
         actual_statuses = _run_comparison(app, panel_a_dir, panel_b_dir)
         assert actual_statuses.get("shared_dir") == ("Different", "magenta")
-        assert actual_statuses.get(os.path.join("shared_dir", "a_only.txt")) == (
+        assert actual_statuses.get("shared_dir/a_only.txt") == (
             "Only in A",
             "blue",
         )
-        assert actual_statuses.get(os.path.join("shared_dir", "b_only.txt")) == (
+        assert actual_statuses.get("shared_dir/b_only.txt") == (
             "Only in B",
             "red",
         )
@@ -186,9 +196,12 @@ class TestUIComparisonDisplay:
 
         # 2. Run comparison logic to get statuses
         all_paths = set(app.files_a.keys()) | set(app.files_b.keys())
-        item_statuses, stats = app._calculate_item_statuses_parallel(
+        item_statuses, stats, dirty_folders = app._calculate_item_statuses_parallel(
             all_paths, app.files_a, app.files_b, False, False, {}, {}
         )
+
+        # Propagate dirty status to parent directories
+        app._propagate_dirty_folders(item_statuses, dirty_folders)
 
         # 3. Build tree maps and apply results to UI
         tree_a_map = app._build_tree_map(app.tree_a)
@@ -239,9 +252,12 @@ class TestUIComparisonDisplay:
 
         # 2. Run comparison logic to get statuses
         all_paths = set(app.files_a.keys()) | set(app.files_b.keys())
-        item_statuses, stats = app._calculate_item_statuses_parallel(
+        item_statuses, stats, dirty_folders = app._calculate_item_statuses_parallel(
             all_paths, app.files_a, app.files_b, False, False, {}, {}
         )
+
+        # Propagate dirty status to parent directories
+        app._propagate_dirty_folders(item_statuses, dirty_folders)
 
         # 3. Build tree maps and apply results to UI
         tree_a_map = app._build_tree_map(app.tree_a)

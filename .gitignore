@@ -9,6 +9,7 @@ venv
 
 *.cfg
 *.json
+*.log
 
 github-markdown.css
 g_synchro.sh

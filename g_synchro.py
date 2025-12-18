@@ -2059,15 +2059,35 @@ class GSynchro:
             item_statuses: The dictionary of item statuses to update.
             dirty_folders: The set of folders initially marked as dirty.
         """
-        all_dirty_parents = set()
+        # This set will store the full paths of all parent directories that
+        # contain a change.
+        parents_to_mark_different = set()
         for path in dirty_folders:
-            current_path = path
+            # A folder that contains changes is itself different.
+            parents_to_mark_different.add(path)
+
+            # Start from the immediate parent of the changed item.
+            current_path = os.path.dirname(path)
+
+            # Traverse up the directory tree to the root.
             while current_path and current_path != ".":
-                all_dirty_parents.add(current_path)
+                parents_to_mark_different.add(current_path)
                 parent = os.path.dirname(current_path)
                 current_path = parent
-        for path in all_dirty_parents:
-            item_statuses[path] = ("Different", "magenta")
+
+        # If any item caused a "dirty" folder, the root directory is also
+        # considered different.
+        if dirty_folders:
+            parents_to_mark_different.add(".")
+
+        # Now, apply the 'Different' status only to the collected parent
+        # directories. This avoids incorrectly overwriting the status of unique
+        # items themselves.
+        for path in parents_to_mark_different:
+            # Only mark a path as 'Different' if it's not already a unique item.
+            # This ensures unique folders containing other unique items remain 'Only in A/B'.
+            if item_statuses.get(path, (None,))[0] not in ("Only in A", "Only in B"):
+                item_statuses[path] = ("Different", "magenta")
 
     def _prepare_comparison_data(self) -> tuple:
         """Prepare data structures needed for comparison.
