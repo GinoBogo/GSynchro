@@ -280,11 +280,12 @@ class GCompare:
         if not hasattr(self, "_diff_changes") or not self._diff_changes:
             return
 
-        # If the index is at the end of the list or uninitialized, loop to the start.
+        # If the index is at the end of the list or uninitialized, loop to the
+        # start
         if self._diff_index >= len(self._diff_changes) - 1:
             self._diff_index = 0
         else:
-            # Otherwise, simply increment the index.
+            # Otherwise, simply increment the index
             self._diff_index += 1
 
         self._goto_change(self._diff_index)
@@ -294,11 +295,12 @@ class GCompare:
         if not hasattr(self, "_diff_changes") or not self._diff_changes:
             return
 
-        # If the index is at the beginning of the list or uninitialized, loop to the end.
+        # If the index is at the beginning of the list or uninitialized, loop to
+        # the end
         if self._diff_index <= 0:
             self._diff_index = len(self._diff_changes) - 1
         else:
-            # Otherwise, simply decrement the index.
+            # Otherwise, simply decrement the index
             self._diff_index -= 1
 
         self._goto_change(self._diff_index)
@@ -306,11 +308,11 @@ class GCompare:
     def _goto_change(self, index: int):
         """Scroll both text views to the change at `index`.
 
-        The `changes` list contains tuples of (type, line_num, is_empty).
-        For 'removed' types the line_num refers to File A; for 'added' it
-        refers to File B. We ensure both views show a corresponding position
-        by using `see` for the exact line and `yview_moveto` for proportional
-        alignment of the other view.
+        The `changes` list contains tuples of (type, line_num, is_empty). For
+        'removed' types the line_num refers to File A; for 'added' it refers to
+        File B. We ensure both views show a corresponding position by using
+        `see` for the exact line and `yview_moveto` for proportional alignment
+        of the other view.
         """
         changes = self._diff_changes
         if not changes:
@@ -343,7 +345,7 @@ class GCompare:
             return f"{n if n is not None else 1}.0"
 
         # Suspend nav sync while we programmatically move views to avoid
-        # callbacks overwriting our intended index.
+        # callbacks overwriting our intended index
         self._nav_sync_suspended = True
         try:
             if self.text_view_a:
@@ -1058,7 +1060,8 @@ class GCompare:
         line_numbers_widget.tag_add("right", "1.0", "end")
         line_numbers_widget.config(state=tk.DISABLED)
 
-        # Synchronize scrolling - move line numbers to match text widget position
+        # Synchronize scrolling - move line numbers to match text widget
+        # position
         first, last = text_widget.yview()
         line_numbers_widget.yview_moveto(first)
 
@@ -1384,9 +1387,10 @@ class GCompare:
         # Reset index when new comparison is run
         self._diff_index = -1
 
-        # Precompute per-change viewport fractions (0..1) for simple navigation.
+        # Precompute per-change viewport fractions (0..1) for simple navigation
+
         # Using fractions avoids line-mapping edge cases and makes Next/Prev
-        # operate relative to the visible viewport.
+        # operate relative to the visible viewport
         total = max(1, self._diff_total_lines or 1)
         self._diff_positions = [
             max(0.0, min(1.0, (c[1] - 1) / total)) for c in self._diff_changes
@@ -1657,13 +1661,14 @@ class GCompare:
                 first, last = self.text_view_a.yview()
                 self._update_scroll_marker(float(first), float(last))
 
-            # Only update navigation index if not suspended (i.e., manual scroll)
+            # Only update navigation index if not suspended (i.e., manual
+            # scroll)
             if not getattr(self, "_nav_sync_suspended", False):
                 try:
                     self._update_nav_index_from_view()
                 except Exception:
-                    # Non-fatal: keep UI responsive even if navigation state isn't
-                    # available
+                    # Non-fatal: keep UI responsive even if navigation state
+                    # isn't available
                     pass
 
             # Update line numbers when view changes
@@ -1762,8 +1767,8 @@ class GCompare:
                 min_distance = distance
                 chosen_idx = i
 
-        # If a closest change was found, update the index.
-        # This prevents Prev/Next from being reset by a manual scroll.
+        # If a closest change was found, update the index. This prevents
+        # Prev/Next from being reset by a manual scroll.
         if chosen_idx is not None:
             self._diff_index = chosen_idx
 
