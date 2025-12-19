@@ -401,29 +401,44 @@ class GButton(tk.Canvas):
         img_width = self.image.width()
         img_height = self.image.height()
 
+        # Get text dimensions
+        text_width = self._font.measure(self.text)
+        text_height = self._font.metrics("linespace")
+
         # Calculate spacing
         spacing = 8
 
         if self.image_position == "left":
-            image_x = img_width // 2 + spacing
-            text_x = image_x + img_width // 2 + spacing
+            total_width = img_width + spacing + text_width
+            start_x = (self._width - total_width) / 2
+
+            image_x = start_x + img_width / 2
+            text_x = start_x + img_width + spacing + text_width / 2
             image_y = text_y = self._height / 2
 
         elif self.image_position == "right":
-            text_width = self._font.measure(self.text)
-            text_x = self._width - text_width // 2 - img_width - spacing * 2
-            image_x = text_x + text_width // 2 + spacing + img_width // 2
+            total_width = text_width + spacing + img_width
+            start_x = (self._width - total_width) / 2
+
+            text_x = start_x + text_width / 2
+            image_x = start_x + text_width + spacing + img_width / 2
             image_y = text_y = self._height / 2
 
         elif self.image_position == "top":
+            total_height = img_height + spacing + text_height
+            start_y = (self._height - total_height) / 2
+
             image_x = text_x = self._width / 2
-            image_y = (self._height - img_height) // 3
-            text_y = self._height * 2 / 3
+            image_y = start_y + img_height / 2
+            text_y = start_y + img_height + spacing + text_height / 2
 
         elif self.image_position == "bottom":
+            total_height = text_height + spacing + img_height
+            start_y = (self._height - total_height) / 2
+
             image_x = text_x = self._width / 2
-            text_y = self._height / 3
-            image_y = self._height * 2 / 3 - img_height // 2
+            text_y = start_y + text_height / 2
+            image_y = start_y + text_height + spacing + img_height / 2
 
         else:  # center
             image_x = text_x = self._width / 2
@@ -788,7 +803,7 @@ if __name__ == "__main__":
 
     btn5 = GButton(
         root,
-        text="Button with Icon (radius=8)",
+        text="Icon + Button (radius=8)",
         command=on_click,
         bg="#2196F3",
         hover_bg="#1976D2",
