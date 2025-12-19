@@ -35,6 +35,8 @@ from queue import Queue
 from typing import Optional, Iterator, cast, Union
 from tkinter import filedialog, messagebox, ttk
 
+from libs.g_button import GButton
+
 # Third-party imports.
 import paramiko
 from scp import SCPClient
@@ -724,18 +726,36 @@ class GSynchro:
         button_container.pack(expand=True)
 
         for text, command, color in buttons_config:
-            button_kwargs = {
-                "text": text,
-                "command": command,
-                "cursor": "hand2",
-                "width": 12,
-            }
-            if color:
-                button_kwargs["style"] = f"{color}.TButton"
+            if color == "lightgreen":
+                colors = {
+                    "bg": "#90EE90",
+                    "hover_bg": "#B6FFB6",
+                    "pressed_bg": "#7CCD7C",
+                    "fg": "black",
+                }
+            elif color == "lightblue":
+                colors = {
+                    "bg": "#87CEFA",
+                    "hover_bg": "#ADD8E6",
+                    "pressed_bg": "#7EC0EE",
+                    "fg": "black",
+                }
+            else:
+                colors = {
+                    "bg": "#E1E1E1",
+                    "hover_bg": "#F0F0F0",
+                    "pressed_bg": "#D0D0D0",
+                    "fg": "black",
+                }
 
-            ttk.Button(button_container, **button_kwargs).pack(
-                side=tk.LEFT, padx=5, pady=5
-            )
+            GButton(
+                button_container,
+                text=text,
+                command=command,
+                width=100,
+                height=30,
+                **colors,
+            ).pack(side=tk.LEFT, padx=5, pady=5)
 
     def _create_panels_frame(self, main_frame: ttk.Frame) -> ttk.PanedWindow:
         """Create panels frame for displays.
@@ -805,6 +825,21 @@ class GSynchro:
         button_color = panel_config["button_color"]
         tree_attr = panel_config["tree_attr"]
 
+        if button_color == "lightgreen":
+            colors = {
+                "bg": "#90EE90",
+                "hover_bg": "#B6FFB6",
+                "pressed_bg": "#7CCD7C",
+                "fg": "black",
+            }
+        else:
+            colors = {
+                "bg": "#87CEFA",
+                "hover_bg": "#ADD8E6",
+                "pressed_bg": "#7EC0EE",
+                "fg": "black",
+            }
+
         panel_frame = ttk.Frame(parent, padding=0)
         panel = ttk.LabelFrame(panel_frame, text=title, padding="5")
         panel.pack(fill=tk.BOTH, expand=True)
@@ -837,13 +872,13 @@ class GSynchro:
         port_entry = ttk.Entry(panel, textvariable=port_var, width=8)
         port_entry.grid(row=0, column=3, padx=5, pady=5, sticky=tk.EW)
 
-        ttk.Button(
+        GButton(
             panel,
             text="Test",
             command=lambda: self._test_ssh(title),
-            cursor="hand2",
-            width=8,
-            style=f"{button_color}.TButton",
+            width=60,
+            height=25,
+            **colors,
         ).grid(row=0, column=4, padx=5, pady=5)
 
         # Username and Password row.
@@ -874,22 +909,12 @@ class GSynchro:
             if folder_path:
                 self._populate_single_panel(panel_name, folder_path)
 
-        ttk.Button(
-            panel,
-            text="Go",
-            command=on_go,
-            cursor="hand2",
-            width=8,
-            style=f"{button_color}.TButton",
-        ).grid(row=2, column=3, padx=5, pady=5)
+        GButton(panel, text="Go", command=on_go, width=60, height=25, **colors).grid(
+            row=2, column=3, padx=5, pady=5
+        )
 
-        ttk.Button(
-            panel,
-            text="Browse",
-            command=browse_command,
-            cursor="hand2",
-            width=8,
-            style=f"{button_color}.TButton",
+        GButton(
+            panel, text="Browse", command=browse_command, width=70, height=25, **colors
         ).grid(row=2, column=4, padx=5, pady=5)
 
         # Tree view.
@@ -1334,9 +1359,17 @@ class GSynchro:
         def go_to_path(event=None):
             load_folders(path_var.get())
 
-        ttk.Button(path_frame, text="Go", command=go_to_path, cursor="hand2").pack(
-            side=tk.LEFT, padx=(5, 0)
-        )
+        GButton(
+            path_frame,
+            text="Go",
+            command=go_to_path,
+            width=50,
+            height=25,
+            bg="#E1E1E1",
+            hover_bg="#F0F0F0",
+            pressed_bg="#D0D0D0",
+            fg="black",
+        ).pack(side=tk.LEFT, padx=(5, 0))
         path_entry.bind("<Return>", go_to_path)
 
         # Middle: Main content.
@@ -1411,12 +1444,28 @@ class GSynchro:
         button_container = ttk.Frame(button_frame)
         button_container.pack()
 
-        ttk.Button(
-            button_container, text="Cancel", command=on_cancel, cursor="hand2"
+        GButton(
+            button_container,
+            text="Cancel",
+            command=on_cancel,
+            width=100,
+            height=30,
+            bg="#E1E1E1",
+            hover_bg="#F0F0F0",
+            pressed_bg="#D0D0D0",
+            fg="black",
         ).pack(side=tk.LEFT, padx=5)
 
-        ttk.Button(
-            button_container, text="Select", command=on_select_folder, cursor="hand2"
+        GButton(
+            button_container,
+            text="Select",
+            command=on_select_folder,
+            width=100,
+            height=30,
+            bg="#007AFF",
+            hover_bg="#0051A8",
+            pressed_bg="#003366",
+            fg="white",
         ).pack(side=tk.LEFT, padx=5)
 
         # Bind events and initial actions.
@@ -2880,15 +2929,28 @@ class GSynchro:
             button_frame.columnconfigure(2, weight=0)
             button_frame.columnconfigure(3, weight=1)
 
-            ttk.Button(
+            GButton(
                 button_frame,
                 text="Cancel",
                 command=input_dialog.destroy,
-                cursor="hand2",
+                width=80,
+                height=30,
+                bg="#E1E1E1",
+                hover_bg="#F0F0F0",
+                pressed_bg="#D0D0D0",
+                fg="black",
             ).grid(row=0, column=1, padx=5)
-            ttk.Button(button_frame, text="OK", command=on_ok, cursor="hand2").grid(
-                row=0, column=2, padx=5
-            )
+            GButton(
+                button_frame,
+                text="OK",
+                command=on_ok,
+                width=80,
+                height=30,
+                bg="#007AFF",
+                hover_bg="#0051A8",
+                pressed_bg="#003366",
+                fg="white",
+            ).grid(row=0, column=2, padx=5)
 
             self._center_dialog(input_dialog, relative_to=dialog)
             input_dialog.wait_window()
@@ -2945,12 +3007,28 @@ class GSynchro:
 
                 btn_frame = ttk.Frame(confirm_dialog, padding=10)
                 btn_frame.pack(fill="x")
-                ttk.Button(btn_frame, text="Yes", command=on_yes).pack(
-                    side="right", padx=5
-                )
-                ttk.Button(btn_frame, text="No", command=confirm_dialog.destroy).pack(
-                    side="right"
-                )
+                GButton(
+                    btn_frame,
+                    text="Yes",
+                    command=on_yes,
+                    width=60,
+                    height=30,
+                    bg="#007AFF",
+                    hover_bg="#0051A8",
+                    pressed_bg="#003366",
+                    fg="white",
+                ).pack(side="right", padx=5)
+                GButton(
+                    btn_frame,
+                    text="No",
+                    command=confirm_dialog.destroy,
+                    width=60,
+                    height=30,
+                    bg="#E1E1E1",
+                    hover_bg="#F0F0F0",
+                    pressed_bg="#D0D0D0",
+                    fg="black",
+                ).pack(side="right")
 
                 confirm_dialog.wait_window()
 
@@ -3067,14 +3145,38 @@ class GSynchro:
         button_frame.columnconfigure(0, weight=1)
         button_frame.columnconfigure(4, weight=1)
 
-        ttk.Button(
-            button_frame, text="Save", command=save_and_close, cursor="hand2"
+        GButton(
+            button_frame,
+            text="Save",
+            command=save_and_close,
+            width=80,
+            height=30,
+            bg="#007AFF",
+            hover_bg="#0051A8",
+            pressed_bg="#003366",
+            fg="white",
         ).grid(row=0, column=3, padx=5)
-        ttk.Button(
-            button_frame, text="Apply", command=apply_filters, cursor="hand2"
+        GButton(
+            button_frame,
+            text="Apply",
+            command=apply_filters,
+            width=80,
+            height=30,
+            bg="#E1E1E1",
+            hover_bg="#F0F0F0",
+            pressed_bg="#D0D0D0",
+            fg="black",
         ).grid(row=0, column=2, padx=5)
-        ttk.Button(
-            button_frame, text="Cancel", command=dialog.destroy, cursor="hand2"
+        GButton(
+            button_frame,
+            text="Cancel",
+            command=dialog.destroy,
+            width=80,
+            height=30,
+            bg="#E1E1E1",
+            hover_bg="#F0F0F0",
+            pressed_bg="#D0D0D0",
+            fg="black",
         ).grid(row=0, column=1, padx=5)
 
         # Center dialog.
@@ -3194,11 +3296,27 @@ class GSynchro:
             def on_cancel():
                 rule_dialog.destroy()
 
-            ttk.Button(button_frame, text="OK", command=on_ok, cursor="hand2").pack(
-                side=tk.LEFT, padx=5
-            )
-            ttk.Button(
-                button_frame, text="Cancel", command=on_cancel, cursor="hand2"
+            GButton(
+                button_frame,
+                text="OK",
+                command=on_ok,
+                width=80,
+                height=30,
+                bg="#007AFF",
+                hover_bg="#0051A8",
+                pressed_bg="#003366",
+                fg="white",
+            ).pack(side=tk.LEFT, padx=5)
+            GButton(
+                button_frame,
+                text="Cancel",
+                command=on_cancel,
+                width=80,
+                height=30,
+                bg="#E1E1E1",
+                hover_bg="#F0F0F0",
+                pressed_bg="#D0D0D0",
+                fg="black",
             ).pack(side=tk.LEFT)
 
             rule_dialog.bind("<Return>", lambda e: on_ok())
@@ -3441,28 +3559,40 @@ class GSynchro:
         button_row_frame = ttk.Frame(button_center_frame)
         button_row_frame.pack()
 
-        ttk.Button(
+        GButton(
             button_row_frame,
             text="Apply",
             command=apply_options,
-            cursor="hand2",
-            width=12,
+            width=100,
+            height=30,
+            bg="#007AFF",
+            hover_bg="#0051A8",
+            pressed_bg="#003366",
+            fg="white",
         ).pack(side=tk.LEFT, padx=5)
 
-        ttk.Button(
+        GButton(
             button_row_frame,
             text="Reset",
             command=reset_options,
-            cursor="hand2",
-            width=12,
+            width=100,
+            height=30,
+            bg="#E1E1E1",
+            hover_bg="#F0F0F0",
+            pressed_bg="#D0D0D0",
+            fg="black",
         ).pack(side=tk.LEFT, padx=5)
 
-        ttk.Button(
+        GButton(
             button_row_frame,
             text="Cancel",
             command=dialog.destroy,
-            cursor="hand2",
-            width=12,
+            width=100,
+            height=30,
+            bg="#E1E1E1",
+            hover_bg="#F0F0F0",
+            pressed_bg="#D0D0D0",
+            fg="black",
         ).pack(side=tk.LEFT, padx=5)
 
     def _update_tree_fonts(self):

@@ -25,6 +25,7 @@ from tkinter import filedialog, messagebox, ttk
 
 from typing import Dict, List, Optional, Tuple, cast
 
+from libs.g_button import GButton
 
 # ============================================================================
 # CONSTANTS
@@ -150,62 +151,6 @@ class GCompare:
         """Configure application styles."""
         style = ttk.Style()
 
-        # Light green button style.
-        style.configure(
-            "lightgreen.TButton",
-            background="#90EE90",
-            foreground="black",
-            borderwidth=1,
-            focuscolor="none",
-            relief="raised",
-        )
-        style.map(
-            "lightgreen.TButton",
-            background=[("active", "#B6FFB6"), ("pressed", "#90EE90")],
-        )
-
-        # Light blue button style.
-        style.configure(
-            "lightblue.TButton",
-            background="#87CEFA",
-            foreground="black",
-            borderwidth=1,
-            focuscolor="none",
-            relief="raised",
-        )
-        style.map(
-            "lightblue.TButton",
-            background=[("active", "#ADD8E6"), ("pressed", "#87CEFA")],
-        )
-
-        # Light gray button style.
-        style.configure(
-            "lightgray.TButton",
-            background="#F8F9FA",
-            foreground="#495057",
-            borderwidth=1,
-            focuscolor="none",
-            relief="raised",
-        )
-        style.map(
-            "lightgray.TButton",
-            background=[("active", "#E9ECEF"), ("pressed", "#DEE2E6")],
-        )
-
-        # Light gold button style.
-        style.configure(
-            "lightgold.TButton",
-            background="#EEE8AA",
-            foreground="black",
-            borderwidth=1,
-            focuscolor="none",
-            relief="raised",
-        )
-        style.map(
-            "lightgold.TButton",
-            background=[("active", "#F5F0C6"), ("pressed", "#EEE8AA")],
-        )
-
         # Configure monospace font with current options.
         self._update_font_style()
 
@@ -261,17 +206,21 @@ class GCompare:
         ]
 
         for text, command, color in buttons:
-            button_kwargs = {
-                "text": text,
-                "command": command,
-                "cursor": "hand2",
-                "width": 12,
-            }
+            if color == "lightgray":
+                colors = {"bg": "#F8F9FA", "hover_bg": "#E9ECEF", "pressed_bg": "#DEE2E6", "fg": "#495057"}
+            elif color == "lightgold":
+                colors = {"bg": "#EEE8AA", "hover_bg": "#F5F0C6", "pressed_bg": "#CDC673", "fg": "black"}
+            else:
+                colors = {"bg": "#E1E1E1", "hover_bg": "#F0F0F0", "pressed_bg": "#D0D0D0", "fg": "black"}
 
-            if color:
-                button_kwargs["style"] = f"{color}.TButton"
-
-            ttk.Button(button_container, **button_kwargs).pack(
+            GButton(
+                button_container,
+                text=text,
+                command=command,
+                width=100,
+                height=30,
+                **colors
+            ).pack(
                 side=tk.LEFT, padx=5, pady=5
             )
 
@@ -499,6 +448,11 @@ class GCompare:
         save_command = config["save_command"]
         button_color = config["button_color"]
 
+        if button_color == "lightgreen":
+            colors = {"bg": "#90EE90", "hover_bg": "#B6FFB6", "pressed_bg": "#7CCD7C", "fg": "black"}
+        else:
+            colors = {"bg": "#87CEFA", "hover_bg": "#ADD8E6", "pressed_bg": "#7EC0EE", "fg": "black"}
+
         panel = ttk.LabelFrame(parent, text=title, padding="5")
         panel.grid(
             row=0,
@@ -527,21 +481,23 @@ class GCompare:
         path_combobox.grid(row=0, column=1, padx=5, pady=5, sticky=tk.EW)
 
         # Load button.
-        ttk.Button(
+        GButton(
             panel,
             text="Open",
             command=open_command,
-            cursor="hand2",
-            style=f"{button_color}.TButton",
+            width=60,
+            height=25,
+            **colors
         ).grid(row=0, column=2, padx=5, pady=5, sticky=tk.E)
 
         # Save button.
-        ttk.Button(
+        GButton(
             panel,
             text="Save",
             command=save_command,
-            cursor="hand2",
-            style=f"{button_color}.TButton",
+            width=60,
+            height=25,
+            **colors
         ).grid(row=0, column=3, padx=5, pady=5, sticky=tk.E)
 
         # Define font tuple.
@@ -929,28 +885,31 @@ class GCompare:
         button_row_frame = ttk.Frame(button_center_frame)
         button_row_frame.pack()
 
-        ttk.Button(
+        GButton(
             button_row_frame,
             text="Apply",
             command=apply_options,
-            cursor="hand2",
-            width=12,
+            width=100,
+            height=30,
+            bg="#007AFF", hover_bg="#0051A8", pressed_bg="#003366", fg="white"
         ).pack(side=tk.LEFT, padx=5)
 
-        ttk.Button(
+        GButton(
             button_row_frame,
             text="Reset",
             command=reset_options,
-            cursor="hand2",
-            width=12,
+            width=100,
+            height=30,
+            bg="#E1E1E1", hover_bg="#F0F0F0", pressed_bg="#D0D0D0", fg="black"
         ).pack(side=tk.LEFT, padx=5)
 
-        ttk.Button(
+        GButton(
             button_row_frame,
             text="Cancel",
             command=dialog.destroy,
-            cursor="hand2",
-            width=12,
+            width=100,
+            height=30,
+            bg="#E1E1E1", hover_bg="#F0F0F0", pressed_bg="#D0D0D0", fg="black"
         ).pack(side=tk.LEFT, padx=5)
 
     # ========================================================================
