@@ -8,17 +8,21 @@ and tooltips.
 
  Author: Gino Bogo
 License: MIT
-Version: 2.0
+Version: 2.1
 """
 
 import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import ttk
-from typing import Any, Optional, Callable, Tuple
+from typing import Any, Optional, Callable, Tuple, Dict
 
 
 class GButton(tk.Canvas):
     """A customizable rectangular button widget with slight rounded corners."""
+
+    # Class-level shared resources
+    _shared_fonts: Dict[Any, tkfont.Font] = {}
+    _color_op_cache: Dict[str, str] = {}
 
     def __init__(
         self,
@@ -67,33 +71,26 @@ class GButton(tk.Canvas):
             canvas_bg: Background color of the canvas (outside the button).
             **kwargs: Additional arguments for tk.Canvas.
         """
-        # Set cursor based on state
         if "cursor" not in kwargs:
             kwargs["cursor"] = "arrow" if state == "disabled" else "hand2"
 
-        # Set focus behavior
         if "takefocus" not in kwargs:
             kwargs["takefocus"] = True
 
-        # Set highlight thickness
         if "highlightthickness" not in kwargs:
             kwargs["highlightthickness"] = 0
 
-        # Set border width
         if "borderwidth" not in kwargs:
             kwargs["borderwidth"] = 0
 
-        # Try to get parent background color for canvas
         if canvas_bg is None:
             canvas_bg = self._get_parent_background(master)
 
         if canvas_bg and "bg" not in kwargs:
             kwargs["bg"] = canvas_bg
         elif "bg" not in kwargs:
-            # Default to light gray if no parent background found
             kwargs["bg"] = "#f0f0f0"
 
-        # Initialize Canvas
         super().__init__(
             master,
             width=width,
@@ -101,7 +98,6 @@ class GButton(tk.Canvas):
             **kwargs,
         )
 
-        # Set default hover/pressed colors if not provided
         final_hover_bg = (
             hover_bg if hover_bg is not None else self._darken_color(bg, 0.8)
         )
@@ -109,53 +105,210 @@ class GButton(tk.Canvas):
             pressed_bg if pressed_bg is not None else self._darken_color(bg, 0.6)
         )
 
-        # Core properties
+        self._text = text
         self.command = command
-        self.text = text
-        self.corner_radius = max(0, min(corner_radius, min(width, height) // 2))
-        self.bg_color = bg
-        self.fg_color = fg
-        self.hover_bg = final_hover_bg
-        self.pressed_bg = final_pressed_bg
-        self.disabled_bg = disabled_bg
-        self.disabled_fg = disabled_fg
-        self.border_color = border_color
-        self.image = image
-        self.image_position = image_position
-        self.tooltip_text = tooltip_text
+        self._corner_radius = max(0, min(corner_radius, min(width, height) // 2))
+        self._bg_color = bg
+        self._fg_color = fg
+        self._hover_bg = final_hover_bg
+        self._pressed_bg = final_pressed_bg
+        self._disabled_bg = disabled_bg
+        self._disabled_fg = disabled_fg
+        self._border_color = border_color
+        self._image_position = image_position
+        self._tooltip_text = tooltip_text
         self._state = state
         self._focused = False
-        self._tooltip_id = None
 
-        # Performance caching
+        self._image = None
+        self._image_size = (0, 0)
+        self._image_cache = None
+        self._set_image(image)
+
+        self._tooltip_id = None
+        self._tooltip_window = None
+
         self._last_signature = None
         self._width = width
         self._height = height
+        self._resize_timer = None
 
-        # Font handling
-        if font:
-            self._font = tkfont.Font(family=font[0], size=font[1])
-        else:
-            self._font = tkfont.Font(family="Segoe UI", size=10, weight="normal")
+        self._font_key = font
+        self._font = self._get_font(font)
 
-        # Bind events
         self._bind_events()
-
-        # Initial draw
         self._draw()
 
-    def _get_parent_background(self, master: Optional[tk.Misc]) -> Optional[str]:
-        """Get parent widget background color.
+    # Property getters and setters
+    @property
+    def text(self):
+        return self._text
 
-        Returns:
-            Background color string if found, None otherwise.
-        """
+    @text.setter
+    def text(self, value):
+        if self._text != value:
+            self._text = value
+            self._last_signature = None
+            if self.winfo_exists():
+                self._draw()
+
+    @property
+    def corner_radius(self):
+        return self._corner_radius
+
+    @corner_radius.setter
+    def corner_radius(self, value):
+        if self._corner_radius != value:
+            self._corner_radius = max(
+                0, min(value, min(self._width, self._height) // 2)
+            )
+            self._last_signature = None
+            if self.winfo_exists():
+                self._draw()
+
+    @property
+    def bg_color(self):
+        return self._bg_color
+
+    @bg_color.setter
+    def bg_color(self, value):
+        if self._bg_color != value:
+            self._bg_color = value
+            self._last_signature = None
+            if self.winfo_exists():
+                self._draw()
+
+    @property
+    def fg_color(self):
+        return self._fg_color
+
+    @fg_color.setter
+    def fg_color(self, value):
+        if self._fg_color != value:
+            self._fg_color = value
+            self._last_signature = None
+            if self.winfo_exists():
+                self._draw()
+
+    @property
+    def hover_bg(self):
+        return self._hover_bg
+
+    @hover_bg.setter
+    def hover_bg(self, value):
+        if self._hover_bg != value:
+            self._hover_bg = value
+            self._last_signature = None
+            if self.winfo_exists():
+                self._draw()
+
+    @property
+    def pressed_bg(self):
+        return self._pressed_bg
+
+    @pressed_bg.setter
+    def pressed_bg(self, value):
+        if self._pressed_bg != value:
+            self._pressed_bg = value
+            self._last_signature = None
+            if self.winfo_exists():
+                self._draw()
+
+    @property
+    def disabled_bg(self):
+        return self._disabled_bg
+
+    @disabled_bg.setter
+    def disabled_bg(self, value):
+        if self._disabled_bg != value:
+            self._disabled_bg = value
+            self._last_signature = None
+            if self.winfo_exists():
+                self._draw()
+
+    @property
+    def disabled_fg(self):
+        return self._disabled_fg
+
+    @disabled_fg.setter
+    def disabled_fg(self, value):
+        if self._disabled_fg != value:
+            self._disabled_fg = value
+            self._last_signature = None
+            if self.winfo_exists():
+                self._draw()
+
+    @property
+    def border_color(self):
+        return self._border_color
+
+    @border_color.setter
+    def border_color(self, value):
+        if self._border_color != value:
+            self._border_color = value
+            self._last_signature = None
+            if self.winfo_exists():
+                self._draw()
+
+    @property
+    def image(self):
+        return self._image
+
+    @image.setter
+    def image(self, value):
+        self._set_image(value)
+        self._last_signature = None
+        if self.winfo_exists():
+            self._draw()
+
+    @property
+    def image_position(self):
+        return self._image_position
+
+    @image_position.setter
+    def image_position(self, value):
+        if self._image_position != value:
+            self._image_position = value
+            self._last_signature = None
+            if self.winfo_exists():
+                self._draw()
+
+    @property
+    def tooltip_text(self):
+        return self._tooltip_text
+
+    @tooltip_text.setter
+    def tooltip_text(self, value):
+        if self._tooltip_text != value:
+            self._tooltip_text = value
+
+    def _set_image(self, image):
+        """Set image with validation and caching."""
+        if image is None:
+            self._image = None
+            self._image_size = (0, 0)
+            self._image_cache = None
+            return
+
+        if not isinstance(image, tk.PhotoImage):
+            raise TypeError("Image must be a tk.PhotoImage instance")
+
+        self._image = image
+        self._image_size = (image.width(), image.height())
+
+        if self._image_size[0] <= 32 and self._image_size[1] <= 32:
+            try:
+                self._image_cache = image.copy()
+            except (tk.TclError, RuntimeError):
+                self._image_cache = None
+
+    def _get_parent_background(self, master: Optional[tk.Misc]) -> Optional[str]:
+        """Get parent widget background color."""
         if master is None:
             return None
 
         bg = None
         try:
-            # Try to get parent's background
             bg = master.cget("background")
         except (tk.TclError, AttributeError):
             pass
@@ -169,46 +322,95 @@ class GButton(tk.Canvas):
 
         return bg
 
+    def _get_font(self, font_spec):
+        """Get or create a font with caching."""
+        if font_spec is None:
+            font_spec = ("Segoe UI", 10, "normal")
+
+        key = tuple(font_spec) if isinstance(font_spec, (list, tuple)) else font_spec
+
+        if key not in GButton._shared_fonts:
+            if isinstance(font_spec, (list, tuple)):
+                if len(font_spec) == 3:
+                    GButton._shared_fonts[key] = tkfont.Font(
+                        family=font_spec[0], size=font_spec[1], weight=font_spec[2]
+                    )
+                elif len(font_spec) == 2:
+                    GButton._shared_fonts[key] = tkfont.Font(
+                        family=font_spec[0], size=font_spec[1]
+                    )
+            else:
+                GButton._shared_fonts[key] = tkfont.Font(font=font_spec)
+
+        return GButton._shared_fonts[key]
+
     def _bind_events(self) -> None:
         """Bind all necessary events to the button."""
-        self.bind("<Button-1>", self._on_press)
-        self.bind("<ButtonRelease-1>", self._on_release)
-        self.bind("<Enter>", self._on_enter)
-        self.bind("<Leave>", self._on_leave)
-        self.bind("<Configure>", self._on_configure)
-        self.bind("<FocusIn>", self._on_focus_in)
-        self.bind("<FocusOut>", self._on_focus_out)
-        self.bind("<KeyPress-Return>", self._on_key_press)
-        self.bind("<KeyPress-space>", self._on_key_press)
+        events_to_bind = [
+            ("<Button-1>", self._on_press),
+            ("<ButtonRelease-1>", self._on_release),
+            ("<Enter>", self._on_enter),
+            ("<Leave>", self._on_leave),
+            ("<Configure>", self._on_configure),
+            ("<FocusIn>", self._on_focus_in),
+            ("<FocusOut>", self._on_focus_out),
+            ("<KeyPress-Return>", self._on_key_press),
+            ("<KeyPress-space>", self._on_key_press),
+        ]
+
+        for event, handler in events_to_bind:
+            self.bind(event, handler, add="+")
 
     def _draw(self) -> None:
         """Draw the button with performance caching."""
-        # Create signature for caching
         current_signature = (
             self._state,
             self._focused,
             self.text,
             self._width,
             self._height,
-            id(self.image) if self.image else None,
-            self.image_position,
+            self.corner_radius,
+            self.bg_color,
+            self.fg_color,
+            self.hover_bg,
+            self.pressed_bg,
+            self.disabled_bg,
+            self.disabled_fg,
+            self.border_color,
+            id(self._image) if self._image else None,
+            self._image_position,
         )
 
-        # Skip redraw if nothing changed
         if self._last_signature == current_signature:
             return
 
         self._last_signature = current_signature
-
-        # Clear canvas
         self.delete("all")
 
-        # Determine colors based on state
-        fill_color, text_color, outline_color = self._get_state_colors()
+        if self._state == "disabled":
+            fill_color = self._disabled_bg
+            text_color = self._disabled_fg
+        elif self._state == "pressed":
+            fill_color = self._pressed_bg
+            text_color = self._fg_color
+        elif self._state == "hover":
+            fill_color = self._hover_bg
+            text_color = self._fg_color
+        else:
+            fill_color = self._bg_color
+            text_color = self._fg_color
 
-        # Draw rounded rectangle with visible border
+        # ORIGINAL BORDER LOGIC RESTORED
+        if self._border_color:
+            outline_color = self._border_color
+        else:
+            # Use a more contrasting version of fill color for border
+            if self._is_light_color(fill_color):
+                outline_color = self._darken_color(fill_color, 0.7)  # Darker
+            else:
+                outline_color = self._lighten_color(fill_color, 1.3)  # Lighter
+
         if self.corner_radius == 0:
-            # Draw regular rectangle for no radius
             self.create_rectangle(
                 2,
                 2,
@@ -219,8 +421,6 @@ class GButton(tk.Canvas):
                 width=2,
             )
         else:
-            # Draw rounded rectangle using the specified method
-            # Use offset for border visibility
             offset = 2
             self._draw_rounded_rect(
                 offset,
@@ -230,25 +430,18 @@ class GButton(tk.Canvas):
                 self.corner_radius,
                 fill=fill_color,
                 outline=outline_color,
-                width=2,  # Thicker border
+                width=2,
             )
 
-        # Draw focus indicator
         if self._focused:
             self._draw_focus_indicator()
 
-        # Draw content (image and/or text)
         self._draw_content(text_color)
 
     def _draw_rounded_rect(
         self, x1: int, y1: int, x2: int, y2: int, radius: int, **kwargs
     ) -> int:
-        """Draw a rounded rectangle using a smoothed polygon.
-
-        Returns:
-            Canvas item ID of the created polygon.
-        """
-        # Adjust radius for bottom-right corner to fix visual clipping
+        """Draw a rounded rectangle using a smoothed polygon."""
         br_radius = radius + 1
 
         points = [
@@ -295,56 +488,23 @@ class GButton(tk.Canvas):
         ]
         return self.create_polygon(points, smooth=True, **kwargs)
 
-    def _get_state_colors(self) -> Tuple[str, str, str]:
-        """Get colors based on current state.
-
-        Returns:
-            Tuple of (fill_color, text_color, outline_color)
-        """
-        if self._state == "disabled":
-            fill_color = self.disabled_bg
-            text_color = self.disabled_fg
-        elif self._state == "pressed":
-            fill_color = self.pressed_bg
-            text_color = self.fg_color
-        elif self._state == "hover":
-            fill_color = self.hover_bg
-            text_color = self.fg_color
-        else:
-            fill_color = self.bg_color
-            text_color = self.fg_color
-
-        # Determine border color - make it more contrasting
-        if self.border_color:
-            outline_color = self.border_color
-        else:
-            # Use a more contrasting version of fill color for border
-            if self._is_light_color(fill_color):
-                outline_color = self._darken_color(fill_color, 0.7)  # Darker
-            else:
-                outline_color = self._lighten_color(fill_color, 1.3)  # Lighter
-
-        return fill_color, text_color, outline_color
-
     def _draw_focus_indicator(self) -> None:
         """Draw focus indicator around the button."""
-        offset = 4  # More offset for focus indicator
+        offset = 4
         radius = max(0, self.corner_radius - 2)
 
         if radius == 0:
-            # Draw rectangular focus indicator
             self.create_rectangle(
                 offset,
                 offset,
                 self._width - offset,
                 self._height - offset,
                 fill="",
-                outline=self.fg_color,
-                width=2,  # Thicker focus indicator
+                outline=self._fg_color,
+                width=2,
                 dash=(3, 2),
             )
         else:
-            # Draw rounded focus indicator using the same method
             self._draw_rounded_rect(
                 offset,
                 offset,
@@ -352,23 +512,19 @@ class GButton(tk.Canvas):
                 self._height - offset,
                 radius,
                 fill="",
-                outline=self.fg_color,
-                width=2,  # Thicker focus indicator
+                outline=self._fg_color,
+                width=2,
                 dash=(3, 2),
             )
 
     def _draw_content(self, text_color: str) -> None:
         """Draw image and/or text on the button."""
-        if self.image:
-            # Calculate positions for image and text
+        if self._image:
             image_pos, text_pos = self._calculate_layout()
-
-            # Draw image
+            image_to_use = self._image_cache if self._image_cache else self._image
             self.create_image(
-                image_pos[0], image_pos[1], image=self.image, anchor="center"
+                image_pos[0], image_pos[1], image=image_to_use, anchor="center"
             )
-
-            # Draw text
             self.create_text(
                 text_pos[0],
                 text_pos[1],
@@ -378,7 +534,6 @@ class GButton(tk.Canvas):
                 anchor="center",
             )
         else:
-            # Draw text only
             self.create_text(
                 self._width / 2,
                 self._height / 2,
@@ -389,53 +544,40 @@ class GButton(tk.Canvas):
             )
 
     def _calculate_layout(self) -> Tuple[Tuple[float, float], Tuple[float, float]]:
-        """Calculate positions for image and text.
-
-        Returns:
-            Tuple of ((image_x, image_y), (text_x, text_y))
-        """
-        if not self.image:
+        """Calculate positions for image and text."""
+        if not self._image:
             return (0, 0), (self._width / 2, self._height / 2)
 
-        # Get image dimensions
-        img_width = self.image.width()
-        img_height = self.image.height()
-
-        # Get text dimensions
+        img_width = self._image_size[0]
+        img_height = self._image_size[1]
         text_width = self._font.measure(self.text)
         text_height = self._font.metrics("linespace")
-
-        # Calculate spacing
         spacing = 8
 
-        if self.image_position == "left":
+        if self._image_position == "left":
             total_width = img_width + spacing + text_width
             start_x = (self._width - total_width) / 2
-
             image_x = start_x + img_width / 2
             text_x = start_x + img_width + spacing + text_width / 2
             image_y = text_y = self._height / 2
 
-        elif self.image_position == "right":
+        elif self._image_position == "right":
             total_width = text_width + spacing + img_width
             start_x = (self._width - total_width) / 2
-
             text_x = start_x + text_width / 2
             image_x = start_x + text_width + spacing + img_width / 2
             image_y = text_y = self._height / 2
 
-        elif self.image_position == "top":
+        elif self._image_position == "top":
             total_height = img_height + spacing + text_height
             start_y = (self._height - total_height) / 2
-
             image_x = text_x = self._width / 2
             image_y = start_y + img_height / 2
             text_y = start_y + img_height + spacing + text_height / 2
 
-        elif self.image_position == "bottom":
+        elif self._image_position == "bottom":
             total_height = text_height + spacing + img_height
             start_y = (self._height - total_height) / 2
-
             image_x = text_x = self._width / 2
             text_y = start_y + text_height / 2
             image_y = start_y + text_height + spacing + img_height / 2
@@ -447,51 +589,46 @@ class GButton(tk.Canvas):
         return (image_x, image_y), (text_x, text_y)
 
     def _darken_color(self, color: str, factor: float = 0.7) -> str:
-        """Darken a color by a specified factor.
+        """Darken a color with caching."""
+        cache_key = f"darken_{color}_{factor}"
 
-        Args:
-            color: Hex color string to darken.
-            factor: Darkening factor (0.0 to 1.0).
+        if cache_key in self._color_op_cache:
+            return self._color_op_cache[cache_key]
 
-        Returns:
-            Darkened hex color string.
-        """
         try:
             r, g, b = self.winfo_rgb(color)
             r = int((r / 65535) * 255 * factor)
             g = int((g / 65535) * 255 * factor)
             b = int((b / 65535) * 255 * factor)
-            return f"#{max(0, min(255, r)):02x}{max(0, min(255, g)):02x}{max(0, min(255, b)):02x}"
+
+            result = f"#{max(0, min(255, r)):02x}{max(0, min(255, g)):02x}{max(0, min(255, b)):02x}"
+            self._color_op_cache[cache_key] = result
+            return result
         except Exception:
             return color
 
     def _lighten_color(self, color: str, factor: float = 1.3) -> str:
-        """Lighten a color by a specified factor.
+        """Lighten a color with caching."""
+        cache_key = f"lighten_{color}_{factor}"
 
-        Args:
-            color: Hex color string to lighten.
-            factor: Lightening factor (1.0+).
+        if cache_key in self._color_op_cache:
+            return self._color_op_cache[cache_key]
 
-        Returns:
-            Lightened hex color string.
-        """
         try:
             r, g, b = self.winfo_rgb(color)
-            r = int((r / 65535) * 255 * factor)
-            g = int((g / 65535) * 255 * factor)
-            b = int((b / 65535) * 255 * factor)
-            return f"#{max(0, min(255, r)):02x}{max(0, min(255, g)):02x}{max(0, min(255, b)):02x}"
+            r = min(255, int((r / 65535) * 255 * factor))
+            g = min(255, int((g / 65535) * 255 * factor))
+            b = min(255, int((b / 65535) * 255 * factor))
+
+            result = f"#{max(0, r):02x}{max(0, g):02x}{max(0, b):02x}"
+            self._color_op_cache[cache_key] = result
+            return result
         except Exception:
             return color
 
     def _is_light_color(self, color: str) -> bool:
         """Check if a color is light based on luminance.
-
-        Args:
-            color: Hex color string to check.
-
-        Returns:
-            True if the color is light, False otherwise.
+        RESTORED TO ORIGINAL LOGIC
         """
         try:
             r, g, b = self.winfo_rgb(color)
@@ -502,20 +639,16 @@ class GButton(tk.Canvas):
 
     # Event Handlers
     def _on_press(self, event: tk.Event) -> None:
-        """Handle mouse press event."""
         if self._state != "disabled":
             self._state = "pressed"
             self._draw()
 
     def _on_release(self, event: tk.Event) -> None:
-        """Handle mouse release event."""
         if self._state != "disabled":
-            # Check if release is within bounds
             if 0 <= event.x <= self._width and 0 <= event.y <= self._height:
                 if self.command:
                     self.command()
 
-                # Return to hover state if mouse is still inside
                 if self.winfo_exists():
                     self._state = "hover"
             else:
@@ -523,54 +656,59 @@ class GButton(tk.Canvas):
             self._draw()
 
     def _on_enter(self, event: tk.Event) -> None:
-        """Handle mouse enter event."""
         if self._state != "disabled" and self._state != "pressed":
             self._state = "hover"
             self._draw()
 
-            # Schedule tooltip if configured
-            if self.tooltip_text and self._state != "disabled":
+            if self._tooltip_text and self._state != "disabled":
                 self._tooltip_id = self.after(1000, self._show_tooltip)
 
     def _on_leave(self, event: tk.Event) -> None:
-        """Handle mouse leave event."""
         if self._state != "disabled":
             self._state = "normal"
             self._draw()
 
-        # Cancel tooltip
         if self._tooltip_id:
             self.after_cancel(self._tooltip_id)
             self._tooltip_id = None
 
+        if self._tooltip_window and self._tooltip_window.winfo_exists():
+            self._tooltip_window.destroy()
+            self._tooltip_window = None
+
     def _on_configure(self, event: tk.Event) -> None:
-        """Handle widget resize events."""
-        self._width = event.width
-        self._height = event.height
-        self.corner_radius = min(
-            self.corner_radius, min(self._width, self._height) // 2
+        if self._resize_timer:
+            self.after_cancel(self._resize_timer)
+
+        self._resize_timer = self.after(
+            50, self._handle_resize, event.width, event.height
         )
+
+    def _handle_resize(self, width: int, height: int):
+        if not self.winfo_exists():
+            return
+        self._resize_timer = None
+        self._width = width
+        self._height = height
+        self.corner_radius = min(self._corner_radius, min(width, height) // 2)
+        self._last_signature = None
         self._draw()
 
     def _on_focus_in(self, event: tk.Event) -> None:
-        """Handle focus gain event."""
         self._focused = True
         self._draw()
 
     def _on_focus_out(self, event: tk.Event) -> None:
-        """Handle focus loss event."""
         self._focused = False
         self._draw()
 
     def _on_key_press(self, event: tk.Event) -> None:
-        """Handle keyboard press events (Return/Space)."""
         if self._state != "disabled":
             self._state = "pressed"
             self._draw()
             self.after(100, self._trigger_command)
 
     def _trigger_command(self) -> None:
-        """Trigger the button command after keyboard press."""
         if not self.winfo_exists():
             return
 
@@ -582,23 +720,22 @@ class GButton(tk.Canvas):
             self._draw()
 
     def _show_tooltip(self) -> None:
-        """Display tooltip window."""
-        if not self.tooltip_text or not self.winfo_exists():
+        if not self._tooltip_text or not self.winfo_exists():
             return
 
-        # Create tooltip window
-        tooltip = tk.Toplevel(self)
-        tooltip.wm_overrideredirect(True)
-        tooltip.wm_attributes("-topmost", True)
+        if self._tooltip_window and self._tooltip_window.winfo_exists():
+            self._tooltip_window.destroy()
 
-        # Get button position
+        self._tooltip_window = tk.Toplevel(self)
+        self._tooltip_window.wm_overrideredirect(True)
+        self._tooltip_window.wm_attributes("-topmost", True)
+
         x = self.winfo_rootx() + self.winfo_width() // 2
         y = self.winfo_rooty() + self.winfo_height() + 5
 
-        # Create tooltip label
         label = tk.Label(
-            tooltip,
-            text=self.tooltip_text,
+            self._tooltip_window,
+            text=self._tooltip_text,
             bg="#FFFFE0",
             fg="black",
             padx=6,
@@ -609,19 +746,11 @@ class GButton(tk.Canvas):
         )
         label.pack()
 
-        # Position tooltip
-        tooltip.geometry(f"+{x}+{y}")
-
-        # Destroy tooltip after delay
-        tooltip.after(3000, tooltip.destroy)
+        self._tooltip_window.geometry(f"+{x}+{y}")
+        self._tooltip_window.after(3000, self._tooltip_window.destroy)
 
     # Public Methods
     def configure(self, cnf: Any = None, **kwargs: Any) -> Any:
-        """Update button configuration.
-
-        Returns:
-            Configuration result from parent class.
-        """
         if isinstance(cnf, str):
             return super().configure(cnf, **kwargs)
 
@@ -629,8 +758,7 @@ class GButton(tk.Canvas):
             kwargs = {**cnf, **kwargs}
             cnf = None
 
-        # Handle custom properties
-        custom_props = {
+        property_map = {
             "text": "text",
             "bg": "bg_color",
             "fg": "fg_color",
@@ -646,11 +774,13 @@ class GButton(tk.Canvas):
             "tooltip_text": "tooltip_text",
         }
 
-        for kwarg, attr in custom_props.items():
+        for kwarg, attr in property_map.items():
             if kwarg in kwargs:
-                setattr(self, attr, kwargs.pop(kwarg))
+                if kwarg == "command":
+                    self.command = kwargs.pop(kwarg)
+                else:
+                    setattr(self, attr, kwargs.pop(kwarg))
 
-        # Handle state specially
         if "state" in kwargs:
             state = kwargs.pop("state")
             if state != self._state:
@@ -659,28 +789,23 @@ class GButton(tk.Canvas):
                     kwargs["cursor"] = "arrow"
                 elif "cursor" not in kwargs:
                     kwargs["cursor"] = "hand2"
+                self._last_signature = None
 
-        # Handle size changes
         if "width" in kwargs:
             self._width = int(kwargs["width"])
+            self._last_signature = None
         if "height" in kwargs:
             self._height = int(kwargs["height"])
+            self._last_signature = None
 
-        # Handle canvas_bg
         if "canvas_bg" in kwargs:
             kwargs["bg"] = kwargs.pop("canvas_bg")
 
-        # Pass remaining kwargs to parent configure
         result = super().configure(cnf, **kwargs)
         self._draw()
         return result
 
     def cget(self, key: str) -> Any:
-        """Get configuration value.
-
-        Returns:
-            Configuration value for the specified key.
-        """
         if key == "text":
             return self.text
         elif key == "state":
@@ -710,45 +835,39 @@ class GButton(tk.Canvas):
         return super().cget(key)
 
 
-# Demonstration of GButton functionality
 if __name__ == "__main__":
     root = tk.Tk()
     root.title("GButton Demonstration")
     root.geometry("400x450")
 
-    # Get the system background color
     root_bg = root.cget("bg")
 
     def on_click() -> None:
-        """Callback function for button clicks."""
         print("Button clicked!")
 
     def toggle_state() -> None:
-        """Toggle button state between normal and disabled."""
         current = btn2.cget("state")
         new_state = "disabled" if current == "normal" else "normal"
         btn2.configure(state=new_state)
 
-    # Create a sample icon image with specific exception handling
     icon_img = None
     try:
         icon_img = tk.PhotoImage(width=16, height=16)
-        # Draw a simple square icon
         for i in range(4, 12):
             for j in range(4, 12):
                 icon_img.put("#FFFFFF", (i, j))
     except (tk.TclError, RuntimeError) as e:
-        # Handle specific image creation errors
         print(f"Note: Could not create icon image: {e}")
         icon_img = None
 
-    # Application title
     title_label = tk.Label(
-        root, text="GButton Demonstration", font=("Segoe UI", 14, "bold"), bg=root_bg
+        root,
+        text="GButton Demonstration",
+        font=("Segoe UI", 14, "bold"),
+        bg=root_bg,
     )
     title_label.pack(pady=10)
 
-    # Button demonstration with various configurations
     btn1 = GButton(
         root,
         text="Rectangular Button (radius=0)",

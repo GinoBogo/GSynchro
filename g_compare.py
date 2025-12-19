@@ -463,14 +463,14 @@ class GCompare:
         )
         path_combobox.grid(row=0, column=1, padx=5, pady=5, sticky=tk.EW)
 
-        # Load button.
+        # Open button.
         GButton(
-            panel, text="Open", command=open_command, width=60, height=30, **btn_colors
+            panel, text="Open", command=open_command, width=70, height=30, **btn_colors
         ).grid(row=0, column=2, padx=5, pady=5, sticky=tk.E)
 
         # Save button.
         GButton(
-            panel, text="Save", command=save_command, width=60, height=30, **btn_colors
+            panel, text="Save", command=save_command, width=70, height=30, **btn_colors
         ).grid(row=0, column=3, padx=5, pady=5, sticky=tk.E)
 
         # Define font tuple.

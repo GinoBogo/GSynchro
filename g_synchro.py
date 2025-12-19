@@ -816,7 +816,7 @@ class GSynchro:
             panel,
             text="Test",
             command=lambda: self._test_ssh(title),
-            width=60,
+            width=70,
             height=30,
             **btn_colors,
         ).grid(row=0, column=4, padx=5, pady=5)
@@ -850,7 +850,7 @@ class GSynchro:
                 self._populate_single_panel(panel_name, folder_path)
 
         GButton(
-            panel, text="Go", command=on_go, width=60, height=30, **btn_colors
+            panel, text="Go", command=on_go, width=70, height=30, **btn_colors
         ).grid(row=2, column=3, padx=5, pady=5)
 
         GButton(
@@ -1301,7 +1301,7 @@ class GSynchro:
             path_frame,
             text="Go",
             command=go_to_path,
-            width=50,
+            width=70,
             height=30,
             **self.colors["buttons"]["default"],
         ).pack(side=tk.LEFT, padx=(5, 0))
@@ -2934,7 +2934,7 @@ class GSynchro:
                     btn_frame,
                     text="Yes",
                     command=on_yes,
-                    width=60,
+                    width=70,
                     height=30,
                     **self.colors["buttons"]["primary"],
                 ).pack(side="right", padx=5)
@@ -2942,7 +2942,7 @@ class GSynchro:
                     btn_frame,
                     text="No",
                     command=confirm_dialog.destroy,
-                    width=60,
+                    width=70,
                     height=30,
                     **self.colors["buttons"]["default"],
                 ).pack(side="right")
