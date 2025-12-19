@@ -1435,11 +1435,19 @@ class GCompare:
 
         # Configure highlight tags.
         if self.text_view_a:
-            self.text_view_a.tag_configure("removed", background=self.colors["diff"]["removed"])
-            self.text_view_a.tag_configure("removed_empty", background=self.colors["diff"]["removed_empty"])
+            self.text_view_a.tag_configure(
+                "removed", background=self.colors["diff"]["removed"]
+            )
+            self.text_view_a.tag_configure(
+                "removed_empty", background=self.colors["diff"]["removed_empty"]
+            )
         if self.text_view_b:
-            self.text_view_b.tag_configure("added", background=self.colors["diff"]["added"])
-            self.text_view_b.tag_configure("added_empty", background=self.colors["diff"]["added_empty"])
+            self.text_view_b.tag_configure(
+                "added", background=self.colors["diff"]["added"]
+            )
+            self.text_view_b.tag_configure(
+                "added_empty", background=self.colors["diff"]["added_empty"]
+            )
 
         # Apply highlights based on diff results.
         for change_info in diff_result["changes"]:
@@ -1496,7 +1504,9 @@ class GCompare:
                 # Determine color based on change type.
                 if change_type in ("removed", "removed_empty"):
                     fill_color = (
-                        self.colors["diff"]["removed_empty"] if change_type == "removed_empty" else self.colors["diff"]["removed"]
+                        self.colors["diff"]["removed_empty"]
+                        if change_type == "removed_empty"
+                        else self.colors["diff"]["removed"]
                     )
                     self.diff_map_canvas.create_rectangle(
                         2,
@@ -1509,7 +1519,9 @@ class GCompare:
                     )
                 elif change_type in ("added", "added_empty"):
                     fill_color = (
-                        self.colors["diff"]["added_empty"] if change_type == "added_empty" else self.colors["diff"]["added"]
+                        self.colors["diff"]["added_empty"]
+                        if change_type == "added_empty"
+                        else self.colors["diff"]["added"]
                     )
                     self.diff_map_canvas.create_rectangle(
                         half_width,
