@@ -23,8 +23,8 @@ class GButton(tk.Canvas):
         master=None,
         text="Button",
         command=None,
-        width: Union[int, str] = 120,
-        height: Union[int, str] = 40,
+        width: Union[int, str] = 100,
+        height: Union[int, str] = 34,
         corner_radius: Union[int, str] = 5,
         bg="#007AFF",
         fg="white",
@@ -107,7 +107,7 @@ class GButton(tk.Canvas):
         if font:
             self._font = font
         else:
-            self._font = tkfont.Font(family="Helvetica", size=10)
+            self._font = tkfont.Font(family="Helvetica", size=10, weight="bold")
 
         self._width = int(width)
         self._height = int(height)

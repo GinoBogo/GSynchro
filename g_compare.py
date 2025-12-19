@@ -129,8 +129,7 @@ class GCompare:
 
     def _setup_ui(self):
         """Set up the main user interface."""
-        self._setup_styles()
-
+        self._update_font_style()
         # Create main layout.
         main_frame = self._create_main_frame()
         control_frame = self._create_control_frame(main_frame)
@@ -146,17 +145,6 @@ class GCompare:
 
         # Set initial status.
         self.status_a.set("by Gino Bogo")
-
-    def _setup_styles(self):
-        """Configure application styles."""
-        style = ttk.Style()
-
-        # Configure monospace font with current options.
-        self._update_font_style()
-
-    # ========================================================================
-    # UI CREATION METHODS
-    # ========================================================================
 
     def _create_main_frame(self) -> ttk.Frame:
         """Create the main application frame.
@@ -198,31 +186,65 @@ class GCompare:
 
         # Button definitions.
         buttons = [
-            ("Compare", self.compare_files, None),
-            ("Reload", self.reload_files, None),
+            ("Compare", self.compare_files, "secondary"),
+            ("Reload", self.reload_files, "secondary"),
             ("Prev ▲", self._go_to_prev_change, "lightgray"),
             ("Next ▼", self._go_to_next_change, "lightgold"),
-            ("Options", self.show_options_dialog, None),
+            ("Options", self.show_options_dialog, "secondary"),
         ]
 
         for text, command, color in buttons:
             if color == "lightgray":
-                colors = {"bg": "#F8F9FA", "hover_bg": "#E9ECEF", "pressed_bg": "#DEE2E6", "fg": "#495057"}
+                colors = {
+                    "bg": "#F8F9FA",
+                    "hover_bg": "#E9ECEF",
+                    "pressed_bg": "#DEE2E6",
+                    "fg": "#495057",
+                }
             elif color == "lightgold":
-                colors = {"bg": "#EEE8AA", "hover_bg": "#F5F0C6", "pressed_bg": "#CDC673", "fg": "black"}
+                colors = {
+                    "bg": "#EEE8AA",
+                    "hover_bg": "#F5F0C6",
+                    "pressed_bg": "#CDC673",
+                    "fg": "black",
+                }
+            elif color == "primary":
+                colors = {
+                    "bg": "#FFCC80",
+                    "hover_bg": "#FFE0B2",
+                    "pressed_bg": "#FFB74D",
+                    "fg": "black",
+                }
+            elif color == "success":
+                colors = {
+                    "bg": "#CFD8DC",
+                    "hover_bg": "#ECEFF1",
+                    "pressed_bg": "#B0BEC5",
+                    "fg": "black",
+                }
+            elif color == "secondary":
+                colors = {
+                    "bg": "#E6E6FA",
+                    "hover_bg": "#F3F3FC",
+                    "pressed_bg": "#CBCBE8",
+                    "fg": "black",
+                }
             else:
-                colors = {"bg": "#E1E1E1", "hover_bg": "#F0F0F0", "pressed_bg": "#D0D0D0", "fg": "black"}
+                colors = {
+                    "bg": "#E1E1E1",
+                    "hover_bg": "#F0F0F0",
+                    "pressed_bg": "#D0D0D0",
+                    "fg": "black",
+                }
 
             GButton(
                 button_container,
                 text=text,
                 command=command,
                 width=100,
-                height=30,
-                **colors
-            ).pack(
-                side=tk.LEFT, padx=5, pady=5
-            )
+                height=34,
+                **colors,
+            ).pack(side=tk.LEFT, padx=5, pady=5)
 
     def _go_to_next_change(self):
         """Move both text views to the next change location."""
@@ -449,9 +471,19 @@ class GCompare:
         button_color = config["button_color"]
 
         if button_color == "lightgreen":
-            colors = {"bg": "#90EE90", "hover_bg": "#B6FFB6", "pressed_bg": "#7CCD7C", "fg": "black"}
+            colors = {
+                "bg": "#90EE90",
+                "hover_bg": "#B6FFB6",
+                "pressed_bg": "#7CCD7C",
+                "fg": "black",
+            }
         else:
-            colors = {"bg": "#87CEFA", "hover_bg": "#ADD8E6", "pressed_bg": "#7EC0EE", "fg": "black"}
+            colors = {
+                "bg": "#87CEFA",
+                "hover_bg": "#ADD8E6",
+                "pressed_bg": "#7EC0EE",
+                "fg": "black",
+            }
 
         panel = ttk.LabelFrame(parent, text=title, padding="5")
         panel.grid(
@@ -482,22 +514,12 @@ class GCompare:
 
         # Load button.
         GButton(
-            panel,
-            text="Open",
-            command=open_command,
-            width=60,
-            height=25,
-            **colors
+            panel, text="Open", command=open_command, width=60, height=30, **colors
         ).grid(row=0, column=2, padx=5, pady=5, sticky=tk.E)
 
         # Save button.
         GButton(
-            panel,
-            text="Save",
-            command=save_command,
-            width=60,
-            height=25,
-            **colors
+            panel, text="Save", command=save_command, width=60, height=30, **colors
         ).grid(row=0, column=3, padx=5, pady=5, sticky=tk.E)
 
         # Define font tuple.
@@ -890,8 +912,11 @@ class GCompare:
             text="Apply",
             command=apply_options,
             width=100,
-            height=30,
-            bg="#007AFF", hover_bg="#0051A8", pressed_bg="#003366", fg="white"
+            height=34,
+            bg="#007AFF",
+            hover_bg="#0051A8",
+            pressed_bg="#003366",
+            fg="white",
         ).pack(side=tk.LEFT, padx=5)
 
         GButton(
@@ -899,8 +924,11 @@ class GCompare:
             text="Reset",
             command=reset_options,
             width=100,
-            height=30,
-            bg="#E1E1E1", hover_bg="#F0F0F0", pressed_bg="#D0D0D0", fg="black"
+            height=34,
+            bg="#E6E6FA",
+            hover_bg="#F3F3FC",
+            pressed_bg="#CBCBE8",
+            fg="black",
         ).pack(side=tk.LEFT, padx=5)
 
         GButton(
@@ -908,8 +936,11 @@ class GCompare:
             text="Cancel",
             command=dialog.destroy,
             width=100,
-            height=30,
-            bg="#E1E1E1", hover_bg="#F0F0F0", pressed_bg="#D0D0D0", fg="black"
+            height=34,
+            bg="#E6E6FA",
+            hover_bg="#F3F3FC",
+            pressed_bg="#CBCBE8",
+            fg="black",
         ).pack(side=tk.LEFT, padx=5)
 
     # ========================================================================

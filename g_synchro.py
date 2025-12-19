@@ -606,55 +606,7 @@ class GSynchro:
 
     def _setup_ui(self):
         """Set up the main user interface."""
-        self._setup_styles()
-
-        # Create main layout.
-        main_frame = self._create_main_frame()
-        control_frame = self._create_control_frame(main_frame)
-        panels_frame = self._create_panels_frame(main_frame)
-
-        # Create UI components.
-        self._create_control_buttons(control_frame)
-        self._create_panels(panels_frame)
-        self._create_status_bar(main_frame)
-
-        # Create context menu.
-        self._create_tree_context_menu()
-
-        # Initial status.
-        self.status_a.set("by Gino Bogo")
-
-    def _setup_styles(self):
-        """Configure application styles."""
         style = ttk.Style()
-
-        # Light green button style.
-        style.configure(
-            "lightgreen.TButton",
-            background="#90EE90",
-            foreground="black",
-            borderwidth=1,
-            focuscolor="none",
-            relief="raised",
-        )
-        style.map(
-            "lightgreen.TButton",
-            background=[("active", "#B6FFB6"), ("pressed", "#90EE90")],
-        )
-
-        # Light blue button style.
-        style.configure(
-            "lightblue.TButton",
-            background="#87CEFA",
-            foreground="black",
-            borderwidth=1,
-            focuscolor="none",
-            relief="raised",
-        )
-        style.map(
-            "lightblue.TButton",
-            background=[("active", "#ADD8E6"), ("pressed", "#87CEFA")],
-        )
 
         # Progress bar style.
         style.configure(
@@ -679,6 +631,22 @@ class GSynchro:
 
         # Reset map to avoid conflicts.
         style.map("TTreeview")
+
+        # Create main layout.
+        main_frame = self._create_main_frame()
+        control_frame = self._create_control_frame(main_frame)
+        panels_frame = self._create_panels_frame(main_frame)
+
+        # Create UI components.
+        self._create_control_buttons(control_frame)
+        self._create_panels(panels_frame)
+        self._create_status_bar(main_frame)
+
+        # Create context menu.
+        self._create_tree_context_menu()
+
+        # Initial status.
+        self.status_a.set("by Gino Bogo")
 
     def _create_main_frame(self) -> ttk.Frame:
         """Create the main application frame.
@@ -716,10 +684,10 @@ class GSynchro:
             control_frame: Parent control frame
         """
         buttons_config = [
-            ("Compare", self.compare_folders, None),
+            ("Compare", self.compare_folders, "secondary"),
             ("Sync  ▶", lambda: self.synchronize("a_to_b"), "lightgreen"),
             ("◀  Sync", lambda: self.synchronize("b_to_a"), "lightblue"),
-            ("Options", self._show_options_dialog, None),
+            ("Options", self._show_options_dialog, "secondary"),
         ]
 
         button_container = ttk.Frame(control_frame)
@@ -740,6 +708,13 @@ class GSynchro:
                     "pressed_bg": "#7EC0EE",
                     "fg": "black",
                 }
+            elif color == "secondary":
+                colors = {
+                    "bg": "#E6E6FA",
+                    "hover_bg": "#F3F3FC",
+                    "pressed_bg": "#CBCBE8",
+                    "fg": "black",
+                }
             else:
                 colors = {
                     "bg": "#E1E1E1",
@@ -753,7 +728,7 @@ class GSynchro:
                 text=text,
                 command=command,
                 width=100,
-                height=30,
+                height=34,
                 **colors,
             ).pack(side=tk.LEFT, padx=5, pady=5)
 
@@ -877,7 +852,7 @@ class GSynchro:
             text="Test",
             command=lambda: self._test_ssh(title),
             width=60,
-            height=25,
+            height=30,
             **colors,
         ).grid(row=0, column=4, padx=5, pady=5)
 
@@ -909,12 +884,12 @@ class GSynchro:
             if folder_path:
                 self._populate_single_panel(panel_name, folder_path)
 
-        GButton(panel, text="Go", command=on_go, width=60, height=25, **colors).grid(
+        GButton(panel, text="Go", command=on_go, width=60, height=30, **colors).grid(
             row=2, column=3, padx=5, pady=5
         )
 
         GButton(
-            panel, text="Browse", command=browse_command, width=70, height=25, **colors
+            panel, text="Browse", command=browse_command, width=70, height=30, **colors
         ).grid(row=2, column=4, padx=5, pady=5)
 
         # Tree view.
@@ -1364,7 +1339,7 @@ class GSynchro:
             text="Go",
             command=go_to_path,
             width=50,
-            height=25,
+            height=30,
             bg="#E1E1E1",
             hover_bg="#F0F0F0",
             pressed_bg="#D0D0D0",
@@ -1449,7 +1424,7 @@ class GSynchro:
             text="Cancel",
             command=on_cancel,
             width=100,
-            height=30,
+            height=34,
             bg="#E1E1E1",
             hover_bg="#F0F0F0",
             pressed_bg="#D0D0D0",
@@ -1461,7 +1436,7 @@ class GSynchro:
             text="Select",
             command=on_select_folder,
             width=100,
-            height=30,
+            height=34,
             bg="#007AFF",
             hover_bg="#0051A8",
             pressed_bg="#003366",
@@ -2934,7 +2909,7 @@ class GSynchro:
                 text="Cancel",
                 command=input_dialog.destroy,
                 width=80,
-                height=30,
+                height=34,
                 bg="#E1E1E1",
                 hover_bg="#F0F0F0",
                 pressed_bg="#D0D0D0",
@@ -2945,7 +2920,7 @@ class GSynchro:
                 text="OK",
                 command=on_ok,
                 width=80,
-                height=30,
+                height=34,
                 bg="#007AFF",
                 hover_bg="#0051A8",
                 pressed_bg="#003366",
@@ -3150,7 +3125,7 @@ class GSynchro:
             text="Save",
             command=save_and_close,
             width=80,
-            height=30,
+            height=34,
             bg="#007AFF",
             hover_bg="#0051A8",
             pressed_bg="#003366",
@@ -3161,7 +3136,7 @@ class GSynchro:
             text="Apply",
             command=apply_filters,
             width=80,
-            height=30,
+            height=34,
             bg="#E1E1E1",
             hover_bg="#F0F0F0",
             pressed_bg="#D0D0D0",
@@ -3172,7 +3147,7 @@ class GSynchro:
             text="Cancel",
             command=dialog.destroy,
             width=80,
-            height=30,
+            height=34,
             bg="#E1E1E1",
             hover_bg="#F0F0F0",
             pressed_bg="#D0D0D0",
@@ -3301,7 +3276,7 @@ class GSynchro:
                 text="OK",
                 command=on_ok,
                 width=80,
-                height=30,
+                height=34,
                 bg="#007AFF",
                 hover_bg="#0051A8",
                 pressed_bg="#003366",
@@ -3312,7 +3287,7 @@ class GSynchro:
                 text="Cancel",
                 command=on_cancel,
                 width=80,
-                height=30,
+                height=34,
                 bg="#E1E1E1",
                 hover_bg="#F0F0F0",
                 pressed_bg="#D0D0D0",
@@ -3564,7 +3539,7 @@ class GSynchro:
             text="Apply",
             command=apply_options,
             width=100,
-            height=30,
+            height=34,
             bg="#007AFF",
             hover_bg="#0051A8",
             pressed_bg="#003366",
@@ -3576,10 +3551,10 @@ class GSynchro:
             text="Reset",
             command=reset_options,
             width=100,
-            height=30,
-            bg="#E1E1E1",
-            hover_bg="#F0F0F0",
-            pressed_bg="#D0D0D0",
+            height=34,
+            bg="#E6E6FA",
+            hover_bg="#F3F3FC",
+            pressed_bg="#CBCBE8",
             fg="black",
         ).pack(side=tk.LEFT, padx=5)
 
@@ -3588,10 +3563,10 @@ class GSynchro:
             text="Cancel",
             command=dialog.destroy,
             width=100,
-            height=30,
-            bg="#E1E1E1",
-            hover_bg="#F0F0F0",
-            pressed_bg="#D0D0D0",
+            height=34,
+            bg="#E6E6FA",
+            hover_bg="#F3F3FC",
+            pressed_bg="#CBCBE8",
             fg="black",
         ).pack(side=tk.LEFT, padx=5)
 
