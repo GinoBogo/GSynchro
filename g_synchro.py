@@ -5,7 +5,7 @@ GSynchro - GUI File Synchronization Tool
 Graphical application for comparing and synchronizing files between local and
 remote folders. Supports SSH-based remote operations with visual comparison.
 
-Author: Gino Bogo
+ Author: Gino Bogo
 License: MIT
 Version: 1.0
 """
@@ -36,6 +36,7 @@ from typing import Optional, Iterator, cast, Union
 from tkinter import filedialog, messagebox, ttk
 
 from libs.g_button import GButton
+from libs.g_theme import get_theme_colors
 
 # Third-party imports.
 import paramiko
@@ -458,6 +459,7 @@ class GSynchro:
         # Threading lock for progress bar updates.
         self._progress_lock = threading.Lock()
 
+        self.colors = get_theme_colors()
         self._load_config()
         self._init_window()
         self._setup_ui()
@@ -611,8 +613,8 @@ class GSynchro:
         # Progress bar style.
         style.configure(
             "flat.Horizontal.TProgressbar",
-            troughcolor="#E0E0E0",
-            background="dodgerblue",
+            troughcolor=self.colors["progress"]["trough"],
+            background=self.colors["progress"]["background"],
             borderwidth=0,
             relief="flat",
         )
@@ -694,42 +696,16 @@ class GSynchro:
         button_container.pack(expand=True)
 
         for text, command, color in buttons_config:
-            if color == "lightgreen":
-                colors = {
-                    "bg": "#90EE90",
-                    "hover_bg": "#B6FFB6",
-                    "pressed_bg": "#7CCD7C",
-                    "fg": "black",
-                }
-            elif color == "lightblue":
-                colors = {
-                    "bg": "#87CEFA",
-                    "hover_bg": "#ADD8E6",
-                    "pressed_bg": "#7EC0EE",
-                    "fg": "black",
-                }
-            elif color == "secondary":
-                colors = {
-                    "bg": "#E6E6FA",
-                    "hover_bg": "#F3F3FC",
-                    "pressed_bg": "#CBCBE8",
-                    "fg": "black",
-                }
-            else:
-                colors = {
-                    "bg": "#E1E1E1",
-                    "hover_bg": "#F0F0F0",
-                    "pressed_bg": "#D0D0D0",
-                    "fg": "black",
-                }
-
+            btn_colors = self.colors["buttons"].get(
+                color, self.colors["buttons"]["default"]
+            )
             GButton(
                 button_container,
                 text=text,
                 command=command,
                 width=100,
                 height=34,
-                **colors,
+                **btn_colors,
             ).pack(side=tk.LEFT, padx=5, pady=5)
 
     def _create_panels_frame(self, main_frame: ttk.Frame) -> ttk.PanedWindow:
@@ -800,20 +776,9 @@ class GSynchro:
         button_color = panel_config["button_color"]
         tree_attr = panel_config["tree_attr"]
 
-        if button_color == "lightgreen":
-            colors = {
-                "bg": "#90EE90",
-                "hover_bg": "#B6FFB6",
-                "pressed_bg": "#7CCD7C",
-                "fg": "black",
-            }
-        else:
-            colors = {
-                "bg": "#87CEFA",
-                "hover_bg": "#ADD8E6",
-                "pressed_bg": "#7EC0EE",
-                "fg": "black",
-            }
+        btn_colors = self.colors["buttons"].get(
+            button_color, self.colors["buttons"]["default"]
+        )
 
         panel_frame = ttk.Frame(parent, padding=0)
         panel = ttk.LabelFrame(panel_frame, text=title, padding="5")
@@ -853,7 +818,7 @@ class GSynchro:
             command=lambda: self._test_ssh(title),
             width=60,
             height=30,
-            **colors,
+            **btn_colors,
         ).grid(row=0, column=4, padx=5, pady=5)
 
         # Username and Password row.
@@ -884,12 +849,17 @@ class GSynchro:
             if folder_path:
                 self._populate_single_panel(panel_name, folder_path)
 
-        GButton(panel, text="Go", command=on_go, width=60, height=30, **colors).grid(
-            row=2, column=3, padx=5, pady=5
-        )
+        GButton(
+            panel, text="Go", command=on_go, width=60, height=30, **btn_colors
+        ).grid(row=2, column=3, padx=5, pady=5)
 
         GButton(
-            panel, text="Browse", command=browse_command, width=70, height=30, **colors
+            panel,
+            text="Browse",
+            command=browse_command,
+            width=70,
+            height=30,
+            **btn_colors,
         ).grid(row=2, column=4, padx=5, pady=5)
 
         # Tree view.
@@ -951,14 +921,7 @@ class GSynchro:
         tree.column("status", width=100, anchor="center", stretch=False)
 
         # Configure tags for different status colors.
-        colors = {
-            "green": "green",
-            "orange": "orange",
-            "blue": "blue",
-            "red": "red",
-            "magenta": "magenta",
-            "black": "black",
-        }
+        colors = self.colors["status"]
         for tag, color in colors.items():
             tree.tag_configure(tag, foreground=color)  # Font is applied later.
 
@@ -1340,10 +1303,7 @@ class GSynchro:
             command=go_to_path,
             width=50,
             height=30,
-            bg="#E1E1E1",
-            hover_bg="#F0F0F0",
-            pressed_bg="#D0D0D0",
-            fg="black",
+            **self.colors["buttons"]["default"],
         ).pack(side=tk.LEFT, padx=(5, 0))
         path_entry.bind("<Return>", go_to_path)
 
@@ -1425,10 +1385,7 @@ class GSynchro:
             command=on_cancel,
             width=100,
             height=34,
-            bg="#E1E1E1",
-            hover_bg="#F0F0F0",
-            pressed_bg="#D0D0D0",
-            fg="black",
+            **self.colors["buttons"]["default"],
         ).pack(side=tk.LEFT, padx=5)
 
         GButton(
@@ -1437,10 +1394,7 @@ class GSynchro:
             command=on_select_folder,
             width=100,
             height=34,
-            bg="#007AFF",
-            hover_bg="#0051A8",
-            pressed_bg="#003366",
-            fg="white",
+            **self.colors["buttons"]["primary"],
         ).pack(side=tk.LEFT, padx=5)
 
         # Bind events and initial actions.
@@ -2910,10 +2864,7 @@ class GSynchro:
                 command=input_dialog.destroy,
                 width=80,
                 height=34,
-                bg="#E1E1E1",
-                hover_bg="#F0F0F0",
-                pressed_bg="#D0D0D0",
-                fg="black",
+                **self.colors["buttons"]["default"],
             ).grid(row=0, column=1, padx=5)
             GButton(
                 button_frame,
@@ -2921,10 +2872,7 @@ class GSynchro:
                 command=on_ok,
                 width=80,
                 height=34,
-                bg="#007AFF",
-                hover_bg="#0051A8",
-                pressed_bg="#003366",
-                fg="white",
+                **self.colors["buttons"]["primary"],
             ).grid(row=0, column=2, padx=5)
 
             self._center_dialog(input_dialog, relative_to=dialog)
@@ -2988,10 +2936,7 @@ class GSynchro:
                     command=on_yes,
                     width=60,
                     height=30,
-                    bg="#007AFF",
-                    hover_bg="#0051A8",
-                    pressed_bg="#003366",
-                    fg="white",
+                    **self.colors["buttons"]["primary"],
                 ).pack(side="right", padx=5)
                 GButton(
                     btn_frame,
@@ -2999,10 +2944,7 @@ class GSynchro:
                     command=confirm_dialog.destroy,
                     width=60,
                     height=30,
-                    bg="#E1E1E1",
-                    hover_bg="#F0F0F0",
-                    pressed_bg="#D0D0D0",
-                    fg="black",
+                    **self.colors["buttons"]["default"],
                 ).pack(side="right")
 
                 confirm_dialog.wait_window()
@@ -3126,10 +3068,7 @@ class GSynchro:
             command=save_and_close,
             width=80,
             height=34,
-            bg="#007AFF",
-            hover_bg="#0051A8",
-            pressed_bg="#003366",
-            fg="white",
+            **self.colors["buttons"]["primary"],
         ).grid(row=0, column=3, padx=5)
         GButton(
             button_frame,
@@ -3137,10 +3076,7 @@ class GSynchro:
             command=apply_filters,
             width=80,
             height=34,
-            bg="#E1E1E1",
-            hover_bg="#F0F0F0",
-            pressed_bg="#D0D0D0",
-            fg="black",
+            **self.colors["buttons"]["default"],
         ).grid(row=0, column=2, padx=5)
         GButton(
             button_frame,
@@ -3148,10 +3084,7 @@ class GSynchro:
             command=dialog.destroy,
             width=80,
             height=34,
-            bg="#E1E1E1",
-            hover_bg="#F0F0F0",
-            pressed_bg="#D0D0D0",
-            fg="black",
+            **self.colors["buttons"]["default"],
         ).grid(row=0, column=1, padx=5)
 
         # Center dialog.
@@ -3277,10 +3210,7 @@ class GSynchro:
                 command=on_ok,
                 width=80,
                 height=34,
-                bg="#007AFF",
-                hover_bg="#0051A8",
-                pressed_bg="#003366",
-                fg="white",
+                **self.colors["buttons"]["primary"],
             ).pack(side=tk.LEFT, padx=5)
             GButton(
                 button_frame,
@@ -3288,10 +3218,7 @@ class GSynchro:
                 command=on_cancel,
                 width=80,
                 height=34,
-                bg="#E1E1E1",
-                hover_bg="#F0F0F0",
-                pressed_bg="#D0D0D0",
-                fg="black",
+                **self.colors["buttons"]["default"],
             ).pack(side=tk.LEFT)
 
             rule_dialog.bind("<Return>", lambda e: on_ok())
@@ -3540,10 +3467,7 @@ class GSynchro:
             command=apply_options,
             width=100,
             height=34,
-            bg="#007AFF",
-            hover_bg="#0051A8",
-            pressed_bg="#003366",
-            fg="white",
+            **self.colors["buttons"]["primary"],
         ).pack(side=tk.LEFT, padx=5)
 
         GButton(
@@ -3552,10 +3476,7 @@ class GSynchro:
             command=reset_options,
             width=100,
             height=34,
-            bg="#E6E6FA",
-            hover_bg="#F3F3FC",
-            pressed_bg="#CBCBE8",
-            fg="black",
+            **self.colors["buttons"]["secondary"],
         ).pack(side=tk.LEFT, padx=5)
 
         GButton(
@@ -3564,10 +3485,7 @@ class GSynchro:
             command=dialog.destroy,
             width=100,
             height=34,
-            bg="#E6E6FA",
-            hover_bg="#F3F3FC",
-            pressed_bg="#CBCBE8",
-            fg="black",
+            **self.colors["buttons"]["secondary"],
         ).pack(side=tk.LEFT, padx=5)
 
     def _update_tree_fonts(self):

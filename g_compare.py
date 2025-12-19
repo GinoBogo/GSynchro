@@ -6,7 +6,7 @@ A graphical tool for side-by-side comparison of text files. It highlights
 differences in a modern and graphical way, allowing for easy visualization of
 changes between two files.
 
-Author: Gino Bogo
+ Author: Gino Bogo
 License: MIT
 Version: 1.0
 """
@@ -26,6 +26,7 @@ from tkinter import filedialog, messagebox, ttk
 from typing import Dict, List, Optional, Tuple, cast
 
 from libs.g_button import GButton
+from libs.g_theme import get_theme_colors
 
 # ============================================================================
 # CONSTANTS
@@ -106,6 +107,7 @@ class GCompare:
         self._marker_drag_start_y: Optional[float] = None
         self._marker_initial_scroll_fraction = 0.0
 
+        self.colors = get_theme_colors()
         # Initialize application.
         self.load_config()
         self._init_window()
@@ -194,56 +196,16 @@ class GCompare:
         ]
 
         for text, command, color in buttons:
-            if color == "lightgray":
-                colors = {
-                    "bg": "#F8F9FA",
-                    "hover_bg": "#E9ECEF",
-                    "pressed_bg": "#DEE2E6",
-                    "fg": "#495057",
-                }
-            elif color == "lightgold":
-                colors = {
-                    "bg": "#EEE8AA",
-                    "hover_bg": "#F5F0C6",
-                    "pressed_bg": "#CDC673",
-                    "fg": "black",
-                }
-            elif color == "primary":
-                colors = {
-                    "bg": "#FFCC80",
-                    "hover_bg": "#FFE0B2",
-                    "pressed_bg": "#FFB74D",
-                    "fg": "black",
-                }
-            elif color == "success":
-                colors = {
-                    "bg": "#CFD8DC",
-                    "hover_bg": "#ECEFF1",
-                    "pressed_bg": "#B0BEC5",
-                    "fg": "black",
-                }
-            elif color == "secondary":
-                colors = {
-                    "bg": "#E6E6FA",
-                    "hover_bg": "#F3F3FC",
-                    "pressed_bg": "#CBCBE8",
-                    "fg": "black",
-                }
-            else:
-                colors = {
-                    "bg": "#E1E1E1",
-                    "hover_bg": "#F0F0F0",
-                    "pressed_bg": "#D0D0D0",
-                    "fg": "black",
-                }
-
+            btn_colors = self.colors["buttons"].get(
+                color, self.colors["buttons"]["default"]
+            )
             GButton(
                 button_container,
                 text=text,
                 command=command,
                 width=100,
                 height=34,
-                **colors,
+                **btn_colors,
             ).pack(side=tk.LEFT, padx=5, pady=5)
 
     def _go_to_next_change(self):
@@ -412,7 +374,7 @@ class GCompare:
 
         # Create diff map canvas.
         self.diff_map_canvas = tk.Canvas(
-            parent, width=SCROLL_MARKER_WIDTH, bg="#FFFFFF"
+            parent, width=SCROLL_MARKER_WIDTH, bg=self.colors["diff"]["canvas_bg"]
         )
         self.diff_map_canvas.grid(row=0, column=1, sticky="ns", pady=(10, 0))
 
@@ -422,8 +384,8 @@ class GCompare:
             2,
             SCROLL_MARKER_WIDTH - 1,  # noqa: B007
             3,
-            fill="#808080",
-            outline="black",
+            fill=self.colors["diff"]["marker_fill"],
+            outline=self.colors["diff"]["marker_outline"],
             width=1,
             stipple="gray12",
             tags="scroll_marker",
@@ -470,20 +432,9 @@ class GCompare:
         save_command = config["save_command"]
         button_color = config["button_color"]
 
-        if button_color == "lightgreen":
-            colors = {
-                "bg": "#90EE90",
-                "hover_bg": "#B6FFB6",
-                "pressed_bg": "#7CCD7C",
-                "fg": "black",
-            }
-        else:
-            colors = {
-                "bg": "#87CEFA",
-                "hover_bg": "#ADD8E6",
-                "pressed_bg": "#7EC0EE",
-                "fg": "black",
-            }
+        btn_colors = self.colors["buttons"].get(
+            button_color, self.colors["buttons"]["default"]
+        )
 
         panel = ttk.LabelFrame(parent, text=title, padding="5")
         panel.grid(
@@ -514,12 +465,12 @@ class GCompare:
 
         # Load button.
         GButton(
-            panel, text="Open", command=open_command, width=60, height=30, **colors
+            panel, text="Open", command=open_command, width=60, height=30, **btn_colors
         ).grid(row=0, column=2, padx=5, pady=5, sticky=tk.E)
 
         # Save button.
         GButton(
-            panel, text="Save", command=save_command, width=60, height=30, **colors
+            panel, text="Save", command=save_command, width=60, height=30, **btn_colors
         ).grid(row=0, column=3, padx=5, pady=5, sticky=tk.E)
 
         # Define font tuple.
@@ -640,7 +591,7 @@ class GCompare:
         # Removed lines legend.
         removed_square = tk.Label(
             left_status_container,
-            bg="lightcoral",
+            bg=self.colors["diff"]["removed"],
             width=2,
             height=1,
             relief="solid",
@@ -651,7 +602,7 @@ class GCompare:
         # Removed empty lines legend.
         empty_square = tk.Label(
             left_status_container,
-            bg="yellow",
+            bg=self.colors["diff"]["removed_empty"],
             width=2,
             height=1,
             relief="solid",
@@ -676,7 +627,7 @@ class GCompare:
         # Added lines legend.
         added_square = tk.Label(
             right_status_container,
-            bg="lightblue",
+            bg=self.colors["diff"]["added"],
             width=2,
             height=1,
             relief="solid",
@@ -687,7 +638,7 @@ class GCompare:
         # Added empty lines legend.
         empty_square_b = tk.Label(
             right_status_container,
-            bg="yellow",
+            bg=self.colors["diff"]["added_empty"],
             width=2,
             height=1,
             relief="solid",
@@ -913,10 +864,7 @@ class GCompare:
             command=apply_options,
             width=100,
             height=34,
-            bg="#007AFF",
-            hover_bg="#0051A8",
-            pressed_bg="#003366",
-            fg="white",
+            **self.colors["buttons"]["primary"],
         ).pack(side=tk.LEFT, padx=5)
 
         GButton(
@@ -925,10 +873,7 @@ class GCompare:
             command=reset_options,
             width=100,
             height=34,
-            bg="#E6E6FA",
-            hover_bg="#F3F3FC",
-            pressed_bg="#CBCBE8",
-            fg="black",
+            **self.colors["buttons"]["secondary"],
         ).pack(side=tk.LEFT, padx=5)
 
         GButton(
@@ -937,10 +882,7 @@ class GCompare:
             command=dialog.destroy,
             width=100,
             height=34,
-            bg="#E6E6FA",
-            hover_bg="#F3F3FC",
-            pressed_bg="#CBCBE8",
-            fg="black",
+            **self.colors["buttons"]["secondary"],
         ).pack(side=tk.LEFT, padx=5)
 
     # ========================================================================
@@ -1493,11 +1435,11 @@ class GCompare:
 
         # Configure highlight tags.
         if self.text_view_a:
-            self.text_view_a.tag_configure("removed", background="lightcoral")
-            self.text_view_a.tag_configure("removed_empty", background="yellow")
+            self.text_view_a.tag_configure("removed", background=self.colors["diff"]["removed"])
+            self.text_view_a.tag_configure("removed_empty", background=self.colors["diff"]["removed_empty"])
         if self.text_view_b:
-            self.text_view_b.tag_configure("added", background="lightblue")
-            self.text_view_b.tag_configure("added_empty", background="yellow")
+            self.text_view_b.tag_configure("added", background=self.colors["diff"]["added"])
+            self.text_view_b.tag_configure("added_empty", background=self.colors["diff"]["added_empty"])
 
         # Apply highlights based on diff results.
         for change_info in diff_result["changes"]:
@@ -1554,7 +1496,7 @@ class GCompare:
                 # Determine color based on change type.
                 if change_type in ("removed", "removed_empty"):
                     fill_color = (
-                        "yellow" if change_type == "removed_empty" else "lightcoral"
+                        self.colors["diff"]["removed_empty"] if change_type == "removed_empty" else self.colors["diff"]["removed"]
                     )
                     self.diff_map_canvas.create_rectangle(
                         2,
@@ -1567,7 +1509,7 @@ class GCompare:
                     )
                 elif change_type in ("added", "added_empty"):
                     fill_color = (
-                        "yellow" if change_type == "added_empty" else "lightblue"
+                        self.colors["diff"]["added_empty"] if change_type == "added_empty" else self.colors["diff"]["added"]
                     )
                     self.diff_map_canvas.create_rectangle(
                         half_width,
