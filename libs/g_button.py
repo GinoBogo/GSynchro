@@ -210,13 +210,13 @@ class GButton(tk.Canvas):
         if self.corner_radius == 0:
             # Draw regular rectangle for no radius
             self.create_rectangle(
-                2,  # Start 2px from edge for border visibility
                 2,
-                self._width - 2,  # End 2px from edge
+                2,
+                self._width - 2,
                 self._height - 2,
                 fill=fill_color,
                 outline=outline_color,
-                width=2,  # Thicker border for visibility
+                width=2,
             )
         else:
             # Draw rounded rectangle using the specified method
@@ -248,6 +248,9 @@ class GButton(tk.Canvas):
         Returns:
             Canvas item ID of the created polygon.
         """
+        # Adjust radius for bottom-right corner to fix visual clipping
+        br_radius = radius + 1
+
         points = [
             x1 + radius,
             y1,
@@ -264,14 +267,14 @@ class GButton(tk.Canvas):
             x2,
             y1 + radius,
             x2,
-            y2 - radius,
+            y2 - br_radius,
             x2,
-            y2 - radius,
+            y2 - br_radius,
             x2,
             y2,
-            x2 - radius,
+            x2 - br_radius,
             y2,
-            x2 - radius,
+            x2 - br_radius,
             y2,
             x1 + radius,
             y2,
