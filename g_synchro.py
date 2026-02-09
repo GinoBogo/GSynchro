@@ -972,7 +972,7 @@ class GSynchro:
             label="Compare...", command=self._compare_selected_files
         )
         self.tree_context_menu.add_command(
-            label="Delete", command=self._delete_selected_item
+            label="Delete", command=self._delete_selected_items
         )
         self.tree_context_menu.add_separator()
         self.tree_context_menu.add_command(
@@ -4150,39 +4150,59 @@ class GSynchro:
         finally:
             self._clear_context_menu_state()
 
-    def _delete_selected_item(self):
-        """Delete the selected file or directory."""
+    def _delete_selected_items(self):
+        """Delete the selected files or directories."""
         tree = self._context_menu_tree
-        item_id = self._context_menu_item_id
 
-        if tree is None or item_id is None:
+        if tree is None:
             self._log("No item selected for deletion via context menu.")
             self._clear_context_menu_state()
             return
 
-        rel_path = self._get_relative_path(tree, item_id)
-        if not rel_path:
+        selected_items = tree.selection()
+        if not selected_items:
             return
+
+        count = len(selected_items)
+        msg = (
+            f"Are you sure you want to permanently delete these {count} items?"
+            if count > 1
+            else "Are you sure you want to permanently delete the selected item?"
+        )
 
         if not messagebox.askyesno(
             "Confirm Delete",
-            f"Are you sure you want to permanently delete '{rel_path}'?",
+            msg,
         ):
             return
 
         panel = "A" if tree is self.tree_a else "B"
         use_ssh = self._has_ssh_a() if panel == "A" else self._has_ssh_b()
         files_dict = self.files_a if panel == "A" else self.files_b
-        item_info = files_dict.get(rel_path)
-        full_path = item_info.get("full_path") if item_info else None
+        base_folder = self.folder_a.get() if panel == "A" else self.folder_b.get()
 
-        if not full_path:
-            base_folder = self.folder_a.get() if panel == "A" else self.folder_b.get()
-            full_path = os.path.join(base_folder, rel_path)
+        # Pre-calculate paths on main thread
+        items_to_delete = []
+        for item_id in selected_items:
+            rel_path = self._get_relative_path(tree, item_id)
+            if not rel_path:
+                continue
+
+            item_info = files_dict.get(rel_path)
+            full_path = item_info.get("full_path") if item_info else None
+            if not full_path:
+                full_path = os.path.join(base_folder, rel_path)
+
+            is_dir = False
+            if item_info:
+                is_dir = item_info.get("type") == "dir"
+            elif not use_ssh and os.path.isdir(full_path):
+                is_dir = True
+
+            items_to_delete.append((full_path, is_dir))
 
         def delete_and_refresh():
             try:
-                self._log(f"Deleting item: {full_path}")
                 if use_ssh:  # noqa: B007
                     # Remote deletion.
                     with self._create_ssh_for_panel(panel) as ssh_client:
@@ -4190,45 +4210,31 @@ class GSynchro:
                             raise ConnectionError(
                                 f"Could not connect to Panel {panel} for deletion."
                             )
-                        is_dir = False  # noqa: B007
-                        if item_info:
-                            is_dir = item_info.get("type") == "dir"
-                        else:
-                            # Fallback: check remote system.
-                            stdin, stdout, stderr = ssh_client.exec_command(
-                                f"if [ -d {_posix_quote(full_path)} ]; then echo 'dir'; fi"
-                            )
-                            if stdout.read().decode().strip() == "dir":
-                                is_dir = True
-                        command = (
-                            f"rm -rf {_posix_quote(full_path)}"
-                            if is_dir
-                            else f"rm {_posix_quote(full_path)}"
-                        )
-                        stdin, stdout, stderr = ssh_client.exec_command(command)
-                        error = stderr.read().decode()
-                        if error:
-                            raise Exception(error)
+                        for full_path, _ in items_to_delete:
+                            self._log(f"Deleting item: {full_path}")
+                            command = f"rm -rf {_posix_quote(full_path)}"
+                            stdin, stdout, stderr = ssh_client.exec_command(command)
+                            error = stderr.read().decode()
+                            if error:
+                                self._log(f"Error deleting {full_path}: {error}")
                 else:
                     # Local deletion.
-                    is_dir = False  # noqa: B007
-                    if item_info:
-                        is_dir = item_info.get("type") == "dir"
-                    elif os.path.isdir(full_path):
-                        is_dir = True
-
-                    if is_dir:
-                        shutil.rmtree(full_path)
-                    else:
-                        os.remove(full_path)
+                    for full_path, is_dir in items_to_delete:
+                        self._log(f"Deleting item: {full_path}")
+                        if is_dir:
+                            if os.path.exists(full_path):
+                                shutil.rmtree(full_path)
+                        else:
+                            if os.path.exists(full_path):
+                                os.remove(full_path)
 
                 self._log(f"Successfully deleted. Refreshing panel {panel}.")
                 self._populate_single_panel(
                     panel, self.folder_a.get() if panel == "A" else self.folder_b.get()
                 )
             except Exception as e:
-                messagebox.showerror("Error", f"Failed to delete item: {e}")
-                self._log(f"Error deleting {full_path}: {e}")
+                messagebox.showerror("Error", f"Failed to delete items: {e}")
+                self._log(f"Error deleting items: {e}")
             finally:
                 self._clear_context_menu_state()
 
