@@ -1248,6 +1248,11 @@ class GSynchro:
         self.tree_context_menu.add_command(
             label="Deselect All", command=self._deselect_all
         )
+        self.tree_context_menu.add_separator()
+        self.tree_context_menu.add_command(label="Expand All", command=self._expand_all)
+        self.tree_context_menu.add_command(
+            label="Collapse All", command=self._collapse_all
+        )
 
     # ==========================================================================
     # PANEL BROWSING METHODS
@@ -3556,6 +3561,13 @@ class GSynchro:
             self.tree_context_menu.entryconfig("Select All", state="disabled")
             self.tree_context_menu.entryconfig("Deselect All", state="disabled")
 
+        if tree.get_children():
+            self.tree_context_menu.entryconfig("Expand All", state="normal")
+            self.tree_context_menu.entryconfig("Collapse All", state="normal")
+        else:
+            self.tree_context_menu.entryconfig("Expand All", state="disabled")
+            self.tree_context_menu.entryconfig("Collapse All", state="disabled")
+
         # Enable/disable "Compare..." based on selections in both trees.
         selected_a = self.tree_a.selection() if self.tree_a else ()
         selected_b = self.tree_b.selection() if self.tree_b else ()
@@ -3864,6 +3876,40 @@ class GSynchro:
                     traverse_and_deselect(child_id)
 
         traverse_and_deselect()
+
+    def _expand_all(self):
+        """Expand all items in the tree."""
+        tree = getattr(self, "_context_menu_tree", None)
+        if not tree:
+            tree = self.root.focus_get()
+
+        if not isinstance(tree, ttk.Treeview) or tree not in (self.tree_a, self.tree_b):
+            return
+
+        def expand_recursive(item_id):
+            tree.item(item_id, open=True)
+            for child in tree.get_children(item_id):
+                expand_recursive(child)
+
+        for item in tree.get_children():
+            expand_recursive(item)
+
+    def _collapse_all(self):
+        """Collapse all items in the tree."""
+        tree = getattr(self, "_context_menu_tree", None)
+        if not tree:
+            tree = self.root.focus_get()
+
+        if not isinstance(tree, ttk.Treeview) or tree not in (self.tree_a, self.tree_b):
+            return
+
+        def collapse_recursive(item_id):
+            tree.item(item_id, open=False)
+            for child in tree.get_children(item_id):
+                collapse_recursive(child)
+
+        for item in tree.get_children():
+            collapse_recursive(item)
 
     def _compare_selected_files(self):
         """Launch g_compare.py with the two selected files."""
