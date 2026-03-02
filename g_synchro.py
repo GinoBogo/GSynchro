@@ -467,6 +467,19 @@ class OptionsDialog(tk.Toplevel):
         # Initial population.
         self._populate_tree()
 
+        # Display tab.
+        display_frame = ttk.Frame(notebook, padding="10")
+        notebook.add(display_frame, text="Display")
+
+        self.show_diff_only_var = tk.BooleanVar(
+            value=self.app.options.get("show_diff_only", False)
+        )
+        ttk.Checkbutton(
+            display_frame,
+            text="Show difference only",
+            variable=self.show_diff_only_var,
+        ).grid(row=0, column=0, sticky=tk.W, pady=5)
+
         # Font tab.
         font_frame = ttk.Frame(notebook, padding="10")
         notebook.add(font_frame, text="Font")
@@ -587,23 +600,28 @@ class OptionsDialog(tk.Toplevel):
         old_font_family = self.app.options["font_family"]
         old_font_size = self.app.options["font_size"]
         old_filters = [dict(item) for item in self.app.filter_rules]
+        old_show_diff_only = self.app.options.get("show_diff_only", False)
 
         # Get new values from dialog.
         new_font_family = self.font_family_var.get()
         new_font_size = self.font_size_var.get()
         new_filters = self.temp_filters
+        new_show_diff_only = self.show_diff_only_var.get()
 
         # Determine what has changed.
         font_changed = (
             new_font_family != old_font_family or new_font_size != old_font_size
         )
-        other_options_changed = new_filters != old_filters
+        other_options_changed = (
+            new_filters != old_filters or new_show_diff_only != old_show_diff_only
+        )
 
         # Update options dictionary with all new values.
         self.app.options.update(
             {
                 "font_family": new_font_family,
                 "font_size": new_font_size,
+                "show_diff_only": new_show_diff_only,
             }
         )
         self.app.filter_rules = new_filters
@@ -628,6 +646,7 @@ class OptionsDialog(tk.Toplevel):
         """Reset options to default values."""
         self.font_family_var.set(DEFAULT_FONT_FAMILY)
         self.font_size_var.set(DEFAULT_FONT_SIZE)
+        self.show_diff_only_var.set(False)
 
     def _toggle_rules(self):
         """Toggle active state of selected rules."""
@@ -698,10 +717,11 @@ class GSynchro:
         self.filter_rules = []
         self.temp_files_to_clean = []
 
-        # Options for fonts.
+        # Application options.
         self.options = {
             "font_family": DEFAULT_FONT_FAMILY,
             "font_size": DEFAULT_FONT_SIZE,
+            "show_diff_only": False,
         }
 
         # Host histories: lists of dicts {'host','port','username'}.
@@ -2571,9 +2591,24 @@ class GSynchro:
             tree_a_map: Panel A tree map
             tree_b_map: Panel B tree map
         """
+        show_diff_only = self.options.get("show_diff_only", False)
+
         # Process items and apply status only to the panels where they exist.
         for rel_path, (status, status_color) in item_statuses.items():
             self.root.after(0, self._update_progress, 1)
+
+            if show_diff_only and status == "Identical":
+                if rel_path in tree_a_map and self.tree_a:
+                    try:
+                        self.tree_a.delete(tree_a_map[rel_path])
+                    except tk.TclError:
+                        pass
+                if rel_path in tree_b_map and self.tree_b:
+                    try:
+                        self.tree_b.delete(tree_b_map[rel_path])
+                    except tk.TclError:
+                        pass
+                continue
 
             # Update Panel A if the item exists in its tree.
             if rel_path in tree_a_map:
