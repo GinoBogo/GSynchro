@@ -467,15 +467,15 @@ class OptionsDialog(tk.Toplevel):
         # Initial population.
         self._populate_tree()
 
-        # Display tab.
-        display_frame = ttk.Frame(notebook, padding="10")
-        notebook.add(display_frame, text="Display")
+        # Compare tab.
+        compare_frame = ttk.Frame(notebook, padding="10")
+        notebook.add(compare_frame, text="Compare")
 
         self.show_diff_only_var = tk.BooleanVar(
             value=self.app.options.get("show_diff_only", False)
         )
         ttk.Checkbutton(
-            display_frame,
+            compare_frame,
             text="Show difference only",
             variable=self.show_diff_only_var,
         ).grid(row=0, column=0, sticky=tk.W, pady=5)
