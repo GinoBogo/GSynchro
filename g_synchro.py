@@ -14,6 +14,7 @@ from __future__ import annotations
 
 # Standard library imports.
 import atexit
+import hashlib
 import fnmatch
 import json
 import os
@@ -250,17 +251,19 @@ class ConnectionManager:
 class Comparer:
     """Handles the logic for comparing file and directory structures."""
 
-    def __init__(self, logger_func, connection_manager, root_widget):
+    def __init__(self, logger_func, connection_manager, root_widget, options):
         """Initialize the Comparer.
 
         Args:
             logger_func: A function to call for logging messages.
             connection_manager: An instance of ConnectionManager.
             root_widget: The root Tkinter widget for scheduling UI updates.
+            options: The application options dictionary.
         """
         self.log = logger_func
         self.connection_manager = connection_manager
         self.root = root_widget
+        self.options = options
 
     def _compare_files(
         self,
@@ -301,23 +304,36 @@ class Comparer:
                 and isinstance(file_b, dict)
                 and "size" in file_b
             ):
-                try:
-                    with (
-                        self._open_file_handle(
-                            file_a, use_ssh_a, ssh_client_a
-                        ) as file_a_handle,
-                        self._open_file_handle(
-                            file_b, use_ssh_b, ssh_client_b
-                        ) as file_b_handle,
-                    ):
-                        if not self._are_chunks_identical(file_a_handle, file_b_handle):
+                compare_method = self.options.get("compare_method", "block")
+
+                if compare_method == "md5":
+                    try:
+                        hash_a = self._get_md5_hash(file_a, use_ssh_a, ssh_client_a)
+                        hash_b = self._get_md5_hash(file_b, use_ssh_b, ssh_client_b)
+                        if hash_a != hash_b:
                             return "Different", "orange"
+                    except Exception as e:
+                        self.log(f"Error during MD5 comparison: {e}")
+                        return "Different", "orange"
+                else:  # Default to block compare.
+                    try:
+                        with (
+                            self._open_file_handle(
+                                file_a, use_ssh_a, ssh_client_a
+                            ) as file_a_handle,
+                            self._open_file_handle(
+                                file_b, use_ssh_b, ssh_client_b
+                            ) as file_b_handle,
+                        ):
+                            if not self._are_chunks_identical(
+                                file_a_handle, file_b_handle
+                            ):
+                                return "Different", "orange"
+                    except Exception as e:
+                        self.log(f"Error during block file comparison: {e}")
+                        return "Different", "orange"
 
-                    return "Identical", "green"
-
-                except Exception as e:
-                    self.log(f"Error during chunked file comparison: {e}")
-                    return "Different", "orange"
+                return "Identical", "green"
             else:
                 # Fallback for items that exist in both but aren't comparable as
                 # files.
@@ -326,6 +342,53 @@ class Comparer:
             return "Only in A", "blue"
         else:
             return "Only in B", "red"
+
+    def _get_md5_hash(
+        self,
+        file_info: dict,
+        use_ssh: bool,
+        ssh_client: Optional[paramiko.SSHClient],
+    ) -> str:
+        """Calculate MD5 hash for a local or remote file.
+
+        Args:
+            file_info: File information dictionary
+            use_ssh: Whether to use SSH
+            ssh_client: SSH client for remote access
+
+        Returns:
+            MD5 hash as a hex string
+        """
+        if use_ssh:
+            if not ssh_client:
+                raise ConnectionError("SSH client not connected for MD5 calculation.")
+
+            # Try md5sum (Linux) then md5 (BSD/macOS).
+            for cmd_template in ["md5sum {}", "md5 -q {}"]:
+                command = cmd_template.format(_posix_quote(file_info["full_path"]))
+                stdin, stdout, stderr = ssh_client.exec_command(command)
+                exit_status = stdout.channel.recv_exit_status()
+                if exit_status == 0:
+                    output = stdout.read().decode().strip()
+                    # md5sum output is "hash  filename", md5 -q is just "hash".
+                    return output.split()[0]
+
+            # If both commands fail, raise an error.
+            error_msg = f"Could not execute md5sum or md5 on remote host for {file_info['full_path']}"
+            self.log(error_msg)
+            raise IOError(error_msg)
+        else:  # Local file.
+            hasher = hashlib.md5()
+            try:
+                with open(file_info["full_path"], "rb") as f:
+                    while chunk := f.read(CHUNK_SIZE):
+                        hasher.update(chunk)
+                return hasher.hexdigest()
+            except FileNotFoundError:
+                self.log(
+                    f"File not found for MD5 calculation: {file_info['full_path']}"
+                )
+                raise
 
     @contextmanager
     def _open_file_handle(
@@ -480,6 +543,32 @@ class OptionsDialog(tk.Toplevel):
             variable=self.show_diff_only_var,
         ).grid(row=0, column=0, sticky=tk.W, pady=5)
 
+        # Compare method options
+        compare_method_frame = ttk.LabelFrame(
+            compare_frame, text="File Compare Method", padding="10"
+        )
+        compare_method_frame.grid(
+            row=1, column=0, columnspan=2, sticky=tk.EW, pady=(10, 5)
+        )
+
+        self.compare_method_var = tk.StringVar(
+            value=self.app.options.get("compare_method", "block")
+        )
+
+        ttk.Radiobutton(
+            compare_method_frame,
+            text="Block compare",
+            variable=self.compare_method_var,
+            value="block",
+        ).pack(side=tk.LEFT, padx=5)
+
+        ttk.Radiobutton(
+            compare_method_frame,
+            text="MD5 compare",
+            variable=self.compare_method_var,
+            value="md5",
+        ).pack(side=tk.LEFT, padx=5)
+
         # Font tab.
         font_frame = ttk.Frame(notebook, padding="10")
         notebook.add(font_frame, text="Font")
@@ -601,19 +690,23 @@ class OptionsDialog(tk.Toplevel):
         old_font_size = self.app.options["font_size"]
         old_filters = [dict(item) for item in self.app.filter_rules]
         old_show_diff_only = self.app.options.get("show_diff_only", False)
+        old_compare_method = self.app.options.get("compare_method", "block")
 
         # Get new values from dialog.
         new_font_family = self.font_family_var.get()
         new_font_size = self.font_size_var.get()
         new_filters = self.temp_filters
         new_show_diff_only = self.show_diff_only_var.get()
+        new_compare_method = self.compare_method_var.get()
 
         # Determine what has changed.
         font_changed = (
             new_font_family != old_font_family or new_font_size != old_font_size
         )
         other_options_changed = (
-            new_filters != old_filters or new_show_diff_only != old_show_diff_only
+            new_filters != old_filters
+            or new_show_diff_only != old_show_diff_only
+            or new_compare_method != old_compare_method
         )
 
         # Update options dictionary with all new values.
@@ -622,6 +715,7 @@ class OptionsDialog(tk.Toplevel):
                 "font_family": new_font_family,
                 "font_size": new_font_size,
                 "show_diff_only": new_show_diff_only,
+                "compare_method": new_compare_method,
             }
         )
         self.app.filter_rules = new_filters
@@ -646,6 +740,7 @@ class OptionsDialog(tk.Toplevel):
         self.font_family_var.set(DEFAULT_FONT_FAMILY)
         self.font_size_var.set(DEFAULT_FONT_SIZE)
         self.show_diff_only_var.set(False)
+        self.compare_method_var.set("block")
 
     def _toggle_rules(self):
         """Toggle active state of selected rules."""
@@ -688,18 +783,6 @@ class GSynchro:
         # Connection Manager.
         self.connection_manager = ConnectionManager(self._log, pool_size=4)
 
-        # Comparer instance.
-        self.comparer = Comparer(self._log, self.connection_manager, self.root)
-        self.remote_host_a = tk.StringVar()
-        self.remote_user_a = tk.StringVar()
-        self.remote_pass_a = tk.StringVar()
-        self.remote_port_a = tk.StringVar(value="22")
-
-        self.remote_host_b = tk.StringVar()
-        self.remote_user_b = tk.StringVar()
-        self.remote_pass_b = tk.StringVar()
-        self.remote_port_b = tk.StringVar(value="22")
-
         # Folder Paths.
         self.folder_a = tk.StringVar()
         self.folder_b = tk.StringVar()
@@ -721,7 +804,22 @@ class GSynchro:
             "font_family": DEFAULT_FONT_FAMILY,
             "font_size": DEFAULT_FONT_SIZE,
             "show_diff_only": False,
+            "compare_method": "block",
         }
+
+        # Comparer instance.
+        self.comparer = Comparer(
+            self._log, self.connection_manager, self.root, self.options
+        )
+        self.remote_host_a = tk.StringVar()
+        self.remote_user_a = tk.StringVar()
+        self.remote_pass_a = tk.StringVar()
+        self.remote_port_a = tk.StringVar(value="22")
+
+        self.remote_host_b = tk.StringVar()
+        self.remote_user_b = tk.StringVar()
+        self.remote_pass_b = tk.StringVar()
+        self.remote_port_b = tk.StringVar(value="22")
 
         # Column widths for trees - separate for each panel
         default_widths = {
