@@ -639,8 +639,7 @@ class OptionsDialog(tk.Toplevel):
             if self.app.folder_a.get() and self.app.folder_b.get():
                 self.app.compare_folders()
         elif font_changed:
-            self.app._adjust_tree_column_widths(self.app.tree_a)
-            self.app._adjust_tree_column_widths(self.app.tree_b)
+            pass
 
     def _reset_options(self):
         """Reset options to default values."""
@@ -724,6 +723,17 @@ class GSynchro:
             "show_diff_only": False,
         }
 
+        # Column widths for trees - separate for each panel
+        default_widths = {
+            "#0": 200,
+            "sync": 50,
+            "size": 80,
+            "modified": 120,
+            "status": 100,
+        }
+        self.column_widths_a = default_widths.copy()
+        self.column_widths_b = default_widths.copy()
+
         # Host histories: lists of dicts {'host','port','username'}.
         self.hosts_a = []
         self.hosts_b = []
@@ -795,6 +805,17 @@ class GSynchro:
             if "OPTIONS" in config:
                 self.options.update(config["OPTIONS"])
 
+            # Load column widths - separate for each panel.
+            if "COLUMN_WIDTHS_A" in config:
+                widths_a = config["COLUMN_WIDTHS_A"]
+                for col, width in widths_a.items():
+                    self.column_widths_a[col] = int(width)
+
+            if "COLUMN_WIDTHS_B" in config:
+                widths_b = config["COLUMN_WIDTHS_B"]
+                for col, width in widths_b.items():
+                    self.column_widths_b[col] = int(width)
+
             # Panel A History.
             if "FOLDER_A_HISTORY" in config:
                 self.folder_a_history = config["FOLDER_A_HISTORY"]
@@ -861,6 +882,24 @@ class GSynchro:
 
         self.filter_rules.sort(key=lambda item: item["rule"])
 
+        # Get current column widths from trees - save separately for each panel.
+        if self.tree_a:
+            try:
+                for col in list(self.tree_a["columns"]) + ["#0"]:
+                    width = self.tree_a.column(col, "width")
+                    if width > 0:
+                        self.column_widths_a[col] = width
+            except Exception as e:
+                self._log(f"Error capturing column widths from Panel A: {e}")
+
+        if self.tree_b:
+            try:
+                for col in list(self.tree_b["columns"]) + ["#0"]:
+                    width = self.tree_b.column(col, "width")
+                    if width > 0:
+                        self.column_widths_b[col] = width
+            except Exception as e:
+                self._log(f"Error capturing column widths from Panel B: {e}")
         config = {
             "WINDOW": {"geometry": self.root.geometry()},
             "SSH_A": {
@@ -877,6 +916,8 @@ class GSynchro:
             "HOSTS_B": self.hosts_b,
             "FILTERS": {"rules": self.filter_rules},
             "OPTIONS": self.options,
+            "COLUMN_WIDTHS_A": self.column_widths_a,
+            "COLUMN_WIDTHS_B": self.column_widths_b,
             "FOLDER_A_HISTORY": self.folder_a_history,
             "FOLDER_B_HISTORY": self.folder_b_history,
         }
@@ -1145,8 +1186,23 @@ class GSynchro:
         ).grid(row=2, column=4, padx=5, pady=5)
 
         # Tree view.
-        tree = self._create_tree_view(panel)
+        column_widths = (
+            self.column_widths_a if tree_attr == "tree_a" else self.column_widths_b
+        )
+        tree = self._create_tree_view(panel, column_widths)
         tree.grid(row=4, column=0, columnspan=5, pady=(10, 0), sticky=tk.NSEW)
+
+        # Re-apply column widths after tree is gridded to ensure they take effect
+        def apply_widths():
+            for col in list(tree["columns"]) + ["#0"]:
+                width = column_widths.get(col)
+                if width:
+                    try:
+                        tree.column(col, width=width)
+                    except Exception as e:
+                        self._log(f"Error applying column width for {col}: {e}")
+
+        self.root.after(100, apply_widths)
 
         # Vertical Scrollbar.
         v_scrollbar = ttk.Scrollbar(panel, orient=tk.VERTICAL, command=tree.yview)
@@ -1171,15 +1227,26 @@ class GSynchro:
 
         parent.add(panel_frame, weight=1)
 
-    def _create_tree_view(self, parent: ttk.LabelFrame) -> ttk.Treeview:
+    def _create_tree_view(
+        self, parent: ttk.LabelFrame, column_widths: Optional[dict] = None
+    ) -> ttk.Treeview:
         """Create file tree view.
 
         Args:
             parent: Parent widget
+            column_widths: Dictionary of column widths. If None, uses defaults.
 
         Returns:
             Configured Treeview widget
         """
+        if column_widths is None:
+            column_widths = {
+                "#0": 200,
+                "sync": 50,
+                "size": 80,
+                "modified": 120,
+                "status": 100,
+            }
         tree = ttk.Treeview(
             parent,
             columns=("sync", "size", "modified", "status"),
@@ -1188,19 +1255,36 @@ class GSynchro:
 
         # Configure columns.
         tree.heading("#0", text="Name")
-        tree.column("#0", width=200, anchor="w", stretch=True)
+        tree.column("#0", width=column_widths.get("#0", 200), anchor="w", stretch=False)
 
         tree.heading("sync", text="Sync")
-        tree.column("sync", width=50, anchor="center", stretch=False)
+        tree.column(
+            "sync",
+            width=column_widths.get("sync", 50),
+            anchor="center",
+            stretch=False,
+        )
 
         tree.heading("size", text="Size")
-        tree.column("size", width=80, anchor="e", stretch=False)
+        tree.column(
+            "size", width=column_widths.get("size", 80), anchor="e", stretch=False
+        )
 
         tree.heading("modified", text="Modified")
-        tree.column("modified", width=120, anchor="center", stretch=False)
+        tree.column(
+            "modified",
+            width=column_widths.get("modified", 120),
+            anchor="center",
+            stretch=False,
+        )
 
         tree.heading("status", text="Status")
-        tree.column("status", width=100, anchor="center", stretch=False)
+        tree.column(
+            "status",
+            width=column_widths.get("status", 100),
+            anchor="center",
+            stretch=False,
+        )
 
         # Configure tags for different status colors.
         colors = self.colors["status"]
@@ -1741,12 +1825,11 @@ class GSynchro:
                 tree_structure = self._build_tree_structure(files)
                 tree = getattr(self, f"tree_{panel.lower()}")
 
-                def populate_and_adjust():
+                def populate_tree():
                     if tree:
                         self._batch_populate_tree(tree, tree_structure, rules)
-                        self._adjust_tree_column_widths(tree)
 
-                self.root.after(0, populate_and_adjust)
+                self.root.after(0, populate_tree)
 
             except Exception as e:
                 self._log(f"Error populating panel {panel}: {str(e)}")
@@ -2254,12 +2337,6 @@ class GSynchro:
                     self._apply_comparison_to_ui(
                         item_statuses, stats, fresh_tree_a_map, fresh_tree_b_map
                     )
-
-                    # Adjust column widths after applying comparison results.
-                    if self.tree_a:
-                        self._adjust_tree_column_widths(self.tree_a)
-                    if self.tree_b:
-                        self._adjust_tree_column_widths(self.tree_b)
 
                 self.root.after(0, final_ui_update)
 
@@ -4389,56 +4466,6 @@ class GSynchro:
                 self._log(f"Failed to download remote file: {e}")
                 return None
         return full_path
-
-    def _adjust_tree_column_widths(self, tree: Optional[ttk.Treeview]):
-        """Adjust column widths to fit content.
-
-        Args:
-            tree: Treeview widget to adjust
-        """
-        if tree is None:
-            return
-
-        try:
-            # Ensure we measure with the same font.
-            font_family = self.options["font_family"]
-            font_size = self.options["font_size"]
-            font = tkfont.Font(family=font_family, size=font_size)
-
-            # Create a dictionary to hold the max width for each column.
-            col_widths = {
-                col: font.measure(tree.heading(col, "text"))
-                for col in list(tree["columns"]) + ["#0"]
-            }
-
-            def find_max_widths_recursive(item_id=""):
-                """Recursively traverse the tree to find the max width for each column."""
-                for child_id in tree.get_children(item_id):
-                    # Check the 'Name' column (#0).
-                    text = tree.item(child_id, "text")
-                    col_widths["#0"] = max(col_widths["#0"], font.measure(text))
-
-                    # Check other data columns.
-                    for col in tree["columns"]:
-                        cell_value = tree.set(child_id, col)
-                        if isinstance(cell_value, str):
-                            col_widths[col] = max(
-                                col_widths[col], font.measure(cell_value)
-                            )
-
-                    # Recurse.
-                    find_max_widths_recursive(child_id)
-
-            find_max_widths_recursive()
-
-            # Apply the calculated widths with some padding.
-            for col, width in col_widths.items():
-                tree.column(col, width=width + 20, minwidth=40)
-
-        except Exception as e:
-            self._log(
-                f"Could not adjust column widths due to potential race condition: {e}"
-            )
 
     def _update_status(self, panel: str, files: dict):
         """Update the status bar text.
