@@ -2021,15 +2021,15 @@ class GSynchro:
             ):
                 excluded_dirs = set()
                 for d in dirs:
-                    dir_rel_path = os.path.relpath(os.path.join(root, d), folder_path)
+                    dir_rel_path = os.path.relpath(
+                        os.path.join(root, d), folder_path
+                    ).replace(os.sep, "/")
                     for pattern in rules:
                         if pattern.endswith("/") and fnmatch.fnmatch(
-                            dir_rel_path.replace(os.sep, "/") + "/", pattern
+                            dir_rel_path + "/", pattern
                         ):
                             excluded_dirs.add(d)
-                        elif fnmatch.fnmatch(
-                            dir_rel_path.replace(os.sep, "/"), pattern
-                        ):
+                        elif fnmatch.fnmatch(dir_rel_path, pattern):
                             excluded_dirs.add(d)
                         elif not pattern.endswith("/") and fnmatch.fnmatch(d, pattern):
                             excluded_dirs.add(d)
@@ -2039,7 +2039,9 @@ class GSynchro:
                 # Add directories.
                 for dirname in dirs:
                     full_path = os.path.join(root, dirname)
-                    rel_path = os.path.relpath(full_path, folder_path)
+                    rel_path = os.path.relpath(full_path, folder_path).replace(
+                        os.sep, "/"
+                    )
                     if dirname not in excluded_dirs:
                         files[rel_path] = {
                             "type": "dir",
@@ -2049,11 +2051,11 @@ class GSynchro:
                 # Add files.
                 for filename in filenames:
                     full_path = os.path.join(root, filename)
-                    rel_path = os.path.relpath(full_path, folder_path)
+                    rel_path = os.path.relpath(full_path, folder_path).replace(
+                        os.sep, "/"
+                    )
 
-                    if any(
-                        fnmatch.fnmatch(rel_path.replace(os.sep, "/"), r) for r in rules
-                    ):
+                    if any(fnmatch.fnmatch(rel_path, r) for r in rules):
                         continue
 
                     try:
@@ -3036,7 +3038,7 @@ class GSynchro:
 
         for rel_path in files_to_copy:
             source_file = source_files_dict[rel_path]["full_path"]
-            target_file = os.path.join(target_path, rel_path)
+            target_file = os.path.join(target_path, rel_path.replace("/", os.sep))
 
             # Create target directory if needed.
             target_dir = os.path.dirname(target_file)
@@ -3152,7 +3154,7 @@ class GSynchro:
         with SCPClient(transport) as scp:
             for rel_path in files_to_copy:
                 remote_file = source_files_dict[rel_path]["full_path"]
-                local_file = os.path.join(local_path, rel_path)
+                local_file = os.path.join(local_path, rel_path.replace("/", os.sep))
 
                 # Create local directory.
                 local_dir = os.path.dirname(local_file)
@@ -4316,7 +4318,10 @@ class GSynchro:
             item_info = files_dict.get(rel_path)
             full_path = item_info.get("full_path") if item_info else None
             if not full_path:
-                full_path = os.path.join(base_folder, rel_path)
+                if use_ssh:
+                    full_path = _posix_join(base_folder, rel_path)
+                else:
+                    full_path = os.path.join(base_folder, rel_path.replace("/", os.sep))
 
             is_dir = False
             if item_info:
@@ -4487,7 +4492,7 @@ class GSynchro:
             item_id = tree.parent(item_id)
 
         if path_parts:
-            return os.path.join(*path_parts)
+            return "/".join(path_parts)
         return None
 
     def _get_full_path_for_item(
