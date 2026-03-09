@@ -2537,6 +2537,9 @@ class GSynchro:
             # 'Only in A/B'.
             if item_statuses.get(path, (None,))[0] not in ("Only in A", "Only in B"):
                 item_statuses[path] = ("Different", "magenta")
+            # Auto-select every dirty folder so its checkbox is ticked after
+            # comparison, consistent with how differing files are handled.
+            self.sync_states[path] = True
 
     def _prepare_comparison_data(self) -> tuple:
         """Prepare data structures needed for comparison.
@@ -3673,22 +3676,47 @@ class GSynchro:
         tree = cast(ttk.Treeview, widget)
 
         region = tree.identify("region", event.x, event.y)
-        if region != "cell":
+        if region != "cell":  # noqa: B007
             return
 
         column = tree.identify_column(event.x)
-        if column == "#1":  # 'sync' column
-            item_id = tree.identify_row(event.y)
-            if item_id:
-                rel_path = self._get_relative_path(tree, item_id)
-                if rel_path is not None:
-                    current_state = self.sync_states.get(rel_path, False)
-                    new_state = not current_state
-                    self.sync_states[rel_path] = new_state
-                    char = CHECKED_CHAR if new_state else UNCHECKED_CHAR
-                    current_values = list(tree.item(item_id, "values"))
-                    current_values[0] = char
-                    tree.item(item_id, values=current_values)
+        if column != "#1":  # 'sync' column
+            return
+
+        item_id = tree.identify_row(event.y)
+        if not item_id:
+            return
+
+        rel_path = self._get_relative_path(tree, item_id)
+        if rel_path is None:
+            return
+
+        # Determine the new state and start the recursive toggle.
+        new_state = not self.sync_states.get(rel_path, False)
+        self._toggle_sync_state_recursive(tree, item_id, new_state, rel_path)
+
+    def _toggle_sync_state_recursive(
+        self, tree: ttk.Treeview, item_id: str, new_state: bool, current_path: str
+    ):
+        """Recursively toggle the sync state for an item and its descendants.
+
+        Args:
+            tree: The Treeview widget.
+            item_id: The ID of the item to toggle.
+            new_state: The new boolean sync state to apply.
+            current_path: The relative path of the item being processed.
+        """
+        self.sync_states[current_path] = new_state
+        char = CHECKED_CHAR if new_state else UNCHECKED_CHAR
+        current_values = list(tree.item(item_id, "values"))
+        current_values[0] = char
+        tree.item(item_id, values=tuple(current_values))
+
+        # Recursively apply to children.
+        for child_id in tree.get_children(item_id):
+            child_text = tree.item(child_id, "text")
+            child_path = _posix_join(current_path, child_text)
+            self._toggle_sync_state_recursive(tree, child_id, new_state, child_path)
 
     def _on_tree_right_click(self, event: tk.Event):
         """Show context menu on right-click."""
