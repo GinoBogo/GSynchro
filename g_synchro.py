@@ -755,9 +755,196 @@ class OptionsDialog(tk.Toplevel):
 
     def _show_filter_context_menu(self, event):
         """Show context menu for filter tree."""
-        # Note: Context menu implementation omitted for brevity in this refactor,
-        # but structure is ready for it.
-        pass
+        style = ttk.Style()
+        dialog_bg = style.lookup("TFrame", "background")
+
+        def _create_rule_input_dialog(
+            title: str, prompt_text: str, initial_value: str = ""
+        ) -> Optional[str]:
+            """Create a dialog to get a filter rule from the user.
+
+            Args:
+                title: Dialog title
+                prompt_text: Prompt text for the user
+                initial_value: Initial value for the input field
+
+            Returns:
+                User input or None if cancelled
+            """
+            entry_var = tk.StringVar(value=initial_value)
+            result = None
+
+            def on_ok():
+                nonlocal result
+                result = entry_var.get()
+                input_dialog.destroy()
+
+            input_dialog = tk.Toplevel(self)
+            input_dialog.transient(self)
+            input_dialog.grab_set()
+            input_dialog.title(title)
+            input_dialog.minsize(300, 120)
+            input_dialog.maxsize(300, 120)
+            input_dialog.configure(bg=dialog_bg)
+            input_dialog.rowconfigure(0, weight=1)
+            input_dialog.columnconfigure(0, weight=1)
+
+            content_frame = ttk.Frame(input_dialog, padding=10)
+            content_frame.grid(row=0, column=0, sticky=tk.NSEW)
+            content_frame.columnconfigure(0, weight=1)
+
+            ttk.Label(content_frame, text=prompt_text).grid(
+                row=0, column=0, sticky=tk.W, pady=(0, 5)
+            )
+
+            entry = ttk.Entry(content_frame, textvariable=entry_var)
+            entry.grid(row=1, column=0, sticky=tk.EW)
+            entry.focus_set()
+            entry.select_range(0, "end")
+            entry.bind("<Return>", lambda e: on_ok())
+
+            button_frame = ttk.Frame(input_dialog, padding=(10, 0, 10, 10))
+            button_frame.grid(row=1, column=0, sticky=tk.EW)
+            button_frame.columnconfigure(0, weight=1)
+            button_frame.columnconfigure(1, weight=0)
+            button_frame.columnconfigure(2, weight=0)
+            button_frame.columnconfigure(3, weight=1)
+
+            GButton(
+                button_frame,
+                text="Cancel",
+                command=input_dialog.destroy,
+                width=80,
+                height=34,
+                **self.colors["buttons"]["secondary"],
+            ).grid(row=0, column=1, padx=5)
+            GButton(
+                button_frame,
+                text="OK",
+                command=on_ok,
+                width=80,
+                height=34,
+                **self.colors["buttons"]["primary"],
+            ).grid(row=0, column=2, padx=5)
+
+            # Center relative to self (the OptionsDialog).
+            self.update_idletasks()
+            input_dialog.update_idletasks()
+            x = self.winfo_rootx() + self.winfo_width() // 2 - input_dialog.winfo_width() // 2
+            y = self.winfo_rooty() + self.winfo_height() // 2 - input_dialog.winfo_height() // 2
+            input_dialog.geometry(f"+{x}+{y}")
+
+            input_dialog.wait_window()
+            return result
+
+        def insert_rule():
+            new_rule = _create_rule_input_dialog(
+                "Insert Rule", "Enter new filter pattern:"
+            )
+            if new_rule and new_rule.strip():
+                self.temp_filters.append({"rule": new_rule.strip(), "active": True})
+                self.temp_filters.sort(key=lambda item: item["rule"])
+                self._populate_tree()
+
+        def edit_rule():
+            selected_item = self.filter_tree.focus()
+            if not selected_item:
+                return
+            index = int(selected_item)
+            current_rule = self.temp_filters[index]["rule"]
+            edited_rule = _create_rule_input_dialog(
+                "Edit Rule", "Edit filter pattern:", initial_value=current_rule
+            )
+            if edited_rule and edited_rule.strip():
+                self.temp_filters[index]["rule"] = edited_rule.strip()
+                self.temp_filters.sort(key=lambda item: item["rule"])
+                self._populate_tree()
+
+        def remove_rule():
+            selected_item = self.filter_tree.focus()
+            if not selected_item:
+                return
+
+            confirm_dialog = tk.Toplevel(self)
+            confirm_dialog.transient(self)
+            confirm_dialog.grab_set()
+            confirm_dialog.title("Confirm Deletion")
+            confirm_dialog.configure(bg=dialog_bg)
+            ttk.Label(
+                confirm_dialog,
+                text="Are you sure you want to remove the selected rule?",
+                padding=20,
+            ).pack()
+
+            confirmed = False
+
+            def on_yes():
+                nonlocal confirmed
+                confirmed = True
+                confirm_dialog.destroy()
+
+            btn_frame = ttk.Frame(confirm_dialog, padding=10)
+            btn_frame.pack(fill="x")
+            GButton(
+                btn_frame,
+                text="Yes",
+                command=on_yes,
+                width=70,
+                height=30,
+                **self.colors["buttons"]["primary"],
+            ).pack(side="right", padx=5)
+            GButton(
+                btn_frame,
+                text="No",
+                command=confirm_dialog.destroy,
+                width=70,
+                height=30,
+                **self.colors["buttons"]["secondary"],
+            ).pack(side="right")
+
+            self.update_idletasks()
+            confirm_dialog.update_idletasks()
+            x = self.winfo_rootx() + self.winfo_width() // 2 - confirm_dialog.winfo_width() // 2
+            y = self.winfo_rooty() + self.winfo_height() // 2 - confirm_dialog.winfo_height() // 2
+            confirm_dialog.geometry(f"+{x}+{y}")
+
+            confirm_dialog.wait_window()
+
+            if confirmed:
+                index = int(selected_item)
+                del self.temp_filters[index]
+                self._populate_tree()
+
+        def select_all():
+            for item in self.temp_filters:
+                item["active"] = True
+            self._populate_tree()
+
+        def deselect_all():
+            for item in self.temp_filters:
+                item["active"] = False
+            self._populate_tree()
+
+        # Build and post the context menu.
+        context_menu = tk.Menu(self, tearoff=0)
+
+        item_id = self.filter_tree.identify_row(event.y)
+        if item_id:
+            self.filter_tree.selection_set(item_id)
+            self.filter_tree.focus(item_id)
+            context_menu.add_command(label="Insert Rule", command=insert_rule)
+            context_menu.add_command(label="Edit Rule", command=edit_rule)
+            context_menu.add_command(label="Remove Rule", command=remove_rule)
+        else:
+            context_menu.add_command(label="Insert Rule", command=insert_rule)
+            context_menu.add_command(label="Edit Rule", state="disabled")
+            context_menu.add_command(label="Remove Rule", state="disabled")
+
+        context_menu.add_separator()
+        context_menu.add_command(label="Select All", command=select_all)
+        context_menu.add_command(label="Deselect All", command=deselect_all)
+
+        context_menu.tk_popup(event.x_root, event.y_root)
 
 
 # ============================================================================
