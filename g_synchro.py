@@ -7,7 +7,8 @@ remote folders. Supports SSH-based remote operations with visual comparison.
 
  Author: Gino Bogo
 License: MIT
-Version: 1.0
+Version: 1.0 (initial stable version)
+Version: 1.1 (robust remote scanner)
 """
 
 from __future__ import annotations
@@ -229,7 +230,7 @@ class ConnectionManager:
 
     def close_all(self):
         """Close all managed SSH connections."""
-        with self._lock:  # noqa: B007
+        with self._lock:
             for server_key, pool in self._pools.items():
                 self.log(f"Closing SSH pool {server_key}")
                 while not pool.empty():
@@ -251,7 +252,9 @@ class ConnectionManager:
 class Comparer:
     """Handles the logic for comparing file and directory structures."""
 
-    def __init__(self, logger_func, connection_manager, root_widget, options):
+    def __init__(
+        self, logger_func, connection_manager, root_widget, options, state_lock
+    ):
         """Initialize the Comparer.
 
         Args:
@@ -259,11 +262,13 @@ class Comparer:
             connection_manager: An instance of ConnectionManager.
             root_widget: The root Tkinter widget for scheduling UI updates.
             options: The application options dictionary.
+            state_lock: A threading lock for accessing shared state.
         """
         self.log = logger_func
         self.connection_manager = connection_manager
         self.root = root_widget
         self.options = options
+        self.state_lock = state_lock
 
     def _compare_files(
         self,
@@ -304,7 +309,8 @@ class Comparer:
                 and isinstance(file_b, dict)
                 and "size" in file_b
             ):
-                compare_method = self.options.get("compare_method", "block")
+                with self.state_lock:
+                    compare_method = self.options.get("compare_method", "block")
 
                 if compare_method == "md5":
                     try:
@@ -686,11 +692,12 @@ class OptionsDialog(tk.Toplevel):
     def _apply_options(self):
         """Apply selected options."""
         # Store old values to check for changes.
-        old_font_family = self.app.options["font_family"]
-        old_font_size = self.app.options["font_size"]
-        old_filters = [dict(item) for item in self.app.filter_rules]
-        old_show_diff_only = self.app.options.get("show_diff_only", False)
-        old_compare_method = self.app.options.get("compare_method", "block")
+        with self.app.state_lock:
+            old_font_family = self.app.options["font_family"]
+            old_font_size = self.app.options["font_size"]
+            old_filters = [dict(item) for item in self.app.filter_rules]
+            old_show_diff_only = self.app.options.get("show_diff_only", False)
+            old_compare_method = self.app.options.get("compare_method", "block")
 
         # Get new values from dialog.
         new_font_family = self.font_family_var.get()
@@ -710,16 +717,17 @@ class OptionsDialog(tk.Toplevel):
         )
 
         # Update options dictionary with all new values.
-        self.app.options.update(
-            {
-                "font_family": new_font_family,
-                "font_size": new_font_size,
-                "show_diff_only": new_show_diff_only,
-                "compare_method": new_compare_method,
-            }
-        )
-        self.app.filter_rules = new_filters
-        self.app.filter_rules.sort(key=lambda item: item["rule"])
+        with self.app.state_lock:
+            self.app.options.update(
+                {
+                    "font_family": new_font_family,
+                    "font_size": new_font_size,
+                    "show_diff_only": new_show_diff_only,
+                    "compare_method": new_compare_method,
+                }
+            )
+            self.app.filter_rules = new_filters
+            self.app.filter_rules.sort(key=lambda item: item["rule"])
 
         # Apply font changes to styles and tags.
         self.app._update_tree_fonts()
@@ -830,8 +838,16 @@ class OptionsDialog(tk.Toplevel):
             # Center relative to self (the OptionsDialog).
             self.update_idletasks()
             input_dialog.update_idletasks()
-            x = self.winfo_rootx() + self.winfo_width() // 2 - input_dialog.winfo_width() // 2
-            y = self.winfo_rooty() + self.winfo_height() // 2 - input_dialog.winfo_height() // 2
+            x = (
+                self.winfo_rootx()
+                + self.winfo_width() // 2
+                - input_dialog.winfo_width() // 2
+            )
+            y = (
+                self.winfo_rooty()
+                + self.winfo_height() // 2
+                - input_dialog.winfo_height() // 2
+            )
             input_dialog.geometry(f"+{x}+{y}")
 
             input_dialog.wait_window()
@@ -904,8 +920,16 @@ class OptionsDialog(tk.Toplevel):
 
             self.update_idletasks()
             confirm_dialog.update_idletasks()
-            x = self.winfo_rootx() + self.winfo_width() // 2 - confirm_dialog.winfo_width() // 2
-            y = self.winfo_rooty() + self.winfo_height() // 2 - confirm_dialog.winfo_height() // 2
+            x = (
+                self.winfo_rootx()
+                + self.winfo_width() // 2
+                - confirm_dialog.winfo_width() // 2
+            )
+            y = (
+                self.winfo_rooty()
+                + self.winfo_height() // 2
+                - confirm_dialog.winfo_height() // 2
+            )
             confirm_dialog.geometry(f"+{x}+{y}")
 
             confirm_dialog.wait_window()
@@ -967,6 +991,9 @@ class GSynchro:
         """
         self.root = root
 
+        # Threading lock for shared state (sync_states, files_a, files_b, options)
+        self.state_lock = threading.RLock()
+
         # Connection Manager.
         self.connection_manager = ConnectionManager(self._log, pool_size=4)
 
@@ -996,7 +1023,7 @@ class GSynchro:
 
         # Comparer instance.
         self.comparer = Comparer(
-            self._log, self.connection_manager, self.root, self.options
+            self._log, self.connection_manager, self.root, self.options, self.state_lock
         )
         self.remote_host_a = tk.StringVar()
         self.remote_user_a = tk.StringVar()
@@ -2102,8 +2129,10 @@ class GSynchro:
                     folder_path, use_ssh, ssh_client, panel, rules
                 )
 
-                target_files_dict = self.files_a if panel == "A" else self.files_b
-                target_files_dict.update(files)
+                with self.state_lock:
+                    target_files_dict = self.files_a if panel == "A" else self.files_b
+                    target_files_dict.clear()
+                    target_files_dict.update(files)
                 self.root.after(0, lambda: self._update_status(panel, files))
 
                 # Update tree view.
@@ -2261,107 +2290,91 @@ class GSynchro:
         self._log(f"Local folder scan ended for {folder_path}")
         return files
 
+    # ==========================================================================
+    # ROBUST _scan_remote METHOD (always two‑pass find+stat)
+    # ==========================================================================
+
     def _scan_remote(
         self,
         folder_path: str,
         ssh_client: paramiko.SSHClient,
         rules: Optional[list] = None,
     ) -> dict:
-        """Scan remote folder using SSH.
-
-        Args:
-            folder_path: Remote path to scan
-            ssh_client: SSH client to use
-            rules: Filter rules to apply
-
-        Returns:
-            Dictionary of scanned files
-        """
+        """Scan remote folder using SSH (two‑pass find+stat, works everywhere)."""
         files = {}
         if rules is None:
             rules = []
 
-        # Determine the correct stat command format (GNU, BusyBox, or BSD).
-        try:
-            # 1. Check for GNU stat.
-            stdin, stdout, stderr = ssh_client.exec_command(
-                "stat --version > /dev/null 2>&1"
-            )
-            if stdout.channel.recv_exit_status() == 0:
-                stat_command = "stat -c '%n|%F|%s|%Y'"
-                is_busybox = False
-                self._log("Remote system uses GNU stat.")
-            else:
-                # 2. Check for BusyBox stat.
-                stdin, stdout, stderr = ssh_client.exec_command(
-                    "stat --help 2>&1 | grep -q BusyBox"
-                )
-                if stdout.channel.recv_exit_status() == 0:
-                    # BusyBox stat. We get type separately.
-                    stat_command = "stat -c '%n|%s|%Y'"
-                    is_busybox = True
-                    self._log("Remote system uses BusyBox stat.")
-                else:
-                    # 3. Fallback to BSD stat.
-                    stat_command = "stat -f '%N|%HT|%z|%m'"
-                    is_busybox = False
-                    self._log("Remote system uses BSD stat.")
+        qpath = _posix_quote(folder_path)
 
-            # Construct the full find command; quote the remote folder_path Use
-            # a raw f-string so the backslash-semicolon sequence is preserved
-            # without triggering Python's invalid-escape warnings.
-            find_command = rf"find {_posix_quote(folder_path)} -mindepth 1 -exec {stat_command} {{}} \; 2>/dev/null"
+        self._log("Remote scan: using two-pass find + stat (robust method).")
+        fallback_cmd = (
+            rf"{{ find {qpath} -mindepth 1 -type f"
+            rf" -exec stat -c 'f|%n|%s|%Y' {{}} \; ;"
+            rf" find {qpath} -mindepth 1 -type d"
+            rf" -exec stat -c 'd|%n' {{}} \; ; }} 2>/dev/null"
+        )
+        _, out, _ = ssh_client.exec_command(fallback_cmd)
+        raw_lines = out.readlines()
 
-            stdin, stdout, stderr = ssh_client.exec_command(find_command)
+        # Parse lines
+        for line in raw_lines:
+            line = line.strip()
+            if not line:
+                continue
 
-            for line in stdout.readlines():
-                line = line.strip()
-                if not line:
+            try:
+                parts = line.split("|", 3)
+                if len(parts) < 2:
+                    self._log(f"Warning: Skipping malformed line: {line}")
                     continue
 
-                try:
-                    filepath = ""
-                    if is_busybox:
-                        filepath, size, mtime = line.split("|")  # noqa: B007
-                        # For BusyBox, we determine type with a separate check.
-                        is_dir_stdin, is_dir_stdout, _ = ssh_client.exec_command(
-                            f"if [ -d {_posix_quote(filepath)} ]; then echo 'dir'; fi"
-                        )
-                        filetype = (
-                            "directory"
-                            if is_dir_stdout.read().decode().strip() == "dir"
-                            else "regular file"
-                        )
-                    else:
-                        filepath, filetype, size, mtime = line.split("|")
+                type_char = parts[0]  # 'f' or 'd'
+                filepath = parts[1]
+                size = parts[2] if len(parts) > 2 else "0"
+                mtime = parts[3] if len(parts) > 3 else "0"
 
-                    if not filepath.startswith(folder_path):
-                        continue
+                # Determine filetype
+                if type_char == "d":
+                    filetype = "directory"
+                else:
+                    filetype = "regular file"
 
-                    rel_path = filepath[len(folder_path) :].lstrip("/")
+                # Skip if outside the base folder (should not happen)
+                if not filepath.startswith(folder_path):
+                    continue
 
-                    # Apply filtering logic (simplified for clarity).
-                    if any(fnmatch.fnmatch(rel_path, r) for r in rules) or any(
-                        fnmatch.fnmatch(part, r)
-                        for r in rules
-                        for part in rel_path.split("/")
-                    ):
-                        continue
+                rel_path = filepath[len(folder_path) :].lstrip("/")
 
-                    if "directory" in filetype.lower():
-                        files[rel_path] = {"type": "dir", "full_path": filepath}
-                    else:
-                        files[rel_path] = {
-                            "size": int(size),
-                            "modified": float(mtime),
-                            "full_path": filepath,
-                            "type": "file",
-                        }
-                except (ValueError, IndexError):
-                    self._log(f"Warning: Could not parse stat line: '{line}'")
+                # Apply filters
+                if any(fnmatch.fnmatch(rel_path, r) for r in rules) or any(
+                    fnmatch.fnmatch(part, r)
+                    for r in rules
+                    for part in rel_path.split("/")
+                ):
+                    continue
 
-        except Exception as e:
-            self._log(f"Error scanning remote folder {folder_path}: {str(e)}")
+                if filetype == "directory":
+                    files[rel_path] = {"type": "dir", "full_path": filepath}
+                else:
+                    # Convert size and mtime to int/float
+                    try:
+                        size_int = int(size)
+                    except ValueError:
+                        size_int = 0
+                    try:
+                        mtime_float = float(mtime)
+                    except ValueError:
+                        mtime_float = 0.0
+                    files[rel_path] = {
+                        "size": size_int,
+                        "modified": mtime_float,
+                        "full_path": filepath,
+                        "type": "file",
+                    }
+
+            except Exception as e:
+                self._log(f"Warning: Could not parse remote scan line '{line}': {e}")
 
         self._log(f"Remote folder scan ended for {folder_path}")
         return files
@@ -2542,9 +2555,12 @@ class GSynchro:
             return
 
         current_values = tree.item(item_id, "values")
-        check_char = (
-            CHECKED_CHAR if self.sync_states.get(rel_path, False) else UNCHECKED_CHAR
-        )
+        with self.state_lock:
+            check_char = (
+                CHECKED_CHAR
+                if self.sync_states.get(rel_path, False)
+                else UNCHECKED_CHAR
+            )
 
         tree.item(
             item_id,
@@ -2591,8 +2607,12 @@ class GSynchro:
                     future_b = executor.submit(
                         self._scan_folder, folder_b_path, use_ssh_b, None, "B", rules
                     )
-                    self.files_a = future_a.result()
-                    self.files_b = future_b.result()
+                    files_a_result = future_a.result()
+                    files_b_result = future_b.result()
+
+                with self.state_lock:
+                    self.files_a = files_a_result
+                    self.files_b = files_b_result
 
                 # Step 2: Prepare for comparison (still in background thread).
                 total_items = len(set(self.files_a.keys()) | set(self.files_b.keys()))
@@ -2658,8 +2678,8 @@ class GSynchro:
             item_statuses, stats, dirty_folders = (
                 self._calculate_item_statuses_parallel(
                     all_paths,
-                    self.files_a,
-                    self.files_b,
+                    files_a,
+                    files_b,
                     use_ssh_a,
                     use_ssh_b,
                     ssh_config_a,
@@ -2671,8 +2691,8 @@ class GSynchro:
             item_statuses, stats, dirty_folders = (
                 self._calculate_item_statuses_parallel(
                     all_paths,
-                    self.files_a,
-                    self.files_b,
+                    files_a,
+                    files_b,
                     False,
                     False,
                     {},
@@ -2726,7 +2746,8 @@ class GSynchro:
                 item_statuses[path] = ("Different", "magenta")
             # Auto-select every dirty folder so its checkbox is ticked after
             # comparison, consistent with how differing files are handled.
-            self.sync_states[path] = True
+            with self.state_lock:
+                self.sync_states[path] = True
 
     def _prepare_comparison_data(self) -> tuple:
         """Prepare data structures needed for comparison.
@@ -2737,7 +2758,8 @@ class GSynchro:
         tree_a_map = self._build_tree_map(self.tree_a)
         tree_b_map = self._build_tree_map(self.tree_b)
         all_visible_paths = set(tree_a_map.keys()) | set(tree_b_map.keys())
-        self.sync_states.clear()
+        with self.state_lock:
+            self.sync_states.clear()
         return tree_a_map, tree_b_map, all_visible_paths
 
     def _get_ssh_config_for_panel(self, panel_name: str) -> dict:
@@ -2815,7 +2837,8 @@ class GSynchro:
             if (is_file_a and is_dir_b) or (is_dir_a and is_file_b):
                 item_statuses[rel_path] = ("Conflict", "black")
                 stats["conflicts"] += 1
-                self.sync_states[rel_path] = True
+                with self.state_lock:
+                    self.sync_states[rel_path] = True
                 dirty_folders.add(os.path.dirname(rel_path))
             # If it's a file on at least one side (and not a conflict).
             elif is_file_a or is_file_b:
@@ -2891,7 +2914,8 @@ class GSynchro:
                 # Update stats.
                 if status == "Identical":
                     stats["identical"] += 1
-                    self.sync_states[rel_path] = False
+                    with self.state_lock:
+                        self.sync_states[rel_path] = False
                 else:
                     if status == "Different":
                         stats["different"] += 1
@@ -2906,7 +2930,8 @@ class GSynchro:
                         stats["only_b"] += 1
                         dirty_folders.add(os.path.dirname(rel_path))
 
-                    self.sync_states[rel_path] = True
+                    with self.state_lock:
+                        self.sync_states[rel_path] = True
 
                 # Update progress.
                 self.root.after(0, self._update_progress, 1)
@@ -2921,12 +2946,14 @@ class GSynchro:
             if is_dir_in_a and not is_dir_in_b:
                 item_statuses[rel_path] = ("Only in A", "blue")
                 stats["only_a"] += 1
-                self.sync_states[rel_path] = True
+                with self.state_lock:
+                    self.sync_states[rel_path] = True
                 dirty_folders.add(os.path.dirname(rel_path))
             elif is_dir_in_b and not is_dir_in_a:
                 item_statuses[rel_path] = ("Only in B", "red")
                 stats["only_b"] += 1
-                self.sync_states[rel_path] = True
+                with self.state_lock:
+                    self.sync_states[rel_path] = True
                 dirty_folders.add(os.path.dirname(rel_path))
 
         # Mark remaining shared directories as identical.
@@ -3015,11 +3042,13 @@ class GSynchro:
             if direction == "a_to_b":
                 source_path = self.folder_a.get()
                 target_path = self.folder_b.get()
-                source_files_dict = self.files_a
+                with self.state_lock:
+                    source_files_dict = self.files_a.copy()
             else:
                 source_path = self.folder_b.get()
                 target_path = self.folder_a.get()
-                source_files_dict = self.files_b
+                with self.state_lock:
+                    source_files_dict = self.files_b.copy()
 
             if not source_path or not target_path:
                 messagebox.showerror(
@@ -3034,9 +3063,10 @@ class GSynchro:
 
                 # Get files to copy.
                 files_to_copy = self._get_files_to_copy(source_files_dict)
-                target_files_dict = (
-                    self.files_b if direction == "a_to_b" else self.files_a
-                )
+                with self.state_lock:
+                    target_files_dict = (
+                        self.files_b if direction == "a_to_b" else self.files_a
+                    ).copy()
 
                 if not files_to_copy:
                     self._log("No files selected for synchronization.")
@@ -3119,13 +3149,17 @@ class GSynchro:
         if direction == "a_to_b":
             with self._create_ssh_for_panel("B", optional=True) as ssh_b:
                 self._log("Rescanning Panel B...")
-                self.files_b = self._scan_folder(target_path, use_ssh_b, ssh_b, "B")
-                self._update_status("B", self.files_b)
+                files = self._scan_folder(target_path, use_ssh_b, ssh_b, "B")
+                with self.state_lock:
+                    self.files_b = files
+                self._update_status("B", files)
         else:
             with self._create_ssh_for_panel("A", optional=True) as ssh_a:
                 self._log("Rescanning Panel A...")
-                self.files_a = self._scan_folder(target_path, use_ssh_a, ssh_a, "A")
-                self._update_status("A", self.files_a)
+                files = self._scan_folder(target_path, use_ssh_a, ssh_a, "A")
+                with self.state_lock:
+                    self.files_a = files
+                self._update_status("A", files)
 
     def _get_files_to_copy(self, source_files_dict: dict) -> list:
         """Get list of files to copy based on sync states.
@@ -3142,7 +3176,10 @@ class GSynchro:
         def _norm(p: str) -> str:
             return p.replace(os.sep, "/")
 
-        for rel_path, is_checked in self.sync_states.items():
+        with self.state_lock:
+            sync_states_snapshot = self.sync_states.copy()
+
+        for rel_path, is_checked in sync_states_snapshot.items():
             if not is_checked:
                 continue
 
@@ -3159,9 +3196,9 @@ class GSynchro:
                 for file_path, file_info in source_files_dict.items():
                     if file_info.get("type") != "file":
                         continue
-                    if _norm(file_path).startswith(dir_prefix) and self.sync_states.get(
-                        file_path, False
-                    ):
+                    if _norm(file_path).startswith(
+                        dir_prefix
+                    ) and sync_states_snapshot.get(file_path, False):
                         files_to_sync.add(file_path)
 
         return sorted(files_to_sync)
@@ -3440,7 +3477,8 @@ class GSynchro:
     def _show_filters_dialog(self):
         """Show filter rules dialog."""
         # Create a temporary copy to work with.
-        temp_filters = [dict(item) for item in self.filter_rules]
+        with self.state_lock:
+            temp_filters = [dict(item) for item in self.filter_rules]
 
         # Create dialog window.
         dialog = tk.Toplevel(self.root)
@@ -3687,8 +3725,9 @@ class GSynchro:
             self._log(f"Applying active filters: {active_rules}")
 
             # Clear file lists and trees.
-            self.files_a.clear()
-            self.files_b.clear()
+            with self.state_lock:
+                self.files_a.clear()
+                self.files_b.clear()
             self._update_status("A", self.files_a)
             self._update_status("B", self.files_b)
             if self.tree_a:
@@ -3719,8 +3758,9 @@ class GSynchro:
             threading.Thread(target=run_scans_and_compare, daemon=True).start()
 
         def save_and_close():
-            self.filter_rules = temp_filters
-            self.filter_rules.sort(key=lambda item: item["rule"])
+            with self.state_lock:
+                self.filter_rules = temp_filters
+                self.filter_rules.sort(key=lambda item: item["rule"])
             apply_filters()
             dialog.destroy()
 
@@ -3845,11 +3885,12 @@ class GSynchro:
         Returns:
             List of active filter rules
         """
-        return [
-            item["rule"]
-            for item in self.filter_rules
-            if isinstance(item, dict) and item.get("active", True)
-        ]
+        with self.state_lock:
+            return [
+                item["rule"]
+                for item in self.filter_rules
+                if isinstance(item, dict) and item.get("active", True)
+            ]
 
     # ==========================================================================
     # TREE EVENT HANDLERS
@@ -3879,7 +3920,8 @@ class GSynchro:
             return
 
         # Determine the new state and start the recursive toggle.
-        new_state = not self.sync_states.get(rel_path, False)
+        with self.state_lock:
+            new_state = not self.sync_states.get(rel_path, False)
         self._toggle_sync_state_recursive(tree, item_id, new_state, rel_path)
 
     def _toggle_sync_state_recursive(
@@ -3893,7 +3935,8 @@ class GSynchro:
             new_state: The new boolean sync state to apply.
             current_path: The relative path of the item being processed.
         """
-        self.sync_states[current_path] = new_state
+        with self.state_lock:
+            self.sync_states[current_path] = new_state
         char = CHECKED_CHAR if new_state else UNCHECKED_CHAR
         current_values = list(tree.item(item_id, "values"))
         current_values[0] = char
@@ -4119,14 +4162,16 @@ class GSynchro:
         def sync_thread():
             try:
                 if direction == "a_to_b":
-                    source_files_dict = self.files_a
+                    with self.state_lock:
+                        source_files_dict = self.files_a.copy()
                     target_path = self.folder_b.get()
                     source_use_ssh, target_use_ssh = (
                         self._has_ssh_a(),
                         self._has_ssh_b(),
                     )
                 else:  # b_to_a
-                    source_files_dict = self.files_b
+                    with self.state_lock:
+                        source_files_dict = self.files_b.copy()
                     target_path = self.folder_a.get()
                     source_use_ssh, target_use_ssh = (
                         self._has_ssh_b(),
@@ -4158,9 +4203,10 @@ class GSynchro:
 
                 # Remove duplicates.
                 files_to_copy = sorted(list(set(files_to_copy)))
-                target_files_dict = (
-                    self.files_b if direction == "a_to_b" else self.files_a
-                )
+                with self.state_lock:
+                    target_files_dict = (
+                        self.files_b if direction == "a_to_b" else self.files_a
+                    ).copy()
 
                 self.root.after(
                     0,
@@ -4213,10 +4259,14 @@ class GSynchro:
         # Determine source and destination data.
         rules = self._get_active_filters()
         if direction == "a_to_b":
-            source_files, dest_files = self.files_a, self.files_b
+            with self.state_lock:
+                source_files = self.files_a
+                dest_files = self.files_b
             dest_tree = self.tree_b
         else:
-            source_files, dest_files = self.files_b, self.files_a
+            with self.state_lock:
+                source_files = self.files_b
+                dest_files = self.files_a
             dest_tree = self.tree_a
 
         source_item_info = source_files.get(synced_item_rel_path)
@@ -4228,7 +4278,8 @@ class GSynchro:
             return
 
         # Update the destination file's metadata to match the source.
-        dest_files[synced_item_rel_path] = source_item_info.copy()
+        with self.state_lock:
+            dest_files[synced_item_rel_path] = source_item_info.copy()
 
         # Rebuild and repopulate the destination tree.
         tree_structure = self._build_tree_structure(dest_files)
@@ -4236,7 +4287,8 @@ class GSynchro:
             self._batch_populate_tree(dest_tree, tree_structure, rules)
 
         # After sync, the item is no longer selected for sync.
-        self.sync_states[synced_item_rel_path] = False
+        with self.state_lock:
+            self.sync_states[synced_item_rel_path] = False
 
         # Find the item in both trees and update its status.
         self.root.after(0, self.compare_folders)
@@ -4265,7 +4317,8 @@ class GSynchro:
                 if status in diff_statuses:
                     rel_path = self._get_relative_path(tree, child_id)
                     if rel_path is not None:
-                        self.sync_states[rel_path] = True
+                        with self.state_lock:
+                            self.sync_states[rel_path] = True
                         current_values = list(status_values)
                         current_values[0] = CHECKED_CHAR
                         tree.item(child_id, values=tuple(current_values))
@@ -4292,8 +4345,9 @@ class GSynchro:
                 rel_path = self._get_relative_path(tree, child_id)
                 if rel_path is not None:
                     # Check if item is in sync_states.
-                    if rel_path in self.sync_states:
-                        self.sync_states[rel_path] = False
+                    with self.state_lock:
+                        if rel_path in self.sync_states:
+                            self.sync_states[rel_path] = False
                     current_values = list(tree.item(child_id, "values"))
                     current_values[0] = UNCHECKED_CHAR
                     tree.item(child_id, values=tuple(current_values))
