@@ -32,6 +32,7 @@ from libs.g_theme import get_theme_colors
 # CONSTANTS
 # ============================================================================
 
+APP_VERSION = "1.0"
 CONFIG_FILE = "g_compare.json"
 HISTORY_LENGTH = 10
 SCROLL_MARKER_WIDTH = 40
@@ -125,7 +126,7 @@ class GCompare:
 
     def _init_window(self):
         """Initialize main window properties."""
-        self.root.title("GCompare - File Comparison Tool")
+        self.root.title("GCompare - File Comparison Tool {}".format(APP_VERSION))
         self.root.minsize(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT)
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
 
