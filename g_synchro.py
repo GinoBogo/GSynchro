@@ -49,6 +49,7 @@ from scp import SCPClient
 # CONSTANTS
 # ============================================================================
 
+APP_VERSION = "1.1"
 CONFIG_FILE = "g_synchro.json"
 HISTORY_LENGTH = 10
 CHUNK_SIZE = 4096
@@ -1098,7 +1099,7 @@ class GSynchro:
 
     def _init_window(self):
         """Initialize main window properties."""
-        self.root.title("GSynchro - Synchronization Tool")
+        self.root.title("GSynchro - Synchronization Tool {}".format(APP_VERSION))
         self.root.minsize(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT)
         self.root.protocol("WM_DELETE_WINDOW", self._on_closing)
 
