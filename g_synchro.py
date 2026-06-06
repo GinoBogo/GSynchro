@@ -66,16 +66,121 @@ DEFAULT_FONT_SIZE = 11
 
 
 def _posix_quote(path: str) -> str:
-    """Return a POSIX-shell-quoted version of `path` for safe exec_command use.
-
-    This uses `shlex.quote` which is suitable for POSIX shells on remote hosts.
-    """
+    """Return a POSIX-shell-quoted version of `path` for safe exec_command use."""
     return shlex.quote(path)
 
 
 def _posix_join(*parts: str) -> str:
     """Join path components using POSIX semantics for remote path construction."""
     return posixpath.join(*parts)
+
+
+# ============================================================================
+# GENERIC HELPER: modal string input dialog
+# ============================================================================
+
+
+def _ask_string_dialog(
+    parent: tk.Widget,
+    title: str,
+    prompt: str,
+    initial: str = "",
+    colors: Optional[dict] = None,
+) -> Optional[str]:
+    """
+    Generic modal dialog to get a single string from the user.
+
+    Args:
+        parent: Parent widget (the dialog will be transient for it).
+        title: Window title of the dialog.
+        prompt: Label text inside the dialog.
+        initial: Initial value for the Entry widget.
+        colors: Optional color dict for buttons (defaults to a safe fallback).
+
+    Returns:
+        The entered string, or None if cancelled.
+    """
+    if colors is None:
+        # Fallback colors if not provided
+        colors = {
+            "buttons": {
+                "primary": {"bg": "#4CAF50", "fg": "white"},
+                "secondary": {"bg": "#f0f0f0", "fg": "black"},
+                "default": {"bg": "#e0e0e0", "fg": "black"},
+            }
+        }
+
+    result = None
+
+    def on_ok():
+        nonlocal result
+        result = entry_var.get()
+        dialog.destroy()
+
+    dialog = tk.Toplevel(parent)
+    dialog.transient(parent)
+    dialog.grab_set()
+    dialog.title(title)
+    dialog.minsize(300, 120)
+    dialog.maxsize(300, 120)
+
+    # Apply a neutral background (using ttk style default)
+    style = ttk.Style()
+    dialog_bg = style.lookup("TFrame", "background")
+    dialog.configure(bg=dialog_bg)
+
+    dialog.rowconfigure(0, weight=1)
+    dialog.columnconfigure(0, weight=1)
+
+    content_frame = ttk.Frame(dialog, padding=10)
+    content_frame.grid(row=0, column=0, sticky=tk.NSEW)
+    content_frame.columnconfigure(0, weight=1)
+
+    ttk.Label(content_frame, text=prompt).grid(
+        row=0, column=0, sticky=tk.W, pady=(0, 5)
+    )
+
+    entry_var = tk.StringVar(value=initial)
+    entry = ttk.Entry(content_frame, textvariable=entry_var)
+    entry.grid(row=1, column=0, sticky=tk.EW)
+    entry.focus_set()
+    entry.select_range(0, "end")
+    entry.bind("<Return>", lambda e: on_ok())
+
+    button_frame = ttk.Frame(dialog, padding=(10, 0, 10, 10))
+    button_frame.grid(row=1, column=0, sticky=tk.EW)
+    button_frame.columnconfigure(0, weight=1)
+    button_frame.columnconfigure(1, weight=0)
+    button_frame.columnconfigure(2, weight=0)
+    button_frame.columnconfigure(3, weight=1)
+
+    GButton(
+        button_frame,
+        text="Cancel",
+        command=dialog.destroy,
+        width=80,
+        height=34,
+        **colors["buttons"]["secondary"],
+    ).grid(row=0, column=1, padx=5)
+
+    GButton(
+        button_frame,
+        text="OK",
+        command=on_ok,
+        width=80,
+        height=34,
+        **colors["buttons"]["primary"],
+    ).grid(row=0, column=2, padx=5)
+
+    # Center the dialog relative to its parent
+    parent.update_idletasks()
+    dialog.update_idletasks()
+    x = parent.winfo_rootx() + parent.winfo_width() // 2 - dialog.winfo_width() // 2
+    y = parent.winfo_rooty() + parent.winfo_height() // 2 - dialog.winfo_height() // 2
+    dialog.geometry(f"+{x}+{y}")
+
+    dialog.wait_window()
+    return result
 
 
 # ============================================================================
@@ -629,9 +734,9 @@ class OptionsDialog(tk.Toplevel):
             row=3, column=0, columnspan=2, sticky=tk.W, pady=(10, 5)
         )
 
-        # Bind font changes to update example.
-        self.font_family_var.trace("w", self._update_font_example)
-        self.font_size_var.trace("w", self._update_font_example)
+        # Bind font changes to update example – using modern trace_add
+        self.font_family_var.trace_add("write", self._update_font_example)
+        self.font_size_var.trace_add("write", self._update_font_example)
 
         # Initialize font example.
         self._update_font_example()
@@ -763,99 +868,10 @@ class OptionsDialog(tk.Toplevel):
 
     def _show_filter_context_menu(self, event):
         """Show context menu for filter tree."""
-        style = ttk.Style()
-        dialog_bg = style.lookup("TFrame", "background")
-
-        def _create_rule_input_dialog(
-            title: str, prompt_text: str, initial_value: str = ""
-        ) -> Optional[str]:
-            """Create a dialog to get a filter rule from the user.
-
-            Args:
-                title: Dialog title
-                prompt_text: Prompt text for the user
-                initial_value: Initial value for the input field
-
-            Returns:
-                User input or None if cancelled
-            """
-            entry_var = tk.StringVar(value=initial_value)
-            result = None
-
-            def on_ok():
-                nonlocal result
-                result = entry_var.get()
-                input_dialog.destroy()
-
-            input_dialog = tk.Toplevel(self)
-            input_dialog.transient(self)
-            input_dialog.grab_set()
-            input_dialog.title(title)
-            input_dialog.minsize(300, 120)
-            input_dialog.maxsize(300, 120)
-            input_dialog.configure(bg=dialog_bg)
-            input_dialog.rowconfigure(0, weight=1)
-            input_dialog.columnconfigure(0, weight=1)
-
-            content_frame = ttk.Frame(input_dialog, padding=10)
-            content_frame.grid(row=0, column=0, sticky=tk.NSEW)
-            content_frame.columnconfigure(0, weight=1)
-
-            ttk.Label(content_frame, text=prompt_text).grid(
-                row=0, column=0, sticky=tk.W, pady=(0, 5)
-            )
-
-            entry = ttk.Entry(content_frame, textvariable=entry_var)
-            entry.grid(row=1, column=0, sticky=tk.EW)
-            entry.focus_set()
-            entry.select_range(0, "end")
-            entry.bind("<Return>", lambda e: on_ok())
-
-            button_frame = ttk.Frame(input_dialog, padding=(10, 0, 10, 10))
-            button_frame.grid(row=1, column=0, sticky=tk.EW)
-            button_frame.columnconfigure(0, weight=1)
-            button_frame.columnconfigure(1, weight=0)
-            button_frame.columnconfigure(2, weight=0)
-            button_frame.columnconfigure(3, weight=1)
-
-            GButton(
-                button_frame,
-                text="Cancel",
-                command=input_dialog.destroy,
-                width=80,
-                height=34,
-                **self.colors["buttons"]["secondary"],
-            ).grid(row=0, column=1, padx=5)
-            GButton(
-                button_frame,
-                text="OK",
-                command=on_ok,
-                width=80,
-                height=34,
-                **self.colors["buttons"]["primary"],
-            ).grid(row=0, column=2, padx=5)
-
-            # Center relative to self (the OptionsDialog).
-            self.update_idletasks()
-            input_dialog.update_idletasks()
-            x = (
-                self.winfo_rootx()
-                + self.winfo_width() // 2
-                - input_dialog.winfo_width() // 2
-            )
-            y = (
-                self.winfo_rooty()
-                + self.winfo_height() // 2
-                - input_dialog.winfo_height() // 2
-            )
-            input_dialog.geometry(f"+{x}+{y}")
-
-            input_dialog.wait_window()
-            return result
 
         def insert_rule():
-            new_rule = _create_rule_input_dialog(
-                "Insert Rule", "Enter new filter pattern:"
+            new_rule = _ask_string_dialog(
+                self, "Insert Rule", "Enter new filter pattern:", colors=self.colors
             )
             if new_rule and new_rule.strip():
                 self.temp_filters.append({"rule": new_rule.strip(), "active": True})
@@ -868,8 +884,12 @@ class OptionsDialog(tk.Toplevel):
                 return
             index = int(selected_item)
             current_rule = self.temp_filters[index]["rule"]
-            edited_rule = _create_rule_input_dialog(
-                "Edit Rule", "Edit filter pattern:", initial_value=current_rule
+            edited_rule = _ask_string_dialog(
+                self,
+                "Edit Rule",
+                "Edit filter pattern:",
+                initial=current_rule,
+                colors=self.colors,
             )
             if edited_rule and edited_rule.strip():
                 self.temp_filters[index]["rule"] = edited_rule.strip()
@@ -885,6 +905,8 @@ class OptionsDialog(tk.Toplevel):
             confirm_dialog.transient(self)
             confirm_dialog.grab_set()
             confirm_dialog.title("Confirm Deletion")
+            style = ttk.Style()
+            dialog_bg = style.lookup("TFrame", "background")
             confirm_dialog.configure(bg=dialog_bg)
             ttk.Label(
                 confirm_dialog,
@@ -3514,82 +3536,10 @@ class GSynchro:
                 )
                 filter_tree.insert("", "end", iid=i, values=(check_char, item["rule"]))
 
-        def _create_rule_input_dialog(
-            title: str, prompt_text: str, initial_value: str = ""
-        ) -> Optional[str]:
-            """Create a dialog to get a filter rule from the user.
-
-            Args:
-                title: Dialog title
-                prompt_text: Prompt text for the user
-                initial_value: Initial value for the input field
-
-            Returns:
-                User input or None if cancelled
-            """
-            entry_var = tk.StringVar(value=initial_value)
-            result = None
-
-            def on_ok():
-                nonlocal result
-                result = entry_var.get()
-                input_dialog.destroy()
-
-            input_dialog = tk.Toplevel(dialog)
-            input_dialog.transient(dialog)
-            input_dialog.grab_set()
-            input_dialog.title(title)
-            input_dialog.minsize(300, 120)
-            input_dialog.maxsize(300, 120)
-            input_dialog.configure(bg=dialog_bg)
-            input_dialog.rowconfigure(0, weight=1)
-            input_dialog.columnconfigure(0, weight=1)
-
-            content_frame = ttk.Frame(input_dialog, padding=10)
-            content_frame.grid(row=0, column=0, sticky=tk.NSEW)
-            content_frame.columnconfigure(0, weight=1)
-
-            ttk.Label(content_frame, text=prompt_text).grid(
-                row=0, column=0, sticky=tk.W, pady=(0, 5)
-            )
-
-            entry = ttk.Entry(content_frame, textvariable=entry_var)
-            entry.grid(row=1, column=0, sticky=tk.EW)
-            entry.focus_set()
-            entry.select_range(0, "end")
-
-            button_frame = ttk.Frame(input_dialog, padding=(10, 0, 10, 10))
-            button_frame.grid(row=1, column=0, sticky=tk.EW)
-            button_frame.columnconfigure(0, weight=1)
-            button_frame.columnconfigure(1, weight=0)
-            button_frame.columnconfigure(2, weight=0)
-            button_frame.columnconfigure(3, weight=1)
-
-            GButton(
-                button_frame,
-                text="Cancel",
-                command=input_dialog.destroy,
-                width=80,
-                height=34,
-                **self.colors["buttons"]["default"],
-            ).grid(row=0, column=1, padx=5)
-            GButton(
-                button_frame,
-                text="OK",
-                command=on_ok,
-                width=80,
-                height=34,
-                **self.colors["buttons"]["primary"],
-            ).grid(row=0, column=2, padx=5)
-
-            self._center_dialog(input_dialog, relative_to=dialog)
-            input_dialog.wait_window()
-            return result
-
         # Context menu functions.
         def insert_rule():
-            new_rule = _create_rule_input_dialog(
-                "Insert Rule", "Enter new filter pattern:"
+            new_rule = _ask_string_dialog(
+                dialog, "Insert Rule", "Enter new filter pattern:", colors=self.colors
             )
             if new_rule and new_rule.strip():
                 temp_filters.append({"rule": new_rule.strip(), "active": True})
@@ -3604,8 +3554,12 @@ class GSynchro:
             index = int(selected_item)
             current_rule = temp_filters[index]["rule"]
 
-            edited_rule = _create_rule_input_dialog(
-                "Edit Rule", "Edit filter pattern:", initial_value=current_rule
+            edited_rule = _ask_string_dialog(
+                dialog,
+                "Edit Rule",
+                "Edit filter pattern:",
+                initial=current_rule,
+                colors=self.colors,
             )
 
             if edited_rule and edited_rule.strip():
