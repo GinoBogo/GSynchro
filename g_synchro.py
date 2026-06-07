@@ -1501,6 +1501,24 @@ class GSynchro:
         )
         path_combobox.grid(row=2, column=1, columnspan=2, padx=5, pady=5, sticky=tk.EW)
 
+        # Create context menu for history deletion.
+        history_menu = tk.Menu(panel, tearoff=0)
+        history_menu.add_command(
+            label="Delete path",
+            command=lambda pn=panel_name: self._on_delete_history_item(
+                pn, path_combobox
+            ),
+        )
+
+        # Bind right-click to show context menu.
+        def show_history_menu(event):
+            """Show context menu on right-click."""
+            history_menu.post(event.x_root, event.y_root)
+            # Bind Escape key to close menu
+            history_menu.bind("<Escape>", history_menu.unpost)
+
+        path_combobox.bind("<Button-3>", show_history_menu)
+
         def on_go():
             panel_name = title.split(" ")[1]
             folder_path = folder_var.get()
@@ -3660,14 +3678,10 @@ class GSynchro:
                 context_menu.entryconfig("Edit Rule", state="disabled")
             context_menu.tk_popup(event.x_root, event.y_root)
 
-        def hide_context_menu_on_escape(event=None):
-            """Hide the context menu when Escape is pressed."""
-            context_menu.unpost()
-
         # Bind events.
         filter_tree.bind("<Button-1>", on_tree_click)
         filter_tree.bind("<Button-3>", show_context_menu)
-        dialog.bind("<Escape>", hide_context_menu_on_escape)
+        dialog.bind("<Escape>", context_menu.unpost)
 
         # Initial population.
         populate_tree()
@@ -4693,6 +4707,71 @@ class GSynchro:
             self.folder_b.set(new_path)
 
         self._save_config()
+
+    def _delete_history_item(self, panel_name: str, item_to_delete: str):
+        """Delete a single item from panel history.
+
+        Args:
+            panel_name: Panel identifier ("A" or "B")
+            item_to_delete: The history item to delete
+
+        Returns:
+            True if item was deleted, False otherwise
+        """
+        history_list = (
+            self.folder_a_history if panel_name == "A" else self.folder_b_history
+        )
+
+        # Try exact match first
+        if item_to_delete in history_list:
+            history_list.remove(item_to_delete)
+            # Create a new list to ensure reference is updated
+            if panel_name == "A":
+                self.folder_a_history = list(history_list)
+            else:
+                self.folder_b_history = list(history_list)
+            return True
+
+        return False
+
+    def _on_delete_history_item(self, panel_name: str, combobox: ttk.Combobox):
+        """Handle delete from history context menu action.
+
+        Args:
+            panel_name: Panel identifier ("A" or "B")
+            combobox: The combobox widget
+        """
+        current_value = combobox.get()
+        if not current_value:
+            return
+
+        # Confirm deletion
+        if messagebox.askyesno(
+            "Confirm Deletion",
+            f"Delete '{current_value}' from history?",
+        ):
+            # Delete the item from history
+            deleted = self._delete_history_item(panel_name, current_value)
+
+            if deleted:
+                # Get the updated history list directly from instance variable
+                history_list = (
+                    self.folder_a_history
+                    if panel_name == "A"
+                    else self.folder_b_history
+                )
+
+                # Update combobox values using configure
+                combobox.set("")
+                combobox["values"] = history_list
+
+                # Force complete UI refresh
+                combobox.update()
+                combobox.update_idletasks()
+            else:
+                messagebox.showwarning(
+                    "Not Found", f"'{current_value}' not found in history"
+                )
 
     def _get_relative_path(
         self, tree: Optional[ttk.Treeview], item_id: str
