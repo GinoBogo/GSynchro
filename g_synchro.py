@@ -1514,8 +1514,13 @@ class GSynchro:
         def show_history_menu(event):
             """Show context menu on right-click."""
             history_menu.post(event.x_root, event.y_root)
+
             # Bind Escape key to close menu
-            history_menu.bind("<Escape>", history_menu.unpost)
+            def close_menu(e):
+                history_menu.unpost()
+                self.root.unbind("<Escape>")  # unbind after use
+
+            self.root.bind("<Escape>", close_menu)  # bind before use
 
         path_combobox.bind("<Button-3>", show_history_menu)
 
