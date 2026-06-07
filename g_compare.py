@@ -1704,7 +1704,7 @@ class GCompare:
         min_distance = float("inf")
 
         for i, change in enumerate(self._diff_changes):
-            _, line_num_a, _, _ = change
+            _, line_num_a, _ = change
             distance = abs(line_num_a - current_line)
 
             if distance < min_distance:
