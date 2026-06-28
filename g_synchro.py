@@ -474,7 +474,7 @@ class OptionsDialog(tk.Toplevel):
         )
         ttk.Checkbutton(
             compare_frame,
-            text="Show difference only",
+            text=" Show difference only ",
             variable=self.show_diff_only_var,
         ).grid(row=0, column=0, sticky=tk.W, pady=5)
 
@@ -489,13 +489,13 @@ class OptionsDialog(tk.Toplevel):
         )
         ttk.Radiobutton(
             compare_method_frame,
-            text="Block compare",
+            text=" Block compare ",
             variable=self.compare_method_var,
             value="block",
         ).pack(side=tk.LEFT, padx=5)
         ttk.Radiobutton(
             compare_method_frame,
-            text="MD5 compare",
+            text=" MD5 compare ",
             variable=self.compare_method_var,
             value="md5",
         ).pack(side=tk.LEFT, padx=5)
@@ -1179,7 +1179,7 @@ class GSynchro:
 
         remote_check = ttk.Checkbutton(
             panel,
-            text="Remote",
+            text=" Remote ",
             variable=remote_mode_var,
             command=lambda: self._on_remote_toggle(panel_letter),
         )
