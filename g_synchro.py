@@ -946,6 +946,7 @@ class GSynchro:
             self.remote_user_b.set(username)
             self.remote_pass_b.set("")
             self.remote_mode_b.set(bool(host and username))
+        self._on_remote_toggle(panel)
 
     def _load_filter_rules(self, rules_data):
         """Load and validate filter rules from configuration data."""
