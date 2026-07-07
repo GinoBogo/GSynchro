@@ -26,11 +26,13 @@ class GButton(tk.Canvas):
 
     def __init__(
         self,
+        # Basic widget configuration
         master: Optional[tk.Misc] = None,
         text: str = "Button",
         command: Optional[Callable] = None,
         width: int = 100,
         height: int = 34,
+        # Visual appearance and styling
         corner_radius: int = 8,
         corners: Optional[set] = ["tl", "br"],
         text_y_offset: int = 1,
@@ -42,12 +44,15 @@ class GButton(tk.Canvas):
         disabled_bg: str = "#E0E0E0",
         disabled_fg: str = "#A0A0A0",
         border_color: Optional[str] = None,
+        # Advanced features
         font: Optional[Tuple[str, int]] = None,
         image: Optional[tk.PhotoImage] = None,
         image_position: str = "left",
         tooltip_text: Optional[str] = None,
+        # State management
         state: str = "normal",
         canvas_bg: Optional[str] = None,
+        # Internal parameters
         **kwargs,
     ):
         """Initialize the GButton.
