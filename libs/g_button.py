@@ -31,7 +31,8 @@ class GButton(tk.Canvas):
         command: Optional[Callable] = None,
         width: int = 100,
         height: int = 34,
-        corner_radius: int = 8,
+        corner_radius: int = 6,
+        corners: Optional[set] = ["tr", "bl"],
         bg: str = "#007AFF",  # Default blue color
         fg: str = "white",
         hover_bg: Optional[str] = None,
@@ -108,6 +109,7 @@ class GButton(tk.Canvas):
         self._text = text
         self.command = command
         self._corner_radius = max(0, min(corner_radius, min(width, height) // 2))
+        self._corners = corners if corners is not None else {"tl", "tr", "br", "bl"}
         self._bg_color = bg
         self._fg_color = fg
         self._hover_bg = final_hover_bg
@@ -370,6 +372,7 @@ class GButton(tk.Canvas):
             self._width,
             self._height,
             self.corner_radius,
+            frozenset(self._corners),
             self.bg_color,
             self.fg_color,
             self.hover_bg,
@@ -410,7 +413,7 @@ class GButton(tk.Canvas):
             else:
                 outline_color = self._lighten_color(fill_color, 1.3)  # Lighter
 
-        if self.corner_radius == 0:
+        if self.corner_radius == 0 or not self._corners:
             self.create_rectangle(
                 2,
                 2,
@@ -428,6 +431,7 @@ class GButton(tk.Canvas):
                 self._width - offset,
                 self._height - offset,
                 self.corner_radius,
+                corners=self._corners,
                 fill=fill_color,
                 outline=outline_color,
                 width=2,
@@ -439,61 +443,62 @@ class GButton(tk.Canvas):
         self._draw_content(text_color)
 
     def _draw_rounded_rect(
-        self, x1: int, y1: int, x2: int, y2: int, radius: int, **kwargs
+        self,
+        x1: int,
+        y1: int,
+        x2: int,
+        y2: int,
+        radius: int,
+        corners: Optional[set] = None,
+        **kwargs,
     ) -> int:
-        """Draw a rounded rectangle using a smoothed polygon."""
-        br_radius = radius + 1
+        """Draw a rectangle whose corners can each independently be either
+        a sharp 90° corner or a 45°/-45° chamfered (angle-cut) corner.
 
-        points = [
-            x1 + radius,
-            y1,
-            x1 + radius,
-            y1,
-            x2 - radius,
-            y1,
-            x2 - radius,
-            y1,
-            x2,
-            y1,
-            x2,
-            y1 + radius,
-            x2,
-            y1 + radius,
-            x2,
-            y2 - br_radius,
-            x2,
-            y2 - br_radius,
-            x2,
-            y2,
-            x2 - br_radius,
-            y2,
-            x2 - br_radius,
-            y2,
-            x1 + radius,
-            y2,
-            x1 + radius,
-            y2,
-            x1,
-            y2,
-            x1,
-            y2 - radius,
-            x1,
-            y2 - radius,
-            x1,
-            y1 + radius,
-            x1,
-            y1 + radius,
-            x1,
-            y1,
-        ]
-        return self.create_polygon(points, smooth=True, **kwargs)
+        `radius` (kept as the parameter name for API compatibility) controls
+        the size of the diagonal cut at each chamfered corner.
+
+        `corners`: set of which corners to cut, using any of
+        {"tl", "tr", "br", "bl"}. Omitted corners stay perfectly square.
+        Defaults to all four (matches the previous all-corners behavior).
+        """
+        if corners is None:
+            corners = {"tl", "tr", "br", "bl"}
+
+        points = []
+
+        # Top-left
+        if "tl" in corners:
+            points += [x1, y1 + radius, x1 + radius, y1]
+        else:
+            points += [x1, y1]
+
+        # Top-right
+        if "tr" in corners:
+            points += [x2 - radius, y1, x2, y1 + radius]
+        else:
+            points += [x2, y1]
+
+        # Bottom-right
+        if "br" in corners:
+            points += [x2, y2 - radius, x2 - radius, y2]
+        else:
+            points += [x2, y2]
+
+        # Bottom-left
+        if "bl" in corners:
+            points += [x1 + radius, y2, x1, y2 - radius]
+        else:
+            points += [x1, y2]
+
+        return self.create_polygon(points, smooth=False, **kwargs)
 
     def _draw_focus_indicator(self) -> None:
         """Draw focus indicator around the button."""
         offset = 4
         radius = max(0, self.corner_radius - 2)
 
-        if radius == 0:
+        if radius == 0 or not self._corners:
             self.create_rectangle(
                 offset,
                 offset,
@@ -511,6 +516,7 @@ class GButton(tk.Canvas):
                 self._width - offset,
                 self._height - offset,
                 radius,
+                corners=self._corners,
                 fill="",
                 outline=self._fg_color,
                 width=2,
@@ -950,5 +956,19 @@ if __name__ == "__main__":
         tooltip_text="Button in disabled state",
     )
     btn6.pack(pady=6)
+
+    btn7 = GButton(
+        root,
+        text="Only TR Corner Cut (-45°)",
+        command=on_click,
+        bg="#E91E63",
+        hover_bg="#C2185B",
+        width=220,
+        height=36,
+        corner_radius=12,
+        corners={"tr"},
+        tooltip_text="Sharp rectangle except the top-right corner",
+    )
+    btn7.pack(pady=6)
 
     root.mainloop()
