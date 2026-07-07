@@ -31,8 +31,10 @@ class GButton(tk.Canvas):
         command: Optional[Callable] = None,
         width: int = 100,
         height: int = 34,
-        corner_radius: int = 6,
-        corners: Optional[set] = ["tr", "bl"],
+        corner_radius: int = 8,
+        corners: Optional[set] = ["tl", "br"],
+        text_y_offset: int = 1,
+        text_x_offset: int = 0,
         bg: str = "#007AFF",  # Default blue color
         fg: str = "white",
         hover_bg: Optional[str] = None,
@@ -57,6 +59,9 @@ class GButton(tk.Canvas):
             width: Width in pixels.
             height: Height in pixels.
             corner_radius: Radius of the corners.
+            corners: Which corners to chamfer, e.g. {"tl","tr","br","bl"}.
+            text_y_offset: Pixels to shift the text upward (negative moves it down).
+            text_x_offset: Pixels to shift the text right (negative moves it left).
             bg: Background color (normal state).
             fg: Text color.
             hover_bg: Background color when hovered.
@@ -110,6 +115,8 @@ class GButton(tk.Canvas):
         self.command = command
         self._corner_radius = max(0, min(corner_radius, min(width, height) // 2))
         self._corners = corners if corners is not None else {"tl", "tr", "br", "bl"}
+        self._text_y_offset = text_y_offset
+        self._text_x_offset = text_x_offset
         self._bg_color = bg
         self._fg_color = fg
         self._hover_bg = final_hover_bg
@@ -532,8 +539,8 @@ class GButton(tk.Canvas):
                 image_pos[0], image_pos[1], image=image_to_use, anchor="center"
             )
             self.create_text(
-                text_pos[0],
-                text_pos[1],
+                text_pos[0] + self._text_x_offset,
+                text_pos[1] - self._text_y_offset,
                 text=self.text,
                 fill=text_color,
                 font=self._font,
@@ -541,8 +548,8 @@ class GButton(tk.Canvas):
             )
         else:
             self.create_text(
-                self._width / 2,
-                self._height / 2,
+                self._width / 2 + self._text_x_offset,
+                self._height / 2 - self._text_y_offset,
                 text=self.text,
                 fill=text_color,
                 font=self._font,
