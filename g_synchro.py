@@ -2220,12 +2220,54 @@ class GSynchro:
                 tags=(status_color, "custom_font"),
             )
 
+    def _validate_ssh_fields(self) -> list:
+        """Return a list of human-readable error strings for any incomplete SSH panel.
+
+        Host, Username, and Password are required (SSH auth will fail without any
+        of them). Port is optional and defaults to 22 if left blank, so it is not
+        validated here.
+        """
+        missing = []
+        for panel, mode_var, host_var, user_var, pass_var in (
+            (
+                "A",
+                self.remote_mode_a,
+                self.remote_host_a,
+                self.remote_user_a,
+                self.remote_pass_a,
+            ),
+            (
+                "B",
+                self.remote_mode_b,
+                self.remote_host_b,
+                self.remote_user_b,
+                self.remote_pass_b,
+            ),
+        ):
+            if mode_var.get():
+                if not host_var.get().strip():
+                    missing.append(f"Panel {panel}: Host is required")
+                if not user_var.get().strip():
+                    missing.append(f"Panel {panel}: Username is required")
+                if not pass_var.get():
+                    missing.append(f"Panel {panel}: Password is required")
+        return missing
+
     def compare_folders(self):
         """Compare files in both panels and display results."""
         folder_a_path = self.folder_a.get()
         folder_b_path = self.folder_b.get()
         if not folder_a_path or not folder_b_path:
             messagebox.showerror("Error", "Please select both folders to compare")
+            return
+
+        missing_ssh_fields = self._validate_ssh_fields()
+        if missing_ssh_fields:
+            messagebox.showerror(
+                "Missing SSH Configuration",
+                "Please fill in all required SSH fields:\n"
+                + "\n".join(missing_ssh_fields),
+            )
             return
 
         def compare_thread():
