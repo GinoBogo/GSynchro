@@ -9,6 +9,7 @@ remote folders. Supports SSH-based remote operations with visual comparison.
 License: MIT
 Version: 1.0 (initial stable version)
 Version: 1.1 (robust remote scanner)
+Version: 1.2 (display scaling support)
 """
 
 from __future__ import annotations

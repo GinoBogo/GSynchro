@@ -11,6 +11,7 @@ License: MIT
 Version: 2.1
 """
 
+import platform
 import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import ttk
@@ -23,6 +24,58 @@ class GButton(tk.Canvas):
     # Class-level shared resources
     _shared_fonts: Dict[Any, tkfont.Font] = {}
     _color_op_cache: Dict[str, str] = {}
+    _scale_factor: Optional[float] = None
+
+    @classmethod
+    def _get_scale_factor(cls, master: Optional[tk.Misc]) -> float:
+        """Get display scaling factor using platform-specific methods."""
+        if cls._scale_factor is not None:
+            return cls._scale_factor
+
+        scale_factor = 1.0
+
+        if platform.system() == "Linux":
+            # Check X11 Xft.dpi (Linux X11)
+            try:
+                import subprocess
+
+                result = subprocess.run(
+                    ["xrdb", "-query"], capture_output=True, text=True, timeout=1
+                )
+                if result.returncode == 0:
+                    for line in result.stdout.split("\n"):
+                        if line.startswith("Xft.dpi:"):
+                            try:
+                                xft_dpi = float(line.split(":")[1].strip())
+                                scale_factor = xft_dpi / 96.0
+                                break
+                            except (ValueError, IndexError):
+                                pass
+            except Exception:
+                pass
+
+        elif platform.system() == "Windows":
+            # Try Tkinter's winfo_fpixels on Windows (more reliable)
+            try:
+                root = None
+                if master is not None:
+                    root = master.winfo_toplevel()
+                if root is None:
+                    try:
+                        root = tk._default_root
+                    except Exception:
+                        pass
+
+                if root is not None:
+                    dpi = root.winfo_fpixels("1i")
+                    detected_scale = dpi / 96.0
+                    if detected_scale > 1.05 or detected_scale < 0.95:
+                        scale_factor = detected_scale
+            except Exception:
+                pass
+
+        cls._scale_factor = scale_factor
+        return cls._scale_factor
 
     def __init__(
         self,
@@ -102,10 +155,17 @@ class GButton(tk.Canvas):
         elif "bg" not in kwargs:
             kwargs["bg"] = "#f0f0f0"
 
+        # Get display scaling factor for button dimensions
+        scale_factor = self._get_scale_factor(master)
+
+        # Scale button dimensions to match display scaling
+        scaled_width = int(width * scale_factor)
+        scaled_height = int(height * scale_factor)
+
         super().__init__(
             master,
-            width=width,
-            height=height,
+            width=scaled_width,
+            height=scaled_height,
             **kwargs,
         )
 
@@ -143,8 +203,8 @@ class GButton(tk.Canvas):
         self._tooltip_window = None
 
         self._last_signature = None
-        self._width = width
-        self._height = height
+        self._width = scaled_width
+        self._height = scaled_height
         self._resize_timer = None
 
         self._font_key = font
