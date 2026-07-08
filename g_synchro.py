@@ -105,12 +105,19 @@ def _ask_string_dialog(
         result = entry_var.get()
         dialog.destroy()
 
+    # Scale all fixed pixel dimensions based on display DPI, otherwise the
+    # dialog's hardcoded box (and the widgets inside it) stay physically
+    # tiny/cramped on HiDPI displays regardless of the OS scaling setting.
+    scale_factor = GScaling.get_scale_factor(parent)
+    dialog_width = int(300 * scale_factor)
+    dialog_height = int(120 * scale_factor)
+
     dialog = tk.Toplevel(parent)
     dialog.transient(parent)
     dialog.grab_set()
     dialog.title(title)
-    dialog.minsize(300, 120)
-    dialog.maxsize(300, 120)
+    dialog.minsize(dialog_width, dialog_height)
+    dialog.maxsize(dialog_width, dialog_height)
 
     style = ttk.Style()
     dialog_bg = style.lookup("TFrame", "background")
