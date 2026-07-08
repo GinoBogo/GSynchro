@@ -35,7 +35,7 @@ class GButton(tk.Canvas):
         width: int = 100,
         height: int = 34,
         # Visual appearance and styling
-        corner_radius: int = 8,
+        corner_radius: int = 6,
         corners: Optional[set] = ["tl", "br"],
         text_y_offset: int = 1,
         text_x_offset: int = 0,
@@ -111,6 +111,9 @@ class GButton(tk.Canvas):
         scaled_width = int(width * scale_factor)
         scaled_height = int(height * scale_factor)
 
+        # Scale corner radius to match display scaling
+        scaled_corner_radius = int(corner_radius * scale_factor)
+
         super().__init__(
             master,
             width=scaled_width,
@@ -127,7 +130,7 @@ class GButton(tk.Canvas):
 
         self._text = text
         self.command = command
-        self._corner_radius = max(0, min(corner_radius, min(width, height) // 2))
+        self._corner_radius = max(0, min(scaled_corner_radius, min(scaled_width, scaled_height) // 2))
         self._corners = corners if corners is not None else {"tl", "tr", "br", "bl"}
         self._text_y_offset = text_y_offset
         self._text_x_offset = text_x_offset

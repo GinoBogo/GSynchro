@@ -458,7 +458,11 @@ class OptionsDialog(tk.Toplevel):
 
         style = ttk.Style()
         style.configure("TNotebook", tabmargins=[0, 5, 0, 0])
-        style.configure("TNotebook.Tab", padding=[60, 5])
+
+        # Scale tab padding based on display DPI
+        scale_factor = GScaling.get_scale_factor(self)
+        tab_padding = [int(60 * scale_factor), int(5 * scale_factor)]
+        style.configure("TNotebook.Tab", padding=tab_padding)
 
         filters_frame = ttk.Frame(notebook, padding="10")
         notebook.add(filters_frame, text="Filters")
