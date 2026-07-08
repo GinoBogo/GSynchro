@@ -1336,6 +1336,9 @@ class GSynchro:
         self, parent: ttk.LabelFrame, column_widths: Optional[dict] = None
     ) -> ttk.Treeview:
         """Create a tree view for displaying file structure."""
+        # Get display scaling factor
+        scale_factor = GScaling.get_scale_factor(parent)
+
         if column_widths is None:
             column_widths = {
                 "#0": 200,
@@ -1344,35 +1347,41 @@ class GSynchro:
                 "modified": 120,
                 "status": 100,
             }
+
+        # Scale column widths based on display DPI
+        scaled_widths = {
+            col: int(width * scale_factor) for col, width in column_widths.items()
+        }
+
         tree = ttk.Treeview(
             parent,
             columns=("sync", "size", "modified", "status"),
             show="tree headings",
         )
         tree.heading("#0", text="Name")
-        tree.column("#0", width=column_widths.get("#0", 200), anchor="w", stretch=False)
+        tree.column("#0", width=scaled_widths.get("#0", 200), anchor="w", stretch=False)
         tree.heading("sync", text="Sync")
         tree.column(
             "sync",
-            width=column_widths.get("sync", 50),
+            width=scaled_widths.get("sync", 50),
             anchor="center",
             stretch=False,
         )
         tree.heading("size", text="Size")
         tree.column(
-            "size", width=column_widths.get("size", 80), anchor="e", stretch=False
+            "size", width=scaled_widths.get("size", 80), anchor="e", stretch=False
         )
         tree.heading("modified", text="Modified")
         tree.column(
             "modified",
-            width=column_widths.get("modified", 120),
+            width=scaled_widths.get("modified", 120),
             anchor="center",
             stretch=False,
         )
         tree.heading("status", text="Status")
         tree.column(
             "status",
-            width=column_widths.get("status", 100),
+            width=scaled_widths.get("status", 100),
             anchor="center",
             stretch=False,
         )
