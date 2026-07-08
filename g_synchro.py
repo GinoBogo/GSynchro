@@ -60,6 +60,7 @@ MIN_WINDOW_WIDTH = 1024
 MIN_WINDOW_HEIGHT = 768
 DEFAULT_FONT_FAMILY = "Courier New"
 DEFAULT_FONT_SIZE = 11
+DEFAULT_SPACING = 5
 
 
 # ============================================================================
@@ -126,12 +127,17 @@ def _ask_string_dialog(
     dialog.rowconfigure(0, weight=1)
     dialog.columnconfigure(0, weight=1)
 
-    content_frame = ttk.Frame(dialog, padding=10)
+    content_frame = ttk.Frame(
+        dialog, padding=GScaling.scale_pixels(DEFAULT_SPACING * 2, dialog)
+    )
     content_frame.grid(row=0, column=0, sticky=tk.NSEW)
     content_frame.columnconfigure(0, weight=1)
 
     ttk.Label(content_frame, text=prompt).grid(
-        row=0, column=0, sticky=tk.W, pady=(0, 5)
+        row=0,
+        column=0,
+        sticky=tk.W,
+        pady=(0, GScaling.scale_pixels(DEFAULT_SPACING, dialog)),
     )
 
     entry_var = tk.StringVar(value=initial)
@@ -141,13 +147,22 @@ def _ask_string_dialog(
     entry.select_range(0, "end")
     entry.bind("<Return>", lambda e: on_ok())
 
-    button_frame = ttk.Frame(dialog, padding=(10, 0, 10, 10))
+    button_frame = ttk.Frame(
+        dialog,
+        padding=(
+            GScaling.scale_pixels(DEFAULT_SPACING * 2, dialog),
+            0,
+            GScaling.scale_pixels(DEFAULT_SPACING * 2, dialog),
+            GScaling.scale_pixels(DEFAULT_SPACING * 2, dialog),
+        ),
+    )
     button_frame.grid(row=1, column=0, sticky=tk.EW)
     button_frame.columnconfigure(0, weight=1)
     button_frame.columnconfigure(1, weight=0)
     button_frame.columnconfigure(2, weight=0)
     button_frame.columnconfigure(3, weight=1)
 
+    spacing = GScaling.scale_pixels(DEFAULT_SPACING, dialog)
     GButton(
         button_frame,
         text="Cancel",
@@ -155,7 +170,7 @@ def _ask_string_dialog(
         width=80,
         height=34,
         **colors["buttons"]["secondary"],
-    ).grid(row=0, column=1, padx=5)
+    ).grid(row=0, column=1, padx=spacing)
 
     GButton(
         button_frame,
@@ -164,7 +179,7 @@ def _ask_string_dialog(
         width=80,
         height=34,
         **colors["buttons"]["primary"],
-    ).grid(row=0, column=2, padx=5)
+    ).grid(row=0, column=2, padx=spacing)
 
     parent.update_idletasks()
     dialog.update_idletasks()
@@ -458,7 +473,9 @@ class OptionsDialog(tk.Toplevel):
 
     def _init_ui(self):
         """Initialize the UI components of the options dialog."""
-        main_frame = ttk.Frame(self, padding="20")
+        main_frame = ttk.Frame(
+            self, padding=GScaling.scale_pixels(DEFAULT_SPACING * 4, self)
+        )
         main_frame.pack(fill=tk.BOTH, expand=True)
         notebook = ttk.Notebook(main_frame)
         notebook.pack(fill=tk.BOTH, expand=True)
@@ -471,7 +488,9 @@ class OptionsDialog(tk.Toplevel):
         tab_padding = [int(60 * scale_factor), int(5 * scale_factor)]
         style.configure("TNotebook.Tab", padding=tab_padding)
 
-        filters_frame = ttk.Frame(notebook, padding="10")
+        filters_frame = ttk.Frame(
+            notebook, padding=GScaling.scale_pixels(DEFAULT_SPACING * 2, notebook)
+        )
         notebook.add(filters_frame, text="Filters")
         self.temp_filters = [dict(item) for item in self.app.filter_rules]
         tree_frame, self.filter_tree = self.app._create_filter_tree(filters_frame)
@@ -480,8 +499,12 @@ class OptionsDialog(tk.Toplevel):
         self.filter_tree.bind("<Button-3>", self._show_filter_context_menu)
         self._populate_tree()
 
-        compare_frame = ttk.Frame(notebook, padding="10")
+        compare_frame = ttk.Frame(
+            notebook, padding=GScaling.scale_pixels(DEFAULT_SPACING * 2, notebook)
+        )
         notebook.add(compare_frame, text="Compare")
+        spacing = GScaling.scale_pixels(DEFAULT_SPACING, self)
+        spacing_large = GScaling.scale_pixels(DEFAULT_SPACING * 2, self)
         self.show_diff_only_var = tk.BooleanVar(
             value=self.app.options.get("show_diff_only", False)
         )
@@ -489,13 +512,15 @@ class OptionsDialog(tk.Toplevel):
             compare_frame,
             text=" Show difference only ",
             variable=self.show_diff_only_var,
-        ).grid(row=0, column=0, sticky=tk.W, pady=5)
+        ).grid(row=0, column=0, sticky=tk.W, pady=spacing)
 
         compare_method_frame = ttk.LabelFrame(
-            compare_frame, text="File Compare Method", padding="10"
+            compare_frame,
+            text="File Compare Method",
+            padding=GScaling.scale_pixels(DEFAULT_SPACING * 2, compare_frame),
         )
         compare_method_frame.grid(
-            row=1, column=0, columnspan=2, sticky=tk.EW, pady=(10, 5)
+            row=1, column=0, columnspan=2, sticky=tk.EW, pady=(spacing_large, spacing)
         )
         self.compare_method_var = tk.StringVar(
             value=self.app.options.get("compare_method", "block")
@@ -505,18 +530,20 @@ class OptionsDialog(tk.Toplevel):
             text=" Block compare ",
             variable=self.compare_method_var,
             value="block",
-        ).pack(side=tk.LEFT, padx=5)
+        ).pack(side=tk.LEFT, padx=spacing)
         ttk.Radiobutton(
             compare_method_frame,
             text=" MD5 compare ",
             variable=self.compare_method_var,
             value="md5",
-        ).pack(side=tk.LEFT, padx=5)
+        ).pack(side=tk.LEFT, padx=spacing)
 
-        font_frame = ttk.Frame(notebook, padding="10")
+        font_frame = ttk.Frame(
+            notebook, padding=GScaling.scale_pixels(DEFAULT_SPACING * 2, notebook)
+        )
         notebook.add(font_frame, text="Font")
         ttk.Label(font_frame, text="Font Family:").grid(
-            row=0, column=0, sticky=tk.E, padx=(0, 5), pady=5
+            row=0, column=0, sticky=tk.E, padx=(0, spacing), pady=spacing
         )
         font_families = tkfont.families()
         mono_fonts = sorted(
@@ -535,33 +562,41 @@ class OptionsDialog(tk.Toplevel):
         font_family_combo = ttk.Combobox(
             font_frame, textvariable=self.font_family_var, values=mono_fonts, width=30
         )
-        font_family_combo.grid(row=0, column=1, sticky=tk.W, padx=(0, 10), pady=5)
+        font_family_combo.grid(
+            row=0, column=1, sticky=tk.W, padx=(0, spacing_large), pady=spacing
+        )
 
         ttk.Label(font_frame, text="Font Size:").grid(
-            row=1, column=0, sticky=tk.E, padx=(0, 5), pady=5
+            row=1, column=0, sticky=tk.E, padx=(0, spacing), pady=spacing
         )
         self.font_size_var = tk.IntVar(value=self.app.options["font_size"])
         font_size_spinbox = tk.Spinbox(
             font_frame, from_=8, to=20, textvariable=self.font_size_var, width=5
         )
-        font_size_spinbox.grid(row=1, column=1, sticky=tk.W, pady=5)
+        font_size_spinbox.grid(row=1, column=1, sticky=tk.W, pady=spacing)
 
         ttk.Label(font_frame, text="Example:").grid(
-            row=2, column=0, sticky=tk.E, pady=(10, 5), padx=(0, 5)
+            row=2,
+            column=0,
+            sticky=tk.E,
+            pady=(spacing_large, spacing),
+            padx=(0, spacing),
         )
         self.font_example_label = ttk.Label(
             font_frame,
             text="ABCDEFGHIJKLMNOPQRSTUVWXYZ\nabcdefghijklmnopqrstuvwxyz\n0123456789\n!@#$%^&*()[]{}_+",
         )
         self.font_example_label.grid(
-            row=3, column=0, columnspan=2, sticky=tk.W, pady=(10, 5)
+            row=3, column=0, columnspan=2, sticky=tk.W, pady=(spacing_large, spacing)
         )
         self.font_family_var.trace_add("write", self._update_font_example)
         self.font_size_var.trace_add("write", self._update_font_example)
         self._update_font_example()
 
         button_frame = ttk.Frame(main_frame)
-        button_frame.pack(fill=tk.X, pady=(10, 0))
+        button_frame.pack(
+            fill=tk.X, pady=(GScaling.scale_pixels(DEFAULT_SPACING * 2, self), 0)
+        )
         button_center_frame = ttk.Frame(button_frame)
         button_center_frame.pack(expand=True)
         button_row_frame = ttk.Frame(button_center_frame)
@@ -573,7 +608,7 @@ class OptionsDialog(tk.Toplevel):
             width=100,
             height=34,
             **self.colors["buttons"]["primary"],
-        ).pack(side=tk.LEFT, padx=5)
+        ).pack(side=tk.LEFT, padx=spacing)
         GButton(
             button_row_frame,
             text="Reset",
@@ -581,7 +616,7 @@ class OptionsDialog(tk.Toplevel):
             width=100,
             height=34,
             **self.colors["buttons"]["secondary"],
-        ).pack(side=tk.LEFT, padx=5)
+        ).pack(side=tk.LEFT, padx=spacing)
         GButton(
             button_row_frame,
             text="Cancel",
@@ -589,7 +624,7 @@ class OptionsDialog(tk.Toplevel):
             width=100,
             height=34,
             **self.colors["buttons"]["secondary"],
-        ).pack(side=tk.LEFT, padx=5)
+        ).pack(side=tk.LEFT, padx=spacing)
 
     def _populate_tree(self):
         """Populate the filter tree with current filter rules."""
@@ -717,7 +752,7 @@ class OptionsDialog(tk.Toplevel):
             ttk.Label(
                 confirm_dialog,
                 text="Are you sure you want to remove the selected rule?",
-                padding=20,
+                padding=GScaling.scale_pixels(DEFAULT_SPACING * 4, confirm_dialog),
             ).pack()
             confirmed = False
 
@@ -727,8 +762,12 @@ class OptionsDialog(tk.Toplevel):
                 confirmed = True
                 confirm_dialog.destroy()
 
-            btn_frame = ttk.Frame(confirm_dialog, padding=10)
+            btn_frame = ttk.Frame(
+                confirm_dialog,
+                padding=GScaling.scale_pixels(DEFAULT_SPACING * 2, confirm_dialog),
+            )
             btn_frame.pack(fill="x")
+            spacing = GScaling.scale_pixels(DEFAULT_SPACING, confirm_dialog)
             GButton(
                 btn_frame,
                 text="Yes",
@@ -736,7 +775,7 @@ class OptionsDialog(tk.Toplevel):
                 width=70,
                 height=30,
                 **self.colors["buttons"]["primary"],
-            ).pack(side="right", padx=5)
+            ).pack(side="right", padx=spacing)
             GButton(
                 btn_frame,
                 text="No",
@@ -1086,7 +1125,9 @@ class GSynchro:
 
     def _create_main_frame(self) -> ttk.Frame:
         """Create and configure the main application frame."""
-        main_frame = ttk.Frame(self.root, padding="10")
+        main_frame = ttk.Frame(
+            self.root, padding=GScaling.scale_pixels(DEFAULT_SPACING * 2, self.root)
+        )
         main_frame.grid(row=0, column=0, sticky=tk.NSEW)
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
@@ -1097,11 +1138,18 @@ class GSynchro:
     def _create_control_frame(self, main_frame: ttk.Frame) -> ttk.Frame:
         """Create the control frame for buttons and inputs."""
         control_frame = ttk.Frame(main_frame)
-        control_frame.grid(row=0, column=0, columnspan=3, sticky=tk.EW, pady=5)
+        control_frame.grid(
+            row=0,
+            column=0,
+            columnspan=3,
+            sticky=tk.EW,
+            pady=GScaling.scale_pixels(DEFAULT_SPACING, main_frame),
+        )
         return control_frame
 
     def _create_control_buttons(self, control_frame: ttk.Frame):
         """Create the main control buttons (Compare, Sync, Options)."""
+        spacing = GScaling.scale_pixels(DEFAULT_SPACING, self.root)
         buttons_config = [
             ("Compare", self.compare_folders, "secondary"),
             ("Sync  ▶", lambda: self.synchronize("a_to_b"), "lightgreen"),
@@ -1121,7 +1169,11 @@ class GSynchro:
                 width=100,
                 height=34,
                 **btn_colors,
-            ).pack(side=tk.LEFT, padx=5, pady=5)
+            ).pack(
+                side=tk.LEFT,
+                padx=spacing,
+                pady=spacing,
+            )
 
     def _create_panels_frame(self, main_frame: ttk.Frame) -> ttk.PanedWindow:
         """Create the paned window frame for the two panels."""
@@ -1185,7 +1237,8 @@ class GSynchro:
         )
 
         panel_frame = ttk.Frame(parent, padding=0)
-        panel = ttk.LabelFrame(panel_frame, text=title, padding="5")
+        spacing = GScaling.scale_pixels(DEFAULT_SPACING, parent)
+        panel = ttk.LabelFrame(panel_frame, text=title, padding=spacing)
         panel.pack(fill=tk.BOTH, expand=True)
         panel.columnconfigure(0, weight=0)
         panel.columnconfigure(1, weight=1)
@@ -1198,28 +1251,53 @@ class GSynchro:
             command=lambda: self._on_remote_toggle(panel_letter),
         )
         remote_check.grid(
-            row=0, column=0, columnspan=2, padx=5, pady=(5, 0), sticky=tk.W
+            row=0,
+            column=0,
+            columnspan=2,
+            padx=spacing,
+            pady=(spacing, 0),
+            sticky=tk.W,
         )
 
         ttk.Label(panel, text="Host:").grid(
-            row=1, column=0, padx=5, pady=5, sticky=tk.E
+            row=1,
+            column=0,
+            padx=spacing,
+            pady=spacing,
+            sticky=tk.E,
         )
         host_list = self.hosts_a if panel_letter == "A" else self.hosts_b
         host_values = [h.get("host", "") for h in host_list]
         host_combobox = ttk.Combobox(
             panel, textvariable=host_var, values=host_values, width=15
         )
-        host_combobox.grid(row=1, column=1, padx=5, pady=5, sticky=tk.EW)
+        host_combobox.grid(
+            row=1,
+            column=1,
+            padx=spacing,
+            pady=spacing,
+            sticky=tk.EW,
+        )
         host_combobox.bind(
             "<<ComboboxSelected>>",
             lambda e, pn=panel_letter: self._on_host_selected(pn),
         )
 
         ttk.Label(panel, text="Port:").grid(
-            row=1, column=2, padx=5, pady=5, sticky=tk.E
+            row=1,
+            column=2,
+            padx=spacing,
+            pady=spacing,
+            sticky=tk.E,
         )
         port_entry = ttk.Entry(panel, textvariable=port_var, width=8)
-        port_entry.grid(row=1, column=3, padx=5, pady=5, sticky=tk.EW)
+        port_entry.grid(
+            row=1,
+            column=3,
+            padx=spacing,
+            pady=spacing,
+            sticky=tk.EW,
+        )
         test_btn = GButton(
             panel,
             text="Test",
@@ -1228,22 +1306,48 @@ class GSynchro:
             height=30,
             **btn_colors,
         )
-        test_btn.grid(row=1, column=4, padx=5, pady=5)
+        test_btn.grid(
+            row=1,
+            column=4,
+            padx=spacing,
+            pady=spacing,
+        )
         if panel_letter == "A":
             self.test_btn_a = test_btn
         else:
             self.test_btn_b = test_btn
 
         ttk.Label(panel, text="Username:").grid(
-            row=2, column=0, padx=5, pady=5, sticky=tk.E
+            row=2,
+            column=0,
+            padx=spacing,
+            pady=spacing,
+            sticky=tk.E,
         )
         user_entry = ttk.Entry(panel, textvariable=user_var, width=15)
-        user_entry.grid(row=2, column=1, padx=5, pady=5, sticky=tk.EW)
+        user_entry.grid(
+            row=2,
+            column=1,
+            padx=spacing,
+            pady=spacing,
+            sticky=tk.EW,
+        )
         ttk.Label(panel, text="Password:").grid(
-            row=2, column=2, padx=5, pady=5, sticky=tk.E
+            row=2,
+            column=2,
+            padx=spacing,
+            pady=spacing,
+            sticky=tk.E,
         )
         pass_entry = ttk.Entry(panel, textvariable=pass_var, show="*", width=15)
-        pass_entry.grid(row=2, column=3, columnspan=2, padx=5, pady=5, sticky=tk.EW)
+        pass_entry.grid(
+            row=2,
+            column=3,
+            columnspan=2,
+            padx=spacing,
+            pady=spacing,
+            sticky=tk.EW,
+        )
 
         ssh_entries = [host_combobox, port_entry, user_entry, pass_entry]
         if panel_letter == "A":
@@ -1252,7 +1356,11 @@ class GSynchro:
             self.ssh_entries_b = ssh_entries
 
         ttk.Label(panel, text="Path:").grid(
-            row=3, column=0, padx=5, pady=5, sticky=tk.E
+            row=3,
+            column=0,
+            padx=spacing,
+            pady=spacing,
+            sticky=tk.E,
         )
         path_combobox = ttk.Combobox(
             panel,
@@ -1260,7 +1368,14 @@ class GSynchro:
             values=[entry["path"] for entry in folder_history],
             width=20,
         )
-        path_combobox.grid(row=3, column=1, columnspan=2, padx=5, pady=5, sticky=tk.EW)
+        path_combobox.grid(
+            row=3,
+            column=1,
+            columnspan=2,
+            padx=spacing,
+            pady=spacing,
+            sticky=tk.EW,
+        )
         path_combobox.bind(
             "<<ComboboxSelected>>",
             lambda e, pn=panel_letter, cb=path_combobox: self._on_path_selected(pn, cb),
@@ -1296,7 +1411,12 @@ class GSynchro:
 
         GButton(
             panel, text="Go", command=on_go, width=70, height=30, **btn_colors
-        ).grid(row=3, column=3, padx=5, pady=5)
+        ).grid(
+            row=3,
+            column=3,
+            padx=spacing,
+            pady=spacing,
+        )
         GButton(
             panel,
             text="Browse",
@@ -1304,13 +1424,24 @@ class GSynchro:
             width=70,
             height=30,
             **btn_colors,
-        ).grid(row=3, column=4, padx=5, pady=5)
+        ).grid(
+            row=3,
+            column=4,
+            padx=spacing,
+            pady=spacing,
+        )
 
         column_widths = (
             self.column_widths_a if tree_attr == "tree_a" else self.column_widths_b
         )
         tree = self._create_tree_view(panel, column_widths)
-        tree.grid(row=6, column=0, columnspan=5, pady=(10, 0), sticky=tk.NSEW)
+        tree.grid(
+            row=6,
+            column=0,
+            columnspan=5,
+            pady=(GScaling.scale_pixels(DEFAULT_SPACING * 2, panel), 0),
+            sticky=tk.NSEW,
+        )
 
         def apply_widths():
             """Apply saved column widths to tree view."""
@@ -1326,7 +1457,12 @@ class GSynchro:
 
         v_scrollbar = ttk.Scrollbar(panel, orient=tk.VERTICAL, command=tree.yview)
         tree.configure(yscrollcommand=v_scrollbar.set)
-        v_scrollbar.grid(row=6, column=5, pady=(10, 0), sticky=tk.NS)
+        v_scrollbar.grid(
+            row=6,
+            column=5,
+            pady=(GScaling.scale_pixels(DEFAULT_SPACING * 2, panel), 0),
+            sticky=tk.NS,
+        )
         h_scrollbar = ttk.Scrollbar(panel, orient=tk.HORIZONTAL, command=tree.xview)
         tree.configure(xscrollcommand=h_scrollbar.set)
         h_scrollbar.grid(row=7, column=0, columnspan=5, sticky=tk.EW)
@@ -1403,8 +1539,18 @@ class GSynchro:
 
     def _create_status_bar(self, parent: ttk.Frame):
         """Create status bar with progress indicator."""
-        status_frame = ttk.Frame(parent, relief="flat", padding="2")
-        status_frame.grid(row=2, column=0, columnspan=3, sticky=tk.EW, pady=(5, 0))
+        status_frame = ttk.Frame(
+            parent,
+            relief="flat",
+            padding=GScaling.scale_pixels(DEFAULT_SPACING // 2, parent),
+        )
+        status_frame.grid(
+            row=2,
+            column=0,
+            columnspan=3,
+            sticky=tk.EW,
+            pady=(GScaling.scale_pixels(DEFAULT_SPACING, self.root), 0),
+        )
         status_frame.columnconfigure(0, weight=1)
         status_frame.columnconfigure(1, weight=1)
 
@@ -1421,7 +1567,12 @@ class GSynchro:
             status_frame, orient="horizontal", style="flat.Horizontal.TProgressbar"
         )
         self.progress_bar.grid(
-            row=0, column=0, columnspan=3, sticky=tk.EW, padx=0, pady=(6, 0)
+            row=0,
+            column=0,
+            columnspan=3,
+            sticky=tk.EW,
+            padx=0,
+            pady=(GScaling.scale_pixels(DEFAULT_SPACING + 1, self.root), 0),
         )
         self.progress_bar.grid_remove()
 
@@ -1777,16 +1928,25 @@ class GSynchro:
         dialog.transient(self.root)
         dialog.grab_set()
 
-        main_dialog_frame = ttk.Frame(dialog, padding="10")
+        main_dialog_frame = ttk.Frame(
+            dialog, padding=GScaling.scale_pixels(DEFAULT_SPACING * 2, dialog)
+        )
         main_dialog_frame.pack(fill=tk.BOTH, expand=True)
         result = tk.StringVar()
 
         path_frame = ttk.Frame(main_dialog_frame)
-        path_frame.pack(fill=tk.X, pady=(0, 5))
+        path_frame.pack(
+            fill=tk.X, pady=(0, GScaling.scale_pixels(DEFAULT_SPACING, dialog))
+        )
         path_var = tk.StringVar(value=current_path)
         ttk.Label(path_frame, text="Current Path:").pack(side=tk.LEFT)
         path_entry = ttk.Entry(path_frame, textvariable=path_var)
-        path_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
+        path_entry.pack(
+            side=tk.LEFT,
+            fill=tk.X,
+            expand=True,
+            padx=GScaling.scale_pixels(DEFAULT_SPACING, self.root),
+        )
 
         def go_to_path(event=None):
             """Navigate to the specified path in the remote dialog."""
@@ -1799,7 +1959,7 @@ class GSynchro:
             width=70,
             height=30,
             **self.colors["buttons"]["default"],
-        ).pack(side=tk.LEFT, padx=(5, 0))
+        ).pack(side=tk.LEFT, padx=(GScaling.scale_pixels(DEFAULT_SPACING, dialog), 0))
         path_entry.bind("<Return>", go_to_path)
 
         content_frame = ttk.Frame(main_dialog_frame)
@@ -1853,7 +2013,11 @@ class GSynchro:
             dialog.destroy()
 
         button_frame = ttk.Frame(main_dialog_frame)
-        button_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=(5, 0))
+        button_frame.pack(
+            side=tk.BOTTOM,
+            fill=tk.X,
+            pady=(GScaling.scale_pixels(DEFAULT_SPACING, dialog), 0),
+        )
         button_container = ttk.Frame(button_frame)
         button_container.pack()
         GButton(
@@ -1863,7 +2027,7 @@ class GSynchro:
             width=100,
             height=34,
             **self.colors["buttons"]["default"],
-        ).pack(side=tk.LEFT, padx=5)
+        ).pack(side=tk.LEFT, padx=GScaling.scale_pixels(DEFAULT_SPACING, self.root))
         GButton(
             button_container,
             text="Select",
@@ -1871,7 +2035,7 @@ class GSynchro:
             width=100,
             height=34,
             **self.colors["buttons"]["primary"],
-        ).pack(side=tk.LEFT, padx=5)
+        ).pack(side=tk.LEFT, padx=GScaling.scale_pixels(DEFAULT_SPACING, self.root))
 
         listbox.bind("<Double-Button-1>", on_select)
         load_folders(current_path)
@@ -2929,7 +3093,13 @@ class GSynchro:
         dialog.columnconfigure(0, weight=1)
 
         tree_frame, filter_tree = self._create_filter_tree(dialog)
-        tree_frame.grid(row=0, column=0, padx=10, pady=10, sticky=tk.NSEW)
+        tree_frame.grid(
+            row=0,
+            column=0,
+            padx=GScaling.scale_pixels(DEFAULT_SPACING * 2, dialog),
+            pady=GScaling.scale_pixels(DEFAULT_SPACING * 2, dialog),
+            sticky=tk.NSEW,
+        )
 
         def populate_tree():
             """Populate filter tree with current filter rules."""
@@ -2982,7 +3152,7 @@ class GSynchro:
                 ttk.Label(
                     confirm_dialog,
                     text="Are you sure you want to remove the selected rule?",
-                    padding=20,
+                    padding=GScaling.scale_pixels(DEFAULT_SPACING * 4, confirm_dialog),
                 ).pack()
                 confirmed = False
 
@@ -2992,7 +3162,10 @@ class GSynchro:
                     confirmed = True
                     confirm_dialog.destroy()
 
-                btn_frame = ttk.Frame(confirm_dialog, padding=10)
+                btn_frame = ttk.Frame(
+                    confirm_dialog,
+                    padding=GScaling.scale_pixels(DEFAULT_SPACING * 2, confirm_dialog),
+                )
                 btn_frame.pack(fill="x")
                 GButton(
                     btn_frame,
@@ -3001,7 +3174,10 @@ class GSynchro:
                     width=70,
                     height=30,
                     **self.colors["buttons"]["primary"],
-                ).pack(side="right", padx=5)
+                ).pack(
+                    side="right",
+                    padx=GScaling.scale_pixels(DEFAULT_SPACING, confirm_dialog),
+                )
                 GButton(
                     btn_frame,
                     text="No",
@@ -3111,7 +3287,13 @@ class GSynchro:
             dialog.destroy()
 
         button_frame = ttk.Frame(dialog)
-        button_frame.grid(row=1, column=0, padx=10, pady=(0, 10), sticky=tk.EW)
+        button_frame.grid(
+            row=1,
+            column=0,
+            padx=GScaling.scale_pixels(DEFAULT_SPACING * 2, dialog),
+            pady=(0, GScaling.scale_pixels(DEFAULT_SPACING * 2, dialog)),
+            sticky=tk.EW,
+        )
         button_frame.columnconfigure(0, weight=1)
         button_frame.columnconfigure(4, weight=1)
         GButton(
@@ -3121,7 +3303,7 @@ class GSynchro:
             width=80,
             height=34,
             **self.colors["buttons"]["primary"],
-        ).grid(row=0, column=3, padx=5)
+        ).grid(row=0, column=3, padx=GScaling.scale_pixels(DEFAULT_SPACING, dialog))
         GButton(
             button_frame,
             text="Apply",
@@ -3129,7 +3311,7 @@ class GSynchro:
             width=80,
             height=34,
             **self.colors["buttons"]["default"],
-        ).grid(row=0, column=2, padx=5)
+        ).grid(row=0, column=2, padx=GScaling.scale_pixels(DEFAULT_SPACING, dialog))
         GButton(
             button_frame,
             text="Cancel",
@@ -3137,7 +3319,7 @@ class GSynchro:
             width=80,
             height=34,
             **self.colors["buttons"]["default"],
-        ).grid(row=0, column=1, padx=5)
+        ).grid(row=0, column=1, padx=GScaling.scale_pixels(DEFAULT_SPACING, dialog))
 
         self._center_dialog(dialog)
         self.root.wait_window(dialog)

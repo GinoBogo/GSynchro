@@ -130,7 +130,9 @@ class GButton(tk.Canvas):
 
         self._text = text
         self.command = command
-        self._corner_radius = max(0, min(scaled_corner_radius, min(scaled_width, scaled_height) // 2))
+        self._corner_radius = max(
+            0, min(scaled_corner_radius, min(scaled_width, scaled_height) // 2)
+        )
         self._corners = corners if corners is not None else {"tl", "tr", "br", "bl"}
         self._text_y_offset = text_y_offset
         self._text_x_offset = text_x_offset
@@ -438,17 +440,20 @@ class GButton(tk.Canvas):
                 outline_color = self._lighten_color(fill_color, 1.3)  # Lighter
 
         if self.corner_radius == 0 or not self._corners:
+            line_width = GScaling.scale_pixels(2, self.master)
+            offset = GScaling.scale_pixels(2, self.master)
             self.create_rectangle(
-                2,
-                2,
-                self._width - 2,
-                self._height - 2,
+                offset,
+                offset,
+                self._width - offset,
+                self._height - offset,
                 fill=fill_color,
                 outline=outline_color,
-                width=2,
+                width=line_width,
             )
         else:
-            offset = 2
+            offset = GScaling.scale_pixels(2, self.master)
+            line_width = GScaling.scale_pixels(2, self.master)
             self._draw_rounded_rect(
                 offset,
                 offset,
@@ -458,7 +463,7 @@ class GButton(tk.Canvas):
                 corners=self._corners,
                 fill=fill_color,
                 outline=outline_color,
-                width=2,
+                width=line_width,
             )
 
         if self._focused:
@@ -519,8 +524,9 @@ class GButton(tk.Canvas):
 
     def _draw_focus_indicator(self) -> None:
         """Draw focus indicator around the button."""
-        offset = 4
-        radius = max(0, self.corner_radius - 2)
+        offset = GScaling.scale_pixels(4, self.master)
+        radius = max(0, self.corner_radius - GScaling.scale_pixels(2, self.master))
+        line_width = GScaling.scale_pixels(2, self.master)
 
         if radius == 0 or not self._corners:
             self.create_rectangle(
@@ -530,7 +536,7 @@ class GButton(tk.Canvas):
                 self._height - offset,
                 fill="",
                 outline=self._fg_color,
-                width=2,
+                width=line_width,
                 dash=(3, 2),
             )
         else:
@@ -543,7 +549,7 @@ class GButton(tk.Canvas):
                 corners=self._corners,
                 fill="",
                 outline=self._fg_color,
-                width=2,
+                width=line_width,
                 dash=(3, 2),
             )
 
@@ -761,17 +767,21 @@ class GButton(tk.Canvas):
         self._tooltip_window.wm_attributes("-topmost", True)
 
         x = self.winfo_rootx() + self.winfo_width() // 2
-        y = self.winfo_rooty() + self.winfo_height() + 5
+        y = (
+            self.winfo_rooty()
+            + self.winfo_height()
+            + GScaling.scale_pixels(5, self.master)
+        )
 
         label = tk.Label(
             self._tooltip_window,
             text=self._tooltip_text,
             bg="#FFFFE0",
             fg="black",
-            padx=6,
-            pady=3,
+            padx=GScaling.scale_pixels(6, self.master),
+            pady=GScaling.scale_pixels(3, self.master),
             relief="solid",
-            borderwidth=1,
+            borderwidth=GScaling.scale_pixels(1, self.master),
             font=("Segoe UI", 9),
         )
         label.pack()

@@ -26,6 +26,7 @@ from tkinter import filedialog, messagebox, ttk
 from typing import Dict, List, Optional, Tuple, cast
 
 from libs.g_button import GButton
+from libs.g_scaling import GScaling
 from libs.g_theme import get_theme_colors
 
 # ============================================================================
@@ -40,6 +41,7 @@ MIN_WINDOW_WIDTH = 1024
 MIN_WINDOW_HEIGHT = 768
 DEFAULT_FONT_FAMILY = "Courier New"
 DEFAULT_FONT_SIZE = 12
+DEFAULT_SPACING = 5
 
 
 # ============================================================================
@@ -175,7 +177,13 @@ class GCompare:
             Control frame
         """
         control_frame = ttk.Frame(parent)
-        control_frame.grid(row=0, column=0, columnspan=3, sticky=tk.EW, pady=5)
+        control_frame.grid(
+            row=0,
+            column=0,
+            columnspan=3,
+            sticky=tk.EW,
+            pady=GScaling.scale_pixels(DEFAULT_SPACING, parent),
+        )
         return control_frame
 
     def _create_control_buttons(self, parent: ttk.Frame):
@@ -196,6 +204,8 @@ class GCompare:
             ("Options", self.show_options_dialog, "secondary"),
         ]
 
+        spacing = GScaling.scale_pixels(DEFAULT_SPACING, self.root)
+
         for text, command, color in buttons:
             btn_colors = self.colors["buttons"].get(
                 color, self.colors["buttons"]["default"]
@@ -207,7 +217,11 @@ class GCompare:
                 width=100,
                 height=34,
                 **btn_colors,
-            ).pack(side=tk.LEFT, padx=5, pady=5)
+            ).pack(
+                side=tk.LEFT,
+                padx=spacing,
+                pady=spacing,
+            )
 
     def _go_to_next_change(self):
         """Move both text views to the next change location."""
@@ -451,9 +465,15 @@ class GCompare:
         panel.columnconfigure(4, weight=0)  # For vertical scrollbar.
         panel.rowconfigure(1, weight=1)  # For text area.
 
+        spacing = GScaling.scale_pixels(DEFAULT_SPACING, panel)
+
         # Path label.
         ttk.Label(panel, text="Path:").grid(
-            row=0, column=0, padx=5, pady=5, sticky=tk.W
+            row=0,
+            column=0,
+            padx=spacing,
+            pady=spacing,
+            sticky=tk.W,
         )
 
         # File path combobox.
@@ -462,17 +482,35 @@ class GCompare:
             textvariable=file_var,
             values=file_history,
         )
-        path_combobox.grid(row=0, column=1, padx=5, pady=5, sticky=tk.EW)
+        path_combobox.grid(
+            row=0,
+            column=1,
+            padx=spacing,
+            pady=spacing,
+            sticky=tk.EW,
+        )
 
         # Open button.
         GButton(
             panel, text="Open", command=open_command, width=70, height=30, **btn_colors
-        ).grid(row=0, column=2, padx=5, pady=5, sticky=tk.E)
+        ).grid(
+            row=0,
+            column=2,
+            padx=spacing,
+            pady=spacing,
+            sticky=tk.E,
+        )
 
         # Save button.
         GButton(
             panel, text="Save", command=save_command, width=70, height=30, **btn_colors
-        ).grid(row=0, column=3, padx=5, pady=5, sticky=tk.E)
+        ).grid(
+            row=0,
+            column=3,
+            padx=spacing,
+            pady=spacing,
+            sticky=tk.E,
+        )
 
         # Define font tuple.
         font_tuple = (self.options["font_family"], self.options["font_size"])
@@ -859,6 +897,8 @@ class GCompare:
         button_row_frame = ttk.Frame(button_center_frame)
         button_row_frame.pack()
 
+        btn_spacing = GScaling.scale_pixels(DEFAULT_SPACING, dialog)
+
         GButton(
             button_row_frame,
             text="Apply",
@@ -866,7 +906,7 @@ class GCompare:
             width=100,
             height=34,
             **self.colors["buttons"]["primary"],
-        ).pack(side=tk.LEFT, padx=5)
+        ).pack(side=tk.LEFT, padx=btn_spacing)
 
         GButton(
             button_row_frame,
@@ -875,7 +915,7 @@ class GCompare:
             width=100,
             height=34,
             **self.colors["buttons"]["secondary"],
-        ).pack(side=tk.LEFT, padx=5)
+        ).pack(side=tk.LEFT, padx=btn_spacing)
 
         GButton(
             button_row_frame,
@@ -884,7 +924,7 @@ class GCompare:
             width=100,
             height=34,
             **self.colors["buttons"]["secondary"],
-        ).pack(side=tk.LEFT, padx=5)
+        ).pack(side=tk.LEFT, padx=btn_spacing)
 
     # ========================================================================
     # CONFIGURATION METHODS

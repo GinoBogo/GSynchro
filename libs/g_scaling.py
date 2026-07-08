@@ -174,6 +174,23 @@ class GScaling:
         return {"scale_factor": cls._scale_factor, "method": cls._detection_method}
 
     @classmethod
+    def scale_pixels(cls, value: int, master: Optional[tk.Misc] = None) -> int:
+        """Scale a pixel value by the display scaling factor.
+
+        Args:
+            value: Pixel value to scale (e.g., padding, spacing, line width).
+            master: Optional parent widget for scale factor detection.
+
+        Returns:
+            Scaled pixel value as integer.
+
+        Example:
+            scaled_padding = GScaling.scale_pixels(10)  # Returns 13 at 133% scaling
+        """
+        scale_factor = cls.get_scale_factor(master)
+        return int(value * scale_factor)
+
+    @classmethod
     def reset_cache(cls) -> None:
         """Reset the cached scale factor. Useful for testing or dynamic DPI changes
         (e.g. after a WM_DPICHANGED event on Windows, or moving the window to a
