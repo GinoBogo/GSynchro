@@ -40,6 +40,7 @@ from tkinter import filedialog, messagebox, ttk
 
 # Personal library imports.
 from libs.g_button import GButton
+from libs.g_scaling import GScaling
 from libs.g_theme import get_theme_colors
 
 # Third-party library imports.
@@ -3120,9 +3121,22 @@ class GSynchro:
             tree_frame, columns=("check", "rule"), show="headings"
         )
         filter_tree.heading("check", text="")
-        filter_tree.column("check", width=40, anchor="center", stretch=False)
+
+        # Get display scaling factor
+        scale_factor = GScaling.get_scale_factor(parent)
+
+        # Scale column widths based on display DPI
+        check_width = int(40 * scale_factor)
+        filter_tree.column("check", width=check_width, anchor="center", stretch=False)
         filter_tree.heading("rule", text="Filter Rule")
         filter_tree.column("rule", anchor="w", stretch=True)
+
+        # Scale row height based on display DPI (default is ~20-24px)
+        row_height = int(24 * scale_factor)
+        style = ttk.Style()
+        style.configure("FilterTree.Treeview", rowheight=row_height)
+        filter_tree.configure(style="FilterTree.Treeview")
+
         filter_tree.grid(row=0, column=0, sticky=tk.NSEW)
         scrollbar = ttk.Scrollbar(tree_frame, command=filter_tree.yview)
         scrollbar.grid(row=0, column=1, sticky=tk.NS)
