@@ -1406,6 +1406,21 @@ class GSynchro:
             panel_letter = title.split(" ")[1]
             folder_path = folder_var.get()
             if folder_path:
+                remote_mode = (
+                    self.remote_mode_a.get()
+                    if panel_letter == "A"
+                    else self.remote_mode_b.get()
+                )
+                if remote_mode:
+                    missing_ssh_fields = self._validate_ssh_panel(panel_letter)
+                    if missing_ssh_fields:
+                        messagebox.showerror(
+                            "Missing SSH Configuration",
+                            "Please fill in all required SSH fields:"
+                            + "\n"
+                            + "\n".join(missing_ssh_fields),
+                        )
+                        return
                 self._save_current_ssh_to_history(panel_letter)
                 self._populate_single_panel(panel_letter, folder_path)
 
@@ -1544,13 +1559,7 @@ class GSynchro:
             relief="flat",
             padding=GScaling.scale_pixels(DEFAULT_SPACING // 2, parent),
         )
-        status_frame.grid(
-            row=2,
-            column=0,
-            columnspan=3,
-            sticky=tk.EW,
-            pady=(GScaling.scale_pixels(DEFAULT_SPACING, self.root), 0),
-        )
+        status_frame.grid(row=2, column=0, columnspan=3, sticky=tk.EW, pady=(5, 0))
         status_frame.columnconfigure(0, weight=1)
         status_frame.columnconfigure(1, weight=1)
 
@@ -1696,6 +1705,15 @@ class GSynchro:
             self.remote_mode_a.get() if panel_name == "A" else self.remote_mode_b.get()
         )
         if remote_mode:
+            missing_ssh_fields = self._validate_ssh_panel(panel_name)
+            if missing_ssh_fields:
+                messagebox.showerror(
+                    "Missing SSH Configuration",
+                    "Please fill in all required SSH fields:"
+                    + "\n"
+                    + "\n".join(missing_ssh_fields),
+                )
+                return
             selected_path = self._browse_remote(
                 folder_var, f"Panel {panel_name}", initial_path
             )
@@ -1763,6 +1781,16 @@ class GSynchro:
         if not remote_mode:
             messagebox.showinfo(
                 "Info", "SSH testing is only available when Remote mode is enabled."
+            )
+            return
+
+        missing_ssh_fields = self._validate_ssh_panel(panel)
+        if missing_ssh_fields:
+            messagebox.showerror(
+                "Missing SSH Configuration",
+                "Please fill in all required SSH fields:"
+                + "\n"
+                + "\n".join(missing_ssh_fields),
             )
             return
 
@@ -2424,6 +2452,33 @@ class GSynchro:
                     missing.append(f"Panel {panel}: Password is required")
         return missing
 
+    def _validate_ssh_panel(self, panel: str) -> list:
+        """Return a list of human-readable error strings for a single panel.
+
+        This is a targeted version of _validate_ssh_fields for use when only
+        one panel is being operated on (e.g. Go, Browse, Test).
+        """
+        missing = []
+        if panel == "A":
+            if not self.remote_mode_a.get():
+                return missing
+            if not self.remote_host_a.get().strip():
+                missing.append("Panel A: Host is required")
+            if not self.remote_user_a.get().strip():
+                missing.append("Panel A: Username is required")
+            if not self.remote_pass_a.get():
+                missing.append("Panel A: Password is required")
+        else:
+            if not self.remote_mode_b.get():
+                return missing
+            if not self.remote_host_b.get().strip():
+                missing.append("Panel B: Host is required")
+            if not self.remote_user_b.get().strip():
+                missing.append("Panel B: Username is required")
+            if not self.remote_pass_b.get():
+                missing.append("Panel B: Password is required")
+        return missing
+
     def compare_folders(self):
         """Compare files in both panels and display results."""
         folder_a_path = self.folder_a.get()
@@ -2759,6 +2814,15 @@ class GSynchro:
 
     def synchronize(self, direction: str):
         """Synchronize files from source to target panel."""
+        missing_ssh_fields = self._validate_ssh_fields()
+        if missing_ssh_fields:
+            messagebox.showerror(
+                "Missing SSH Configuration",
+                "Please fill in all required SSH fields:"
+                + "\n"
+                + "\n".join(missing_ssh_fields),
+            )
+            return
 
         def sync_thread():
             """Thread function to perform synchronization asynchronously."""
@@ -3586,6 +3650,15 @@ class GSynchro:
 
     def _sync_items(self, rel_paths: list[str], direction: str):
         """Handle the synchronization of multiple files or directories."""
+        missing_ssh_fields = self._validate_ssh_fields()
+        if missing_ssh_fields:
+            messagebox.showerror(
+                "Missing SSH Configuration",
+                "Please fill in all required SSH fields:"
+                + "\n"
+                + "\n".join(missing_ssh_fields),
+            )
+            return
 
         def sync_thread():
             """Thread function to sync selected items asynchronously."""
