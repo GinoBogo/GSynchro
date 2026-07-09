@@ -106,9 +106,7 @@ def _ask_string_dialog(
         result = entry_var.get()
         dialog.destroy()
 
-    # Scale all fixed pixel dimensions based on display DPI, otherwise the
-    # dialog's hardcoded box (and the widgets inside it) stay physically
-    # tiny/cramped on HiDPI displays regardless of the OS scaling setting.
+    # Scale dialog size based on display DPI
     scale_factor = GScaling.get_scale_factor(parent)
     dialog_width = int(300 * scale_factor)
     dialog_height = int(120 * scale_factor)
@@ -127,9 +125,10 @@ def _ask_string_dialog(
     dialog.rowconfigure(0, weight=1)
     dialog.columnconfigure(0, weight=1)
 
-    content_frame = ttk.Frame(
-        dialog, padding=GScaling.scale_pixels(DEFAULT_SPACING * 2, dialog)
-    )
+    # Scale pixels based on display DPI
+    spacing = GScaling.scale_pixels(DEFAULT_SPACING, dialog)
+
+    content_frame = ttk.Frame(dialog, padding=spacing * 2)
     content_frame.grid(row=0, column=0, sticky=tk.NSEW)
     content_frame.columnconfigure(0, weight=1)
 
@@ -137,7 +136,7 @@ def _ask_string_dialog(
         row=0,
         column=0,
         sticky=tk.W,
-        pady=(0, GScaling.scale_pixels(DEFAULT_SPACING, dialog)),
+        pady=(0, spacing),
     )
 
     entry_var = tk.StringVar(value=initial)
@@ -147,22 +146,13 @@ def _ask_string_dialog(
     entry.select_range(0, "end")
     entry.bind("<Return>", lambda e: on_ok())
 
-    button_frame = ttk.Frame(
-        dialog,
-        padding=(
-            GScaling.scale_pixels(DEFAULT_SPACING * 2, dialog),
-            0,
-            GScaling.scale_pixels(DEFAULT_SPACING * 2, dialog),
-            GScaling.scale_pixels(DEFAULT_SPACING * 2, dialog),
-        ),
-    )
+    button_frame = ttk.Frame(dialog, padding=(spacing * 2, 0, spacing * 2, spacing * 2))
     button_frame.grid(row=1, column=0, sticky=tk.EW)
     button_frame.columnconfigure(0, weight=1)
     button_frame.columnconfigure(1, weight=0)
     button_frame.columnconfigure(2, weight=0)
     button_frame.columnconfigure(3, weight=1)
 
-    spacing = GScaling.scale_pixels(DEFAULT_SPACING, dialog)
     GButton(
         button_frame,
         text="Cancel",
@@ -473,10 +463,12 @@ class OptionsDialog(tk.Toplevel):
 
     def _init_ui(self):
         """Initialize the UI components of the options dialog."""
-        main_frame = ttk.Frame(
-            self, padding=GScaling.scale_pixels(DEFAULT_SPACING * 4, self)
-        )
+        # Scale pixels based on display DPI
+        self.spacing = GScaling.scale_pixels(DEFAULT_SPACING, self)
+
+        main_frame = ttk.Frame(self, padding=self.spacing * 2)
         main_frame.pack(fill=tk.BOTH, expand=True)
+
         notebook = ttk.Notebook(main_frame)
         notebook.pack(fill=tk.BOTH, expand=True)
 
@@ -488,9 +480,7 @@ class OptionsDialog(tk.Toplevel):
         tab_padding = [int(60 * scale_factor), int(5 * scale_factor)]
         style.configure("TNotebook.Tab", padding=tab_padding)
 
-        filters_frame = ttk.Frame(
-            notebook, padding=GScaling.scale_pixels(DEFAULT_SPACING * 2, notebook)
-        )
+        filters_frame = ttk.Frame(notebook, padding=self.spacing * 2)
         notebook.add(filters_frame, text="Filters")
         self.temp_filters = [dict(item) for item in self.app.filter_rules]
         tree_frame, self.filter_tree = self.app._create_filter_tree(filters_frame)
@@ -499,12 +489,9 @@ class OptionsDialog(tk.Toplevel):
         self.filter_tree.bind("<Button-3>", self._show_filter_context_menu)
         self._populate_tree()
 
-        compare_frame = ttk.Frame(
-            notebook, padding=GScaling.scale_pixels(DEFAULT_SPACING * 2, notebook)
-        )
+        compare_frame = ttk.Frame(notebook, padding=self.spacing * 2)
         notebook.add(compare_frame, text="Compare")
-        spacing = GScaling.scale_pixels(DEFAULT_SPACING, self)
-        spacing_large = GScaling.scale_pixels(DEFAULT_SPACING * 2, self)
+
         self.show_diff_only_var = tk.BooleanVar(
             value=self.app.options.get("show_diff_only", False)
         )
@@ -512,15 +499,19 @@ class OptionsDialog(tk.Toplevel):
             compare_frame,
             text=" Show difference only ",
             variable=self.show_diff_only_var,
-        ).grid(row=0, column=0, sticky=tk.W, pady=spacing)
+        ).grid(row=0, column=0, sticky=tk.W, pady=self.spacing)
 
         compare_method_frame = ttk.LabelFrame(
             compare_frame,
             text="File Compare Method",
-            padding=GScaling.scale_pixels(DEFAULT_SPACING * 2, compare_frame),
+            padding=self.spacing * 2,
         )
         compare_method_frame.grid(
-            row=1, column=0, columnspan=2, sticky=tk.EW, pady=(spacing_large, spacing)
+            row=1,
+            column=0,
+            columnspan=2,
+            sticky=tk.EW,
+            pady=(self.spacing * 2, self.spacing),
         )
         self.compare_method_var = tk.StringVar(
             value=self.app.options.get("compare_method", "block")
@@ -530,20 +521,18 @@ class OptionsDialog(tk.Toplevel):
             text=" Block compare ",
             variable=self.compare_method_var,
             value="block",
-        ).pack(side=tk.LEFT, padx=spacing)
+        ).pack(side=tk.LEFT, padx=self.spacing)
         ttk.Radiobutton(
             compare_method_frame,
             text=" MD5 compare ",
             variable=self.compare_method_var,
             value="md5",
-        ).pack(side=tk.LEFT, padx=spacing)
+        ).pack(side=tk.LEFT, padx=self.spacing)
 
-        font_frame = ttk.Frame(
-            notebook, padding=GScaling.scale_pixels(DEFAULT_SPACING * 2, notebook)
-        )
+        font_frame = ttk.Frame(notebook, padding=self.spacing * 2)
         notebook.add(font_frame, text="Font")
         ttk.Label(font_frame, text="Font Family:").grid(
-            row=0, column=0, sticky=tk.E, padx=(0, spacing), pady=spacing
+            row=0, column=0, sticky=tk.E, padx=(0, self.spacing), pady=self.spacing
         )
         font_families = tkfont.families()
         mono_fonts = sorted(
@@ -558,45 +547,48 @@ class OptionsDialog(tk.Toplevel):
         )
         if not mono_fonts:
             mono_fonts = sorted(set(font_families))
+
         self.font_family_var = tk.StringVar(value=self.app.options["font_family"])
         font_family_combo = ttk.Combobox(
             font_frame, textvariable=self.font_family_var, values=mono_fonts, width=30
         )
         font_family_combo.grid(
-            row=0, column=1, sticky=tk.W, padx=(0, spacing_large), pady=spacing
+            row=0, column=1, sticky=tk.W, padx=(0, self.spacing * 2), pady=self.spacing
         )
 
         ttk.Label(font_frame, text="Font Size:").grid(
-            row=1, column=0, sticky=tk.E, padx=(0, spacing), pady=spacing
+            row=1, column=0, sticky=tk.E, padx=(0, self.spacing), pady=self.spacing
         )
         self.font_size_var = tk.IntVar(value=self.app.options["font_size"])
         font_size_spinbox = tk.Spinbox(
             font_frame, from_=8, to=20, textvariable=self.font_size_var, width=5
         )
-        font_size_spinbox.grid(row=1, column=1, sticky=tk.W, pady=spacing)
+        font_size_spinbox.grid(row=1, column=1, sticky=tk.W, pady=self.spacing)
 
         ttk.Label(font_frame, text="Example:").grid(
             row=2,
             column=0,
             sticky=tk.E,
-            pady=(spacing_large, spacing),
-            padx=(0, spacing),
+            pady=(self.spacing * 2, self.spacing),
+            padx=(0, self.spacing),
         )
         self.font_example_label = ttk.Label(
             font_frame,
             text="ABCDEFGHIJKLMNOPQRSTUVWXYZ\nabcdefghijklmnopqrstuvwxyz\n0123456789\n!@#$%^&*()[]{}_+",
         )
         self.font_example_label.grid(
-            row=3, column=0, columnspan=2, sticky=tk.W, pady=(spacing_large, spacing)
+            row=3,
+            column=0,
+            columnspan=2,
+            sticky=tk.W,
+            pady=(self.spacing * 2, self.spacing),
         )
         self.font_family_var.trace_add("write", self._update_font_example)
         self.font_size_var.trace_add("write", self._update_font_example)
         self._update_font_example()
 
         button_frame = ttk.Frame(main_frame)
-        button_frame.pack(
-            fill=tk.X, pady=(GScaling.scale_pixels(DEFAULT_SPACING * 2, self), 0)
-        )
+        button_frame.pack(fill=tk.X, pady=(self.spacing * 2, 0))
         button_center_frame = ttk.Frame(button_frame)
         button_center_frame.pack(expand=True)
         button_row_frame = ttk.Frame(button_center_frame)
@@ -608,7 +600,7 @@ class OptionsDialog(tk.Toplevel):
             width=100,
             height=34,
             **self.colors["buttons"]["primary"],
-        ).pack(side=tk.LEFT, padx=spacing)
+        ).pack(side=tk.LEFT, padx=self.spacing)
         GButton(
             button_row_frame,
             text="Reset",
@@ -616,7 +608,7 @@ class OptionsDialog(tk.Toplevel):
             width=100,
             height=34,
             **self.colors["buttons"]["secondary"],
-        ).pack(side=tk.LEFT, padx=spacing)
+        ).pack(side=tk.LEFT, padx=self.spacing)
         GButton(
             button_row_frame,
             text="Cancel",
@@ -624,7 +616,7 @@ class OptionsDialog(tk.Toplevel):
             width=100,
             height=34,
             **self.colors["buttons"]["secondary"],
-        ).pack(side=tk.LEFT, padx=spacing)
+        ).pack(side=tk.LEFT, padx=self.spacing)
 
     def _populate_tree(self):
         """Populate the filter tree with current filter rules."""
@@ -752,7 +744,7 @@ class OptionsDialog(tk.Toplevel):
             ttk.Label(
                 confirm_dialog,
                 text="Are you sure you want to remove the selected rule?",
-                padding=GScaling.scale_pixels(DEFAULT_SPACING * 4, confirm_dialog),
+                padding=self.spacing * 4,
             ).pack()
             confirmed = False
 
@@ -764,10 +756,9 @@ class OptionsDialog(tk.Toplevel):
 
             btn_frame = ttk.Frame(
                 confirm_dialog,
-                padding=GScaling.scale_pixels(DEFAULT_SPACING * 2, confirm_dialog),
+                padding=self.spacing * 2,
             )
             btn_frame.pack(fill="x")
-            spacing = GScaling.scale_pixels(DEFAULT_SPACING, confirm_dialog)
             GButton(
                 btn_frame,
                 text="Yes",
@@ -775,7 +766,7 @@ class OptionsDialog(tk.Toplevel):
                 width=70,
                 height=30,
                 **self.colors["buttons"]["primary"],
-            ).pack(side="right", padx=spacing)
+            ).pack(side="right", padx=self.spacing)
             GButton(
                 btn_frame,
                 text="No",
@@ -909,6 +900,8 @@ class GSynchro:
         self.test_btn_b = None
 
         self.colors = get_theme_colors()
+        # Scale pixels based on display DPI
+        self.spacing = GScaling.scale_pixels(DEFAULT_SPACING, self.root)
         self._load_config()
         self._init_window()
         self._setup_ui()
@@ -1149,7 +1142,6 @@ class GSynchro:
 
     def _create_control_buttons(self, control_frame: ttk.Frame):
         """Create the main control buttons (Compare, Sync, Options)."""
-        spacing = GScaling.scale_pixels(DEFAULT_SPACING, self.root)
         buttons_config = [
             ("Compare", self.compare_folders, "secondary"),
             ("Sync  ▶", lambda: self.synchronize("a_to_b"), "lightgreen"),
@@ -1171,8 +1163,8 @@ class GSynchro:
                 **btn_colors,
             ).pack(
                 side=tk.LEFT,
-                padx=spacing,
-                pady=spacing,
+                padx=self.spacing,
+                pady=self.spacing,
             )
 
     def _create_panels_frame(self, main_frame: ttk.Frame) -> ttk.PanedWindow:
