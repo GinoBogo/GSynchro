@@ -31,6 +31,25 @@ def ask_string_dialog(
 ) -> Optional[str]:
     """
     Generic modal dialog to get a single string from the user.
+
+    This function creates a modal dialog window that prompts the user for a string input.
+    The dialog is centered on the parent window and blocks interaction with the parent
+    until closed.
+
+    Args:
+        parent (tk.Widget): The parent widget (typically the main application window).
+        title (str): The title to display in the dialog window's title bar.
+        prompt (str): The text prompt to show above the input field.
+        initial (str, optional): Initial value for the input field. Defaults to "".
+        colors (dict, optional): Dictionary defining button colors. If None, uses defaults.
+
+    Returns:
+        Optional[str]: The string entered by the user, or None if the dialog was cancelled.
+
+    Example:
+        result = ask_string_dialog(root, "Enter Name", "Please enter your name:", "John")
+        if result is not None:
+            print(f"User entered: {result}")
     """
     if colors is None:
         colors = {
@@ -44,7 +63,13 @@ def ask_string_dialog(
     result = None
 
     def on_ok():
-        """Handle OK button click - capture entry value and close dialog."""
+        """
+        Handle OK button click - capture entry value and close dialog.
+
+        This inner function is called when the user clicks the OK button or
+        presses Enter in the input field. It captures the current value
+        from the entry widget and closes the dialog.
+        """
         nonlocal result
         result = entry_var.get()
         dialog.destroy()
