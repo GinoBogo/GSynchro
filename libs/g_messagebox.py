@@ -23,85 +23,15 @@ class GMessagebox:
     """Custom messagebox with HiDPI support and theme integration."""
 
     @staticmethod
-    def _create_icon(canvas: tk.Canvas, icon_type: str, size: int, colors: dict):
-        """Draw an icon on the canvas based on type."""
-        center = size // 2
-        radius = size // 3
-        # Use fixed font size to prevent oversized text on HiDPI screens
-        font_size = 18
-
-        if icon_type == "info":
-            # Blue circle with 'i'
-            canvas.create_oval(
-                center - radius,
-                center - radius,
-                center + radius,
-                center + radius,
-                fill="#007AFF",
-                outline="#0051A8",
-                width=2,
-            )
-            canvas.create_text(
-                center,
-                center,
-                text="i",
-                fill="white",
-                font=("Arial", font_size, "bold"),
-            )
-        elif icon_type == "warning":
-            # Yellow triangle with '!'
-            points = [
-                center,
-                center - radius,
-                center - radius,
-                center + radius,
-                center + radius,
-                center + radius,
-            ]
-            canvas.create_polygon(points, fill="#FFCC80", outline="#FFB74D", width=2)
-            canvas.create_text(
-                center,
-                center + radius * 0.3,
-                text="!",
-                fill="black",
-                font=("Arial", font_size, "bold"),
-            )
-        elif icon_type == "error":
-            # Red circle with X
-            canvas.create_oval(
-                center - radius,
-                center - radius,
-                center + radius,
-                center + radius,
-                fill="#FF5252",
-                outline="#D32F2F",
-                width=2,
-            )
-            canvas.create_text(
-                center,
-                center,
-                text="✕",
-                fill="white",
-                font=("Arial", font_size, "bold"),
-            )
-        elif icon_type == "question":
-            # Blue circle with '?'
-            canvas.create_oval(
-                center - radius,
-                center - radius,
-                center + radius,
-                center + radius,
-                fill="#007AFF",
-                outline="#0051A8",
-                width=2,
-            )
-            canvas.create_text(
-                center,
-                center,
-                text="?",
-                fill="white",
-                font=("Arial", font_size, "bold"),
-            )
+    def _get_icon_symbol(icon_type: str) -> str:
+        """Return Unicode symbol for the icon type."""
+        icons = {
+            "info": "ℹ️",
+            "warning": "⚠️",
+            "error": "❌",
+            "question": "❓",
+        }
+        return icons.get(icon_type, "")
 
     @staticmethod
     def _show_dialog(
@@ -125,7 +55,6 @@ class GMessagebox:
         # Scale dimensions based on display DPI
         scale_factor = GScaling.get_scale_factor(parent) if parent else 1.0
         dialog_width = int(400 * scale_factor)
-        icon_size = int(48 * scale_factor)
         spacing = GScaling.scale_pixels(5, parent) if parent else 5
 
         dialog = tk.Toplevel(parent)
@@ -147,16 +76,14 @@ class GMessagebox:
         icon_message_frame = ttk.Frame(content_frame)
         icon_message_frame.pack(fill=tk.BOTH, expand=True, pady=(spacing, spacing * 2))
 
-        # Icon canvas
-        icon_canvas = tk.Canvas(
+        # Icon label with Unicode symbol
+        icon_symbol = GMessagebox._get_icon_symbol(icon_type)
+        icon_label = ttk.Label(
             icon_message_frame,
-            width=icon_size,
-            height=icon_size,
-            bg=dialog_bg,
-            highlightthickness=0,
+            text=icon_symbol,
+            font=("Segoe UI Emoji", 32),
         )
-        icon_canvas.pack(side=tk.LEFT, padx=(0, spacing * 2))
-        GMessagebox._create_icon(icon_canvas, icon_type, icon_size, colors)
+        icon_label.pack(side=tk.LEFT, padx=(0, spacing * 2))
 
         # Message label with wrapping
         message_label = ttk.Label(
