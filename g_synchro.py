@@ -36,7 +36,8 @@ from contextlib import contextmanager
 from datetime import datetime
 from queue import Queue
 from typing import Optional, Iterator, cast, Union
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, ttk
+from libs.g_messagebox import GMessagebox as messagebox
 
 # Personal library imports.
 from libs.g_button import GButton
