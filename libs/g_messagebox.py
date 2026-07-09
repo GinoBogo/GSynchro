@@ -27,6 +27,8 @@ class GMessagebox:
         """Draw an icon on the canvas based on type."""
         center = size // 2
         radius = size // 3
+        # Use fixed font size to prevent oversized text on HiDPI screens
+        font_size = 18
 
         if icon_type == "info":
             # Blue circle with 'i'
@@ -44,7 +46,7 @@ class GMessagebox:
                 center,
                 text="i",
                 fill="white",
-                font=("Arial", int(size * 0.5), "bold"),
+                font=("Arial", font_size, "bold"),
             )
         elif icon_type == "warning":
             # Yellow triangle with '!'
@@ -62,7 +64,7 @@ class GMessagebox:
                 center + radius * 0.3,
                 text="!",
                 fill="black",
-                font=("Arial", int(size * 0.5), "bold"),
+                font=("Arial", font_size, "bold"),
             )
         elif icon_type == "error":
             # Red circle with X
@@ -80,7 +82,7 @@ class GMessagebox:
                 center,
                 text="✕",
                 fill="white",
-                font=("Arial", int(size * 0.5), "bold"),
+                font=("Arial", font_size, "bold"),
             )
         elif icon_type == "question":
             # Blue circle with '?'
@@ -98,7 +100,7 @@ class GMessagebox:
                 center,
                 text="?",
                 fill="white",
-                font=("Arial", int(size * 0.5), "bold"),
+                font=("Arial", font_size, "bold"),
             )
 
     @staticmethod
@@ -173,7 +175,7 @@ class GMessagebox:
 
         if button_type == "ok":
 
-            def on_ok():
+            def on_ok(*args):
                 nonlocal result
                 dialog.destroy()
 
