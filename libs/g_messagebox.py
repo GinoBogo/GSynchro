@@ -26,7 +26,19 @@ class GMessagebox:
 
     @staticmethod
     def _get_icon_symbol(icon_type: str) -> str:
-        """Return Unicode symbol for the icon type."""
+        """
+        Return Unicode symbol for the icon type.
+
+        This method maps standard messagebox icon types to appropriate
+        Unicode emoji symbols for visual representation in the dialog.
+
+        Args:
+            icon_type (str): The type of icon requested (e.g., "info", "warning").
+
+        Returns:
+            str: Unicode symbol corresponding to the icon type, or empty string
+                 if the type is not recognized.
+        """
         icons = {
             "info": "ℹ️",
             "warning": "⚠️",
@@ -44,7 +56,25 @@ class GMessagebox:
         parent: Optional[tk.Misc] = None,
         **kwargs,
     ) -> Optional[bool]:
-        """Display a modal dialog with the specified parameters."""
+        """
+        Display a modal dialog with the specified parameters.
+
+        This is the core method that creates and displays all types of message dialogs.
+        It handles UI creation, scaling for HiDPI displays, theming, and user interaction.
+
+        Args:
+            title (str): The title to display in the dialog window's title bar.
+            message (str): The message text to display in the dialog.
+            icon_type (str): Type of icon to display ("info", "warning", "error", "question").
+            button_type (str): Type of buttons to display ("ok" or "yes_no").
+            parent (tk.Misc, optional): Parent widget for the dialog. If None, attempts
+                                       to find the default root window.
+            **kwargs: Additional keyword arguments (reserved for future use).
+
+        Returns:
+            bool or None: For "yes_no" dialogs, returns True if Yes was clicked,
+                         False if No was clicked. For "ok" dialogs, returns None.
+        """
         if parent is None:
             # Try to find the root window if no parent specified
             try:
@@ -105,6 +135,12 @@ class GMessagebox:
         if button_type == "ok":
 
             def on_ok(*args):
+                """
+                Handle OK button click - close dialog.
+
+                This inner function is called when the user clicks the OK button.
+                It simply closes the dialog and returns None.
+                """
                 nonlocal result
                 dialog.destroy()
 
@@ -120,11 +156,23 @@ class GMessagebox:
         elif button_type == "yes_no":
 
             def on_yes():
+                """
+                Handle Yes button click - set result to True and close dialog.
+
+                This inner function is called when the user clicks the Yes button
+                in a yes/no dialog. It sets the result to True and closes the dialog.
+                """
                 nonlocal result
                 result = True
                 dialog.destroy()
 
             def on_no():
+                """
+                Handle No button click - set result to False and close dialog.
+
+                This inner function is called when the user clicks the No button
+                in a yes/no dialog. It sets the result to False and closes the dialog.
+                """
                 nonlocal result
                 result = False
                 dialog.destroy()
@@ -165,31 +213,95 @@ class GMessagebox:
     def showinfo(
         title: str, message: str, parent: Optional[tk.Misc] = None, **kwargs
     ) -> None:
-        """Display an information message box."""
+        """
+        Display an information message box.
+
+        Shows a modal dialog with an information icon and an OK button.
+        This is typically used for informational messages that don't require
+        any action from the user other than acknowledgment.
+
+        Args:
+            title (str): The title to display in the dialog window's title bar.
+            message (str): The information message to display.
+            parent (tk.Misc, optional): Parent widget for the dialog.
+            **kwargs: Additional keyword arguments (reserved for future use).
+
+        Example:
+            GMessagebox.showinfo("Information", "Operation completed successfully")
+        """
         GMessagebox._show_dialog(title, message, "info", "ok", parent, **kwargs)
 
     @staticmethod
     def showwarning(
         title: str, message: str, parent: Optional[tk.Misc] = None, **kwargs
     ) -> None:
-        """Display a warning message box."""
+        """
+        Display a warning message box.
+
+        Shows a modal dialog with a warning icon and an OK button.
+        This is typically used for warning messages that inform the user
+        about a potential issue or concern.
+
+        Args:
+            title (str): The title to display in the dialog window's title bar.
+            message (str): The warning message to display.
+            parent (tk.Misc, optional): Parent widget for the dialog.
+            **kwargs: Additional keyword arguments (reserved for future use).
+
+        Example:
+            GMessagebox.showwarning("Warning", "This action cannot be undone")
+        """
         GMessagebox._show_dialog(title, message, "warning", "ok", parent, **kwargs)
 
     @staticmethod
     def showerror(
         title: str, message: str, parent: Optional[tk.Misc] = None, **kwargs
     ) -> None:
-        """Display an error message box."""
+        """
+        Display an error message box.
+
+        Shows a modal dialog with an error icon and an OK button.
+        This is typically used for error messages that inform the user
+        about a problem that occurred.
+
+        Args:
+            title (str): The title to display in the dialog window's title bar.
+            message (str): The error message to display.
+            parent (tk.Misc, optional): Parent widget for the dialog.
+            **kwargs: Additional keyword arguments (reserved for future use).
+
+        Example:
+            GMessagebox.showerror("Error", "Failed to save file: Permission denied")
+        """
         GMessagebox._show_dialog(title, message, "error", "ok", parent, **kwargs)
 
     @staticmethod
     def askyesno(
         title: str, message: str, parent: Optional[tk.Misc] = None, **kwargs
     ) -> bool:
-        """Display a yes/no question dialog.
+        """
+        Display a yes/no question dialog.
+
+        Shows a modal dialog with a question icon and Yes/No buttons.
+        This is typically used when the application needs to confirm an action
+        or get a binary choice from the user.
+
+        Args:
+            title (str): The title to display in the dialog window's title bar.
+            message (str): The question to ask the user.
+            parent (tk.Misc, optional): Parent widget for the dialog.
+            **kwargs: Additional keyword arguments (reserved for future use).
 
         Returns:
-            True if Yes is clicked, False if No is clicked.
+            bool: True if Yes is clicked, False if No is clicked.
+
+        Example:
+            if GMessagebox.askyesno("Confirm", "Are you sure you want to delete this file?"):
+                # User clicked Yes
+                delete_file()
+            else:
+                # User clicked No
+                pass
         """
         return GMessagebox._show_dialog(
             title, message, "question", "yes_no", parent, **kwargs
