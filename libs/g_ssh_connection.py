@@ -23,7 +23,13 @@ class ConnectionManager:
     """Manages SSH connections with pooling."""
 
     def __init__(self, logger_func, pool_size=4):
-        """Initialize connection manager with logger and pool size."""
+        """
+        Initialize connection manager with logger and pool size.
+
+        Args:
+            logger_func (callable): Function to use for logging messages.
+            pool_size (int): Number of connections to maintain in each pool.
+        """
         self._pools = {}
         self._pool_configs = {}
         self._lock = threading.Lock()
@@ -31,11 +37,35 @@ class ConnectionManager:
         self.pool_size = pool_size
 
     def _get_server_key(self, host, user, port):
-        """Generate unique server key for connection pooling."""
+        """
+        Generate unique server key for connection pooling.
+
+        Args:
+            host (str): Hostname or IP address of the SSH server.
+            user (str): Username for SSH authentication.
+            port (int): Port number for SSH connection.
+
+        Returns:
+            str: Unique identifier for the server connection.
+        """
         return f"{user}@{host}:{port}"
 
     def _create_connection(self, host, user, password, port):
-        """Create a new SSH connection to the specified server."""
+        """
+        Create a new SSH connection to the specified server.
+
+        Args:
+            host (str): Hostname or IP address of the SSH server.
+            user (str): Username for SSH authentication.
+            password (str): Password for SSH authentication.
+            port (int): Port number for SSH connection.
+
+        Returns:
+            paramiko.SSHClient: Connected SSH client instance.
+
+        Raises:
+            Exception: If connection fails for any reason.
+        """
         self.log(f"Creating new SSH connection for {user}@{host}:{port}")
         client = paramiko.SSHClient()
         client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -43,7 +73,16 @@ class ConnectionManager:
         return client
 
     def _initialize_pool(self, server_key, host, user, password, port):
-        """Initialize connection pool for a server with multiple connections."""
+        """
+        Initialize connection pool for a server with multiple connections.
+
+        Args:
+            server_key (str): Unique identifier for the server connection.
+            host (str): Hostname or IP address of the SSH server.
+            user (str): Username for SSH authentication.
+            password (str): Password for SSH authentication.
+            port (int): Port number for SSH connection.
+        """
         if server_key not in self._pools:
             self._pools[server_key] = Queue()
             self._pool_configs[server_key] = (host, user, password, port)
@@ -58,7 +97,25 @@ class ConnectionManager:
 
     @contextmanager
     def get_connection(self, host, user, password, port):
-        """Context manager to get a connection from the pool, creating if needed."""
+        """
+        Context manager to get a connection from the pool, creating if needed.
+
+        This method provides a thread-safe way to acquire an SSH connection
+        from the pool. If no connections are available, it will block until
+        one becomes available or create a new one if necessary.
+
+        Args:
+            host (str): Hostname or IP address of the SSH server.
+            user (str): Username for SSH authentication.
+            password (str): Password for SSH authentication.
+            port (int): Port number for SSH connection.
+
+        Yields:
+            paramiko.SSHClient: Connected SSH client instance.
+
+        Raises:
+            Exception: If unable to establish a connection.
+        """
         server_key = self._get_server_key(host, user, port)
         with self._lock:
             if server_key not in self._pools:
@@ -96,7 +153,13 @@ class ConnectionManager:
                             pass
 
     def close_all(self):
-        """Close all SSH connections in all pools."""
+        """
+        Close all SSH connections in all pools.
+
+        This method should be called when the connection manager is no longer
+        needed to ensure all connections are properly closed and resources
+        are released.
+        """
         with self._lock:
             for server_key, pool in self._pools.items():
                 self.log(f"Closing SSH pool {server_key}")
