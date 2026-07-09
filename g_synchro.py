@@ -747,6 +747,7 @@ class GSynchro:
         self._create_panels(panels_frame)
         self._create_status_bar(main_frame)
         self._create_tree_context_menu()
+        self._create_header_context_menu()
 
         self.status_a.set("by Gino Bogo")
 
@@ -1249,6 +1250,37 @@ class GSynchro:
         self.tree_context_menu.add_command(
             label="Collapse All", command=self._collapse_all
         )
+
+    def _create_header_context_menu(self):
+        """Create context menu for treeview column headers."""
+        self.header_context_menu = tk.Menu(self.root, tearoff=0)
+        self.header_context_menu.add_command(
+            label="Copy Widths to Panel B",
+            command=lambda: self._copy_column_widths(self.tree_a, "B"),
+        )
+        self.header_context_menu.add_command(
+            label="Copy Widths to Panel A",
+            command=lambda: self._copy_column_widths(self.tree_b, "A"),
+        )
+
+    def _copy_column_widths(self, source_tree: ttk.Treeview, target_panel: str):
+        """Copy column widths from source_tree to the tree in target_panel ('A' or 'B')."""
+        if not source_tree:
+            return
+        target_tree = self.tree_a if target_panel == "A" else self.tree_b
+        if not target_tree:
+            return
+        target_widths = (
+            self.column_widths_a if target_panel == "A" else self.column_widths_b
+        )
+        try:
+            for col in list(source_tree["columns"]) + ["#0"]:
+                width = source_tree.column(col, "width")
+                if width and width > 0:
+                    target_tree.column(col, width=width)
+                    target_widths[col] = width
+        except Exception as e:
+            self._log(f"Error copying column widths to Panel {target_panel}: {e}")
 
     def _on_remote_toggle(self, panel: str):
         """Enable/disable SSH fields based on remote checkbox."""
@@ -2895,6 +2927,10 @@ class GSynchro:
         if not isinstance(widget, ttk.Treeview):
             return
         tree = cast(ttk.Treeview, widget)
+        region = tree.identify("region", event.x, event.y)
+        if region == "heading":
+            self._on_tree_header_right_click(tree, event)
+            return
         item_id = tree.identify_row(event.y)
         self._context_menu_tree = tree
         self._context_menu_item_id = item_id
@@ -2962,6 +2998,26 @@ class GSynchro:
             self.tree_context_menu.entryconfig("Compare...", state="normal")
         else:
             self.tree_context_menu.entryconfig("Compare...", state="disabled")
+
+    def _on_tree_header_right_click(self, tree: ttk.Treeview, event: tk.Event):
+        """Show context menu when right-clicking a treeview column header."""
+        if tree is self.tree_a:
+            self.header_context_menu.entryconfig(
+                "Copy Widths to Panel B", state="normal" if self.tree_b else "disabled"
+            )
+            self.header_context_menu.entryconfig(
+                "Copy Widths to Panel A", state="disabled"
+            )
+        elif tree is self.tree_b:
+            self.header_context_menu.entryconfig(
+                "Copy Widths to Panel A", state="normal" if self.tree_a else "disabled"
+            )
+            self.header_context_menu.entryconfig(
+                "Copy Widths to Panel B", state="disabled"
+            )
+        else:
+            return
+        self.header_context_menu.tk_popup(event.x_root, event.y_root)
 
     def _on_tree_header_double_click(self, event: tk.Event):
         """Handle double-click on a treeview header to resize the column."""
