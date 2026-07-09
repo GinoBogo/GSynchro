@@ -742,6 +742,7 @@ class GSynchro:
         main_frame = self._create_main_frame()
         control_frame = self._create_control_frame(main_frame)
         panels_frame = self._create_panels_frame(main_frame)
+        self.panels_frame = panels_frame
 
         self._create_control_buttons(control_frame)
         self._create_panels(panels_frame)
@@ -1281,6 +1282,26 @@ class GSynchro:
                     target_widths[col] = width
         except Exception as e:
             self._log(f"Error copying column widths to Panel {target_panel}: {e}")
+            return
+        self._center_paned_sash()
+
+    def _center_paned_sash(self):
+        """Move the panel splitter to the middle now that both panels match in width."""
+        panels_frame = getattr(self, "panels_frame", None)
+        if not panels_frame:
+            return
+
+        def do_center():
+            try:
+                panels_frame.update_idletasks()
+                total_width = panels_frame.winfo_width()
+                if total_width > 1:
+                    panels_frame.sashpos(0, total_width // 2)
+            except Exception as e:
+                self._log(f"Error centering panel splitter: {e}")
+
+        # Defer slightly so the tree/column geometry has settled first.
+        self.root.after(50, do_center)
 
     def _on_remote_toggle(self, panel: str):
         """Enable/disable SSH fields based on remote checkbox."""
