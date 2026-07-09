@@ -11,11 +11,13 @@ License: MIT
 Version: 2.1
 """
 
+# Standard library imports.
 import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import ttk
 from typing import Any, Optional, Callable, Tuple, Dict
 
+# Personal library imports.
 from libs.g_scaling import GScaling
 
 
@@ -689,7 +691,8 @@ class GButton(tk.Canvas):
                     self._state = "hover"
             else:
                 self._state = "normal"
-            self._draw()
+            if self.winfo_exists():
+                self._draw()
 
     def _on_enter(self, event: tk.Event) -> None:
         if self._state != "disabled" and self._state != "pressed":

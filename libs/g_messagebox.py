@@ -10,10 +10,12 @@ License: MIT
 Version: 1.0
 """
 
+# Standard library imports.
 import tkinter as tk
 from tkinter import ttk
 from typing import Optional
 
+# Personal library imports.
 from libs.g_button import GButton
 from libs.g_scaling import GScaling
 from libs.g_theme import get_theme_colors

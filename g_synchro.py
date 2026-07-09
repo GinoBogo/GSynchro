@@ -16,7 +16,6 @@ from __future__ import annotations
 
 # Standard library imports.
 import atexit
-import hashlib
 import fnmatch
 import json
 import os
@@ -29,13 +28,11 @@ import tempfile
 import threading
 import tkinter as tk
 import tkinter.font as tkfont
-import shlex
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
 from datetime import datetime
-from queue import Queue
-from typing import Optional, Iterator, cast, Union
+from typing import Optional, cast, Union
 from tkinter import filedialog, ttk
 from libs.g_messagebox import GMessagebox as messagebox
 
@@ -43,6 +40,10 @@ from libs.g_messagebox import GMessagebox as messagebox
 from libs.g_button import GButton
 from libs.g_scaling import GScaling
 from libs.g_theme import get_theme_colors
+from libs.g_path_utils import posix_quote, posix_join
+from libs.g_dialog import ask_string_dialog
+from libs.g_ssh_connection import ConnectionManager
+from libs.g_file_comparer import Comparer
 
 # Third-party library imports.
 import paramiko
@@ -62,366 +63,6 @@ MIN_WINDOW_HEIGHT = 768
 DEFAULT_FONT_FAMILY = "Courier New"
 DEFAULT_FONT_SIZE = 11
 DEFAULT_SPACING = 5
-
-
-# ============================================================================
-# HELPER UTILITIES (for remote path handling)
-# ============================================================================
-def _posix_quote(path: str) -> str:
-    """Return a POSIX-shell-quoted version of `path` for safe exec_command use."""
-    return shlex.quote(path)
-
-
-def _posix_join(*parts: str) -> str:
-    """Join path components using POSIX semantics for remote path construction."""
-    return posixpath.join(*parts)
-
-
-# ============================================================================
-# GENERIC HELPER: modal string input dialog
-# ============================================================================
-def _ask_string_dialog(
-    parent: tk.Widget,
-    title: str,
-    prompt: str,
-    initial: str = "",
-    colors: Optional[dict] = None,
-) -> Optional[str]:
-    """
-    Generic modal dialog to get a single string from the user.
-    """
-    if colors is None:
-        colors = {
-            "buttons": {
-                "primary": {"bg": "#4CAF50", "fg": "white"},
-                "secondary": {"bg": "#f0f0f0", "fg": "black"},
-                "default": {"bg": "#e0e0e0", "fg": "black"},
-            }
-        }
-
-    result = None
-
-    def on_ok():
-        """Handle OK button click - capture entry value and close dialog."""
-        nonlocal result
-        result = entry_var.get()
-        dialog.destroy()
-
-    # Scale dialog size based on display DPI
-    scale_factor = GScaling.get_scale_factor(parent)
-    dialog_width = int(300 * scale_factor)
-    dialog_height = int(120 * scale_factor)
-
-    dialog = tk.Toplevel(parent)
-    dialog.transient(parent)
-    dialog.grab_set()
-    dialog.title(title)
-    dialog.minsize(dialog_width, dialog_height)
-    dialog.maxsize(dialog_width, dialog_height)
-
-    style = ttk.Style()
-    dialog_bg = style.lookup("TFrame", "background")
-    dialog.configure(bg=dialog_bg)
-
-    dialog.rowconfigure(0, weight=1)
-    dialog.columnconfigure(0, weight=1)
-
-    # Scale pixels based on display DPI
-    spacing = GScaling.scale_pixels(DEFAULT_SPACING, dialog)
-
-    content_frame = ttk.Frame(dialog, padding=spacing * 2)
-    content_frame.grid(row=0, column=0, sticky=tk.NSEW)
-    content_frame.columnconfigure(0, weight=1)
-
-    ttk.Label(content_frame, text=prompt).grid(
-        row=0,
-        column=0,
-        sticky=tk.W,
-        pady=(0, spacing),
-    )
-
-    entry_var = tk.StringVar(value=initial)
-    entry = ttk.Entry(content_frame, textvariable=entry_var)
-    entry.grid(row=1, column=0, sticky=tk.EW)
-    entry.focus_set()
-    entry.select_range(0, "end")
-    entry.bind("<Return>", lambda e: on_ok())
-
-    button_frame = ttk.Frame(dialog, padding=(spacing * 2, 0, spacing * 2, spacing * 2))
-    button_frame.grid(row=1, column=0, sticky=tk.EW)
-    button_frame.columnconfigure(0, weight=1)
-    button_frame.columnconfigure(1, weight=0)
-    button_frame.columnconfigure(2, weight=0)
-    button_frame.columnconfigure(3, weight=1)
-
-    GButton(
-        button_frame,
-        text="Cancel",
-        command=dialog.destroy,
-        width=80,
-        height=34,
-        **colors["buttons"]["secondary"],
-    ).grid(row=0, column=1, padx=spacing)
-
-    GButton(
-        button_frame,
-        text="OK",
-        command=on_ok,
-        width=80,
-        height=34,
-        **colors["buttons"]["primary"],
-    ).grid(row=0, column=2, padx=spacing)
-
-    parent.update_idletasks()
-    dialog.update_idletasks()
-    x = parent.winfo_rootx() + parent.winfo_width() // 2 - dialog.winfo_width() // 2
-    y = parent.winfo_rooty() + parent.winfo_height() // 2 - dialog.winfo_height() // 2
-    dialog.geometry(f"+{x}+{y}")
-    dialog.wait_window()
-
-    return result
-
-
-# ============================================================================
-# CONNECTION MANAGER CLASS
-# ============================================================================
-class ConnectionManager:
-    """Manages SSH connections with pooling."""
-
-    def __init__(self, logger_func, pool_size=4):
-        """Initialize connection manager with logger and pool size."""
-        self._pools = {}
-        self._pool_configs = {}
-        self._lock = threading.Lock()
-        self.log = logger_func
-        self.pool_size = pool_size
-
-    def _get_server_key(self, host, user, port):
-        """Generate unique server key for connection pooling."""
-        return f"{user}@{host}:{port}"
-
-    def _create_connection(self, host, user, password, port):
-        """Create a new SSH connection to the specified server."""
-        self.log(f"Creating new SSH connection for {user}@{host}:{port}")
-        client = paramiko.SSHClient()
-        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        client.connect(host, username=user, password=password, port=port)
-        return client
-
-    def _initialize_pool(self, server_key, host, user, password, port):
-        """Initialize connection pool for a server with multiple connections."""
-        if server_key not in self._pools:
-            self._pools[server_key] = Queue()
-            self._pool_configs[server_key] = (host, user, password, port)
-            for i in range(self.pool_size):
-                try:
-                    conn = self._create_connection(host, user, password, port)
-                    self._pools[server_key].put(conn)
-                except Exception as e:
-                    self.log(
-                        f"SSH connection {i + 1}/{self.pool_size} failed for {server_key}: {e}"
-                    )
-
-    @contextmanager
-    def get_connection(self, host, user, password, port):
-        """Context manager to get a connection from the pool, creating if needed."""
-        server_key = self._get_server_key(host, user, port)
-        with self._lock:
-            if server_key not in self._pools:
-                self._initialize_pool(server_key, host, user, password, port)
-
-            conn = None
-            try:
-                conn = self._pools[server_key].get(timeout=10)
-                transport = conn.get_transport() if conn else None
-                if not transport or not transport.is_active():
-                    self.log(f"Connection for {server_key} is dead, creating new one")
-                    conn = self._create_connection(host, user, password, port)
-                yield conn
-            except Exception as e:
-                self.log(f"Error getting connection for {server_key}: {e}")
-                conn = self._create_connection(host, user, password, port)
-                yield conn
-            finally:
-                if conn and server_key in self._pools:
-                    try:
-                        transport = conn.get_transport()
-                        if transport and transport.is_active():
-                            self._pools[server_key].put(conn, timeout=1)
-                        else:
-                            conn.close()
-                            host, user, password, port = self._pool_configs[server_key]
-                            new_conn = self._create_connection(
-                                host, user, password, port
-                            )
-                            self._pools[server_key].put(new_conn, timeout=1)
-                    except Exception:
-                        try:
-                            conn.close()
-                        except Exception:
-                            pass
-
-    def close_all(self):
-        """Close all SSH connections in all pools."""
-        with self._lock:
-            for server_key, pool in self._pools.items():
-                self.log(f"Closing SSH pool {server_key}")
-                while not pool.empty():
-                    try:
-                        conn = pool.get_nowait()
-                        if conn:
-                            conn.close()
-                    except Exception:
-                        pass
-            self._pools.clear()
-            self._pool_configs.clear()
-
-
-# ============================================================================
-# COMPARER CLASS
-# ============================================================================
-class Comparer:
-    """Handles the logic for comparing file and directory structures."""
-
-    def __init__(
-        self, logger_func, connection_manager, root_widget, options, state_lock
-    ):
-        """Initialize Comparer with logger, connection manager, and UI components."""
-        self.log = logger_func
-        self.connection_manager = connection_manager
-        self.root = root_widget
-        self.options = options
-        self.state_lock = state_lock
-
-    def _compare_files(
-        self,
-        file_a: Optional[dict],
-        file_b: Optional[dict],
-        use_ssh_a: bool,
-        use_ssh_b: bool,
-        ssh_client_a: Optional[paramiko.SSHClient],
-        ssh_client_b: Optional[paramiko.SSHClient],
-    ) -> tuple:
-        """Compare two files and return status and color tuple."""
-        if file_a and file_b:
-            is_a_file = file_a.get("type") == "file"
-            is_b_file = file_b.get("type") == "file"
-            if is_a_file and not is_b_file:
-                return "Conflict", "black"
-            if not is_a_file and is_b_file:
-                return "Conflict", "black"
-            if file_a.get("size") != file_b.get("size"):
-                return "Different", "orange"
-
-            if (
-                isinstance(file_a, dict)
-                and "size" in file_a
-                and isinstance(file_b, dict)
-                and "size" in file_b
-            ):
-                with self.state_lock:
-                    compare_method = self.options.get("compare_method", "block")
-                    if compare_method == "md5":
-                        try:
-                            hash_a = self._get_md5_hash(file_a, use_ssh_a, ssh_client_a)
-                            hash_b = self._get_md5_hash(file_b, use_ssh_b, ssh_client_b)
-                            if hash_a != hash_b:
-                                return "Different", "orange"
-                        except Exception as e:
-                            self.log(f"Error during MD5 comparison: {e}")
-                            return "Different", "orange"
-                    else:
-                        try:
-                            with (
-                                self._open_file_handle(
-                                    file_a, use_ssh_a, ssh_client_a
-                                ) as file_a_handle,
-                                self._open_file_handle(
-                                    file_b, use_ssh_b, ssh_client_b
-                                ) as file_b_handle,
-                            ):
-                                if not self._are_chunks_identical(
-                                    file_a_handle, file_b_handle
-                                ):
-                                    return "Different", "orange"
-                        except Exception as e:
-                            self.log(f"Error during block file comparison: {e}")
-                            return "Different", "orange"
-                return "Identical", "green"
-            else:
-                return "Different", "orange"
-        elif file_a:
-            return "Only in A", "blue"
-        else:
-            return "Only in B", "red"
-
-    def _get_md5_hash(
-        self,
-        file_info: dict,
-        use_ssh: bool,
-        ssh_client: Optional[paramiko.SSHClient],
-    ) -> str:
-        """Calculate MD5 hash of a file, locally or via SSH."""
-        if use_ssh:
-            if not ssh_client:
-                raise ConnectionError("SSH client not connected for MD5 calculation.")
-            for cmd_template in ["md5sum {}", "md5 -q {}"]:
-                command = cmd_template.format(_posix_quote(file_info["full_path"]))
-                stdin, stdout, stderr = ssh_client.exec_command(command)
-                exit_status = stdout.channel.recv_exit_status()
-                if exit_status == 0:
-                    output = stdout.read().decode().strip()
-                    return output.split()[0]
-            error_msg = f"Could not execute md5sum or md5 on remote host for {file_info['full_path']}"
-            self.log(error_msg)
-            raise IOError(error_msg)
-        else:
-            hasher = hashlib.md5()
-            try:
-                with open(file_info["full_path"], "rb") as f:
-                    while chunk := f.read(CHUNK_SIZE):
-                        hasher.update(chunk)
-                return hasher.hexdigest()
-            except FileNotFoundError:
-                self.log(
-                    f"File not found for MD5 calculation: {file_info['full_path']}"
-                )
-                raise
-
-    @contextmanager
-    def _open_file_handle(
-        self,
-        file_info: dict,
-        use_ssh: bool,
-        ssh_client: Optional[paramiko.SSHClient],
-    ) -> Iterator:
-        """Context manager to open file handle for reading, local or via SSH."""
-        if use_ssh:
-            if not ssh_client:
-                raise ConnectionError("SSH client is not connected.")
-            transport = ssh_client.get_transport()
-            if not transport or not transport.is_active():
-                raise ConnectionError("SSH client transport is not active.")
-            sftp = ssh_client.open_sftp()
-            file_handle = sftp.open(file_info["full_path"], "rb")
-            try:
-                yield file_handle
-            finally:
-                file_handle.close()
-                sftp.close()
-        else:
-            with open(file_info["full_path"], "rb") as file_handle:
-                yield file_handle
-
-    def _are_chunks_identical(self, file_a_handle, file_b_handle) -> bool:
-        """Compare two file handles chunk by chunk to determine if files are identical."""
-        while True:
-            chunk_a = file_a_handle.read(CHUNK_SIZE)
-            chunk_b = file_b_handle.read(CHUNK_SIZE)
-            if chunk_a != chunk_b:
-                return False
-            if not chunk_a:
-                return True
 
 
 # ============================================================================
@@ -695,7 +336,7 @@ class OptionsDialog(tk.Toplevel):
 
         def insert_rule():
             """Insert a new filter rule into the list."""
-            new_rule = _ask_string_dialog(
+            new_rule = ask_string_dialog(
                 self, "Insert Rule", "Enter new filter pattern:", colors=self.colors
             )
             if new_rule and new_rule.strip():
@@ -710,7 +351,7 @@ class OptionsDialog(tk.Toplevel):
                 return
             index = int(selected_item)
             current_rule = self.temp_filters[index]["rule"]
-            edited_rule = _ask_string_dialog(
+            edited_rule = ask_string_dialog(
                 self,
                 "Edit Rule",
                 "Edit filter pattern:",
@@ -2015,7 +1656,7 @@ class GSynchro:
                 path_var.set(path)
                 if path != "/":
                     listbox.insert(tk.END, "..")
-                command = f"find {_posix_quote(path)} -maxdepth 1 -mindepth 1 -type d"
+                command = f"find {posix_quote(path)} -maxdepth 1 -mindepth 1 -type d"
                 stdin, stdout, stderr = ssh_client.exec_command(command)
                 error = stderr.read().decode().strip()
                 if error:
@@ -2230,7 +1871,7 @@ class GSynchro:
         files = {}
         if rules is None:
             rules = []
-        qpath = _posix_quote(folder_path)
+        qpath = posix_quote(folder_path)
         self._log("Remote scan: using two-pass find + stat (robust method).")
         fallback_cmd = (
             rf"{{ find {qpath} -mindepth 1 -type f"
@@ -2865,9 +2506,12 @@ class GSynchro:
 
                 if not files_to_copy:
                     self._log("No files selected for synchronization.")
-                    messagebox.showinfo(
-                        "Sync",
-                        "No files are checked for synchronization or folders are already in sync.",
+                    self.root.after(
+                        0,
+                        lambda: messagebox.showinfo(
+                            "Sync",
+                            "No files are checked for synchronization or folders are already in sync.",
+                        ),
                     )
                     return
 
@@ -2893,12 +2537,16 @@ class GSynchro:
                 self.root.after(0, self.compare_folders)
                 self._log("Synchronization completed")
                 self.status_a.set("Synchronization completed successfully!")
-                messagebox.showinfo(
-                    "Success", "Synchronization completed successfully!"
+                self.root.after(
+                    0,
+                    lambda: messagebox.showinfo(
+                        "Success", "Synchronization completed successfully!"
+                    ),
                 )
             except Exception as e:
                 self._log(f"Synchronization failed: {str(e)}")
-                messagebox.showerror("Error", f"Synchronization failed: {str(e)}")
+                error_msg = f"Synchronization failed: {str(e)}"
+                self.root.after(0, lambda: messagebox.showerror("Error", error_msg))
             finally:
                 self.root.after(0, self._stop_progress)
 
@@ -3032,7 +2680,7 @@ class GSynchro:
             with SCPClient(transport) as scp:
                 for rel_path in files_to_copy:
                     local_file = source_files_dict[rel_path]["full_path"]
-                    remote_file = _posix_join(remote_path, rel_path)
+                    remote_file = posix_join(remote_path, rel_path)
                     remote_dir = posixpath.dirname(remote_file)
                     try:
                         sftp = ssh_client.open_sftp()
@@ -3040,14 +2688,14 @@ class GSynchro:
                     except FileNotFoundError:
                         self._log(f"Creating remote directory: {remote_dir}")
                         stdin, stdout, stderr = ssh_client.exec_command(
-                            f"mkdir -p {_posix_quote(remote_dir)}"
+                            f"mkdir -p {posix_quote(remote_dir)}"
                         )
                         stderr.read()
 
                     target_item = target_files_dict.get(rel_path)
                     if target_item and target_item.get("type") == "dir":
                         stdin, stdout, stderr = ssh_client.exec_command(
-                            f"rm -rf {_posix_quote(remote_file)}"
+                            f"rm -rf {posix_quote(remote_file)}"
                         )
                         stderr.read()
                     scp.put(local_file, remote_file)
@@ -3117,9 +2765,9 @@ class GSynchro:
 
                 for rel_path in files_to_copy:
                     source_file_path = source_files_dict[rel_path]["full_path"]
-                    target_file_path = _posix_join(target_path, rel_path)
+                    target_file_path = posix_join(target_path, rel_path)
                     target_dir = posixpath.dirname(target_file_path)
-                    target_ssh.exec_command(f"mkdir -p {_posix_quote(target_dir)}")
+                    target_ssh.exec_command(f"mkdir -p {posix_quote(target_dir)}")
 
                     with SCPClient(source_transport) as scp_source:
                         with SCPClient(target_transport) as scp_target:
@@ -3132,7 +2780,7 @@ class GSynchro:
                                 target_item = target_files_dict.get(rel_path)
                                 if target_item and target_item.get("type") == "dir":
                                     target_ssh.exec_command(
-                                        f"rm -rf {_posix_quote(target_file_path)}"
+                                        f"rm -rf {posix_quote(target_file_path)}"
                                     )
                                 scp_target.put(temp_name, target_file_path)
                             finally:
@@ -3238,7 +2886,7 @@ class GSynchro:
             # Recursively apply to children.
             for child_id in tree.get_children(item_id):
                 child_text = tree.item(child_id, "text")
-                child_path = _posix_join(current_path, child_text)
+                child_path = posix_join(current_path, child_text)
                 self._toggle_sync_state_recursive(tree, child_id, new_state, child_path)
 
     def _on_tree_right_click(self, event: tk.Event):
@@ -3694,7 +3342,7 @@ class GSynchro:
             full_path = item_info.get("full_path") if item_info else None
             if not full_path:
                 if ssh_config is not None:
-                    full_path = _posix_join(base_folder, rel_path)
+                    full_path = posix_join(base_folder, rel_path)
                 else:
                     full_path = os.path.join(base_folder, rel_path.replace("/", os.sep))
             is_dir = False
@@ -3716,7 +3364,7 @@ class GSynchro:
                     ) as ssh_client:
                         for full_path, _ in items_to_delete:
                             self._log(f"Deleting item: {full_path}")
-                            command = f"rm -rf {_posix_quote(full_path)}"
+                            command = f"rm -rf {posix_quote(full_path)}"
                             stdin, stdout, stderr = ssh_client.exec_command(command)
                             error = stderr.read().decode()
                             if error:
