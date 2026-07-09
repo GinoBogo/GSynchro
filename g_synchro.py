@@ -1373,6 +1373,12 @@ class GSynchro:
                 pn, path_combobox
             ),
         )
+        history_menu.add_command(
+            label="Delete all paths",
+            command=lambda pn=panel_letter: self._on_delete_all_history_items(
+                pn, path_combobox
+            ),
+        )
 
         def show_history_menu(event):
             """Show history menu for path combobox."""
@@ -1894,6 +1900,23 @@ class GSynchro:
                 messagebox.showwarning(
                     "Not Found", f"'{current_value}' not found in history"
                 )
+
+    def _on_delete_all_history_items(self, panel_name: str, combobox: ttk.Combobox):
+        """Handle deletion of all history items from the combobox."""
+        history = self.folder_a_history if panel_name == "A" else self.folder_b_history
+        if not history:
+            messagebox.showinfo("Info", "History is already empty")
+            return
+        if messagebox.askyesno(
+            "Confirm Deletion",
+            f"Delete all {len(history)} path(s) from history?",
+        ):
+            history.clear()
+            combobox["values"] = []
+            combobox.set("")
+            combobox.update()
+            combobox.update_idletasks()
+            self._save_config()
 
     def _browse_remote(
         self, folder_var: tk.StringVar, panel_name: str, initial_path: str = ""
