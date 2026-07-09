@@ -181,8 +181,8 @@ class GMessagebox:
                 button_frame,
                 text="OK",
                 command=on_ok,
-                width=int(100 * scale_factor),
-                height=int(34 * scale_factor),
+                width=100,
+                height=34,
                 **colors["buttons"]["primary"],
             ).pack(side=tk.RIGHT, padx=spacing)
 
@@ -202,8 +202,8 @@ class GMessagebox:
                 button_frame,
                 text="No",
                 command=on_no,
-                width=int(100 * scale_factor),
-                height=int(34 * scale_factor),
+                width=100,
+                height=34,
                 **colors["buttons"]["secondary"],
             ).pack(side=tk.RIGHT, padx=spacing)
 
@@ -211,8 +211,8 @@ class GMessagebox:
                 button_frame,
                 text="Yes",
                 command=on_yes,
-                width=int(100 * scale_factor),
-                height=int(34 * scale_factor),
+                width=100,
+                height=34,
                 **colors["buttons"]["primary"],
             ).pack(side=tk.RIGHT, padx=spacing)
 
