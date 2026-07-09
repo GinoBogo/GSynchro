@@ -31,7 +31,16 @@ class Comparer:
     def __init__(
         self, logger_func, connection_manager, root_widget, options, state_lock
     ):
-        """Initialize Comparer with logger, connection manager, and UI components."""
+        """
+        Initialize Comparer with logger, connection manager, and UI components.
+
+        Args:
+            logger_func (callable): Function to use for logging messages.
+            connection_manager: Manager for SSH connections.
+            root_widget: Root widget for UI updates.
+            options (dict): Configuration options for comparison.
+            state_lock: Thread lock for synchronizing state access.
+        """
         self.log = logger_func
         self.connection_manager = connection_manager
         self.root = root_widget
@@ -47,7 +56,28 @@ class Comparer:
         ssh_client_a: Optional[paramiko.SSHClient],
         ssh_client_b: Optional[paramiko.SSHClient],
     ) -> tuple:
-        """Compare two files and return status and color tuple."""
+        """
+        Compare two files and return status and color tuple.
+
+        This method performs a comprehensive comparison of two files, checking
+        their types, sizes, and content using either MD5 hash or block-by-block
+        comparison based on the configured method.
+
+        Args:
+            file_a (dict or None): Information about file A, or None if doesn't exist.
+            file_b (dict or None): Information about file B, or None if doesn't exist.
+            use_ssh_a (bool): Whether file A is accessed via SSH.
+            use_ssh_b (bool): Whether file B is accessed via SSH.
+            ssh_client_a (paramiko.SSHClient or None): SSH client for file A.
+            ssh_client_b (paramiko.SSHClient or None): SSH client for file B.
+
+        Returns:
+            tuple: A tuple containing:
+                - status (str): One of "Conflict", "Different", "Identical",
+                               "Only in A", or "Only in B"
+                - color (str): Color code for UI display ("black", "orange",
+                              "green", "blue", or "red")
+        """
         if file_a and file_b:
             is_a_file = file_a.get("type") == "file"
             is_b_file = file_b.get("type") == "file"
@@ -106,7 +136,26 @@ class Comparer:
         use_ssh: bool,
         ssh_client: Optional[paramiko.SSHClient],
     ) -> str:
-        """Calculate MD5 hash of a file, locally or via SSH."""
+        """
+        Calculate MD5 hash of a file, locally or via SSH.
+
+        This method computes the MD5 hash of a file either locally or on a remote
+        system via SSH. For remote files, it attempts to use system commands
+        (md5sum or md5) to calculate the hash efficiently.
+
+        Args:
+            file_info (dict): Dictionary containing file information including 'full_path'.
+            use_ssh (bool): Whether to access the file via SSH.
+            ssh_client (paramiko.SSHClient or None): SSH client for remote access.
+
+        Returns:
+            str: The MD5 hash of the file as a hexadecimal string.
+
+        Raises:
+            ConnectionError: If SSH is required but client is not connected.
+            IOError: If unable to calculate MD5 hash on remote system.
+            FileNotFoundError: If the local file does not exist.
+        """
         if use_ssh:
             if not ssh_client:
                 raise ConnectionError("SSH client not connected for MD5 calculation.")
@@ -140,7 +189,24 @@ class Comparer:
         use_ssh: bool,
         ssh_client: Optional[paramiko.SSHClient],
     ) -> Iterator:
-        """Context manager to open file handle for reading, local or via SSH."""
+        """
+        Context manager to open file handle for reading, local or via SSH.
+
+        This context manager provides a unified interface for opening file handles
+        whether the file is local or remote via SSH. It ensures proper resource
+        cleanup regardless of how the file is accessed.
+
+        Args:
+            file_info (dict): Dictionary containing file information including 'full_path'.
+            use_ssh (bool): Whether to access the file via SSH.
+            ssh_client (paramiko.SSHClient or None): SSH client for remote access.
+
+        Yields:
+            file-like object: A file handle that can be read from.
+
+        Raises:
+            ConnectionError: If SSH is required but client is not connected or transport is inactive.
+        """
         if use_ssh:
             if not ssh_client:
                 raise ConnectionError("SSH client is not connected.")
@@ -159,7 +225,20 @@ class Comparer:
                 yield file_handle
 
     def _are_chunks_identical(self, file_a_handle, file_b_handle) -> bool:
-        """Compare two file handles chunk by chunk to determine if files are identical."""
+        """
+        Compare two file handles chunk by chunk to determine if files are identical.
+
+        This method reads both files in chunks and compares them sequentially.
+        It stops as soon as a difference is found, making it efficient for large files
+        where only the beginning differs.
+
+        Args:
+            file_a_handle: File handle for the first file (must support read() method).
+            file_b_handle: File handle for the second file (must support read() method).
+
+        Returns:
+            bool: True if files are identical, False otherwise.
+        """
         while True:
             chunk_a = file_a_handle.read(CHUNK_SIZE)
             chunk_b = file_b_handle.read(CHUNK_SIZE)
