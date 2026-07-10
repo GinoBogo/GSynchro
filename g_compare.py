@@ -985,6 +985,10 @@ class GCompare:
         style = ttk.Style()
         font_tuple = (self.options["font_family"], self.options["font_size"])
         style.configure("TText", font=font_tuple)
+        style.configure(
+            "TLabelframe.Label",
+            font=(self.options["font_family"], self.options["font_size"], "bold"),
+        )
 
         # Update text widgets if they exist.
         if self.text_view_a:
