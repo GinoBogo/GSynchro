@@ -455,7 +455,10 @@ class OptionsDialog(tk.Toplevel):
         context_menu.add_separator()
         context_menu.add_command(label="Select All", command=select_all)
         context_menu.add_command(label="Deselect All", command=deselect_all)
-        context_menu.tk_popup(event.x_root, event.y_root)
+        try:
+            context_menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            context_menu.grab_release()
 
 
 # ============================================================================
@@ -3030,13 +3033,16 @@ class GSynchro:
             self.tree_context_menu.entryconfig("Collapse All", state="disabled")
         selected_a = self.tree_a.selection() if self.tree_a else ()
         selected_b = self.tree_b.selection() if self.tree_b else ()
-        if not tree.get_children():
-            return
-        self.tree_context_menu.tk_popup(event.x_root, event.y_root)
         if len(selected_a) == 1 and len(selected_b) == 1:
             self.tree_context_menu.entryconfig("Compare...", state="normal")
         else:
             self.tree_context_menu.entryconfig("Compare...", state="disabled")
+        if not tree.get_children():
+            return
+        try:
+            self.tree_context_menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            self.tree_context_menu.grab_release()
 
     def _on_tree_header_right_click(self, tree: ttk.Treeview, event: tk.Event):
         """Show context menu when right-clicking a treeview column header."""
@@ -3056,7 +3062,10 @@ class GSynchro:
             )
         else:
             return
-        self.header_context_menu.tk_popup(event.x_root, event.y_root)
+        try:
+            self.header_context_menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            self.header_context_menu.grab_release()
 
     def _on_tree_header_double_click(self, event: tk.Event):
         """Handle double-click on a treeview header to resize the column."""
