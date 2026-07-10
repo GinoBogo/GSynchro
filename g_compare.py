@@ -8,11 +8,12 @@ changes between two files.
 
  Author: Gino Bogo
 License: MIT
-Version: 1.1
+Version: 1.2
 """
 
 from __future__ import annotations
 
+# Standard library imports.
 import difflib
 import json
 import os
@@ -23,8 +24,9 @@ import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import filedialog, messagebox, ttk
 
-from typing import Dict, List, Optional, Tuple, cast
+from typing import Dict, List, Optional, Tuple
 
+# Personal library imports.
 from libs.g_button import GButton
 from libs.g_scaling import GScaling
 from libs.g_theme import get_theme_colors
@@ -33,7 +35,7 @@ from libs.g_theme import get_theme_colors
 # CONSTANTS
 # ============================================================================
 
-APP_VERSION = "1.1"
+APP_VERSION = "1.2"
 CONFIG_FILE = "g_compare.json"
 HISTORY_LENGTH = 10
 SCROLL_MARKER_WIDTH = 40
@@ -42,6 +44,15 @@ MIN_WINDOW_HEIGHT = 768
 DEFAULT_FONT_FAMILY = "Courier New"
 DEFAULT_FONT_SIZE = 12
 DEFAULT_SPACING = 5
+BUTTON_WIDTH_MAIN = 100
+BUTTON_HEIGHT_MAIN = 34
+BUTTON_WIDTH_PANEL = 70
+BUTTON_HEIGHT_PANEL = 30
+LINE_NUMBERS_MIN_WIDTH = 4
+MARKER_MIN_HEIGHT = 4
+MARKER_PAD_TOP = 2
+MARKER_PAD_BOTTOM = 2
+CONFIGURE_DEBOUNCE_MS = 150
 
 
 # ============================================================================
@@ -52,9 +63,9 @@ DEFAULT_SPACING = 5
 class GCompare:
     """Main application class for GCompare file comparison tool."""
 
-    # ========================================================================
+    # =======================================================================
     # INITIALIZATION METHODS
-    # ========================================================================
+    # =======================================================================
 
     def __init__(self, root: tk.Tk):
         """Initialize the GCompare application.
@@ -70,10 +81,6 @@ class GCompare:
         self.file_a_history: List[str] = []
         self.file_b_history: List[str] = []
 
-        # Content variables.
-        self.content_a = tk.StringVar()
-        self.content_b = tk.StringVar()
-
         # UI components.
         self.text_view_a: Optional[tk.Text] = None
         self.text_view_b: Optional[tk.Text] = None
@@ -87,30 +94,42 @@ class GCompare:
         self.h_scrollbar_b: Optional[ttk.Scrollbar] = None
         self.line_numbers_a: Optional[tk.Text] = None
         self.line_numbers_b: Optional[tk.Text] = None
+        self.path_combobox_a: Optional[ttk.Combobox] = None
+        self.path_combobox_b: Optional[ttk.Combobox] = None
 
         # Status variables.
         self.status_a = tk.StringVar()
         self.status_b = tk.StringVar()
 
         self._font_families: Optional[Tuple[str, ...]] = None
+        self._configure_after_id: Optional[str] = None
 
         # Options.
         self.options = {
             "font_family": DEFAULT_FONT_FAMILY,
             "font_size": DEFAULT_FONT_SIZE,
-            "show_line_numbers": False,
+            "show_line_numbers": True,
             "wrap_lines": False,
             "tab_size": 4,
             "auto_compare": True,
             "ignore_whitespace": False,
             "ignore_case": False,
+            "highlight_current_line": False,
         }
 
         # Variables to manage scroll marker dragging.
         self._marker_drag_start_y: Optional[float] = None
         self._marker_initial_scroll_fraction = 0.0
 
+        # Diff navigation state.
+        self._diff_changes: List[Tuple[str, int, int, bool]] = []
+        self._diff_blocks: List[Tuple[int, int]] = []
+        self._diff_block_index = -1
+        self._diff_len_a = 0
+        self._diff_len_b = 0
+
         self.colors = get_theme_colors()
+
         # Initialize application.
         self.load_config()
         self._init_window()
@@ -128,7 +147,7 @@ class GCompare:
 
     def _init_window(self):
         """Initialize main window properties."""
-        self.root.title("GCompare - File Comparison Tool {}".format(APP_VERSION))
+        self.root.title(f"GCompare - File Comparison Tool {APP_VERSION}")
         self.root.minsize(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT)
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
 
@@ -214,8 +233,8 @@ class GCompare:
                 button_container,
                 text=text,
                 command=command,
-                width=100,
-                height=34,
+                width=BUTTON_WIDTH_MAIN,
+                height=BUTTON_HEIGHT_MAIN,
                 **btn_colors,
             ).pack(
                 side=tk.LEFT,
@@ -225,7 +244,7 @@ class GCompare:
 
     def _go_to_next_change(self):
         """Move both text views to the next change block."""
-        if not hasattr(self, "_diff_blocks") or not self._diff_blocks:
+        if not self._diff_blocks:
             return
 
         if self._diff_block_index >= len(self._diff_blocks) - 1:
@@ -237,7 +256,7 @@ class GCompare:
 
     def _go_to_prev_change(self):
         """Move both text views to the previous change block."""
-        if not hasattr(self, "_diff_blocks") or not self._diff_blocks:
+        if not self._diff_blocks:
             return
 
         if self._diff_block_index <= 0:
@@ -251,42 +270,71 @@ class GCompare:
         """Scroll both text views to the change block at `block_index`.
 
         Each block is a contiguous group of changes (a hunk) in the diff.
-        We scroll to the first change in the block.
+        We scroll to show the first change in the block with some context.
         """
         blocks = self._diff_blocks
-        if not blocks:
+        if not blocks or block_index < 0 or block_index >= len(blocks):
             return
 
         # Get the first change in this block.
         start_idx, _ = blocks[block_index]
         change_type, line_a, line_b, _ = self._diff_changes[start_idx]
 
-        len_a = getattr(self, "_diff_len_a", 0) or 0
-        len_b = getattr(self, "_diff_len_b", 0) or 0
+        len_a = max(1, self._diff_len_a)
+        len_b = max(1, self._diff_len_b)
 
-        target_a = line_a
-        target_b = line_b
+        # For removals, line_b is the corresponding position in B.
+        # For additions, line_a is the corresponding position in A.
+        # We scroll both views to show the change in context.
+        target_a = max(1, min(line_a, len_a))
+        target_b = max(1, min(line_b, len_b))
 
-        def clamp_line(n, length):
-            return max(1, min(n, max(1, length)))
-
-        target_a = clamp_line(target_a, len_a)
-        target_b = clamp_line(target_b, len_b)
-
-        def compute_centered_fraction(target, length):
+        # Compute scroll fraction, trying to center the target line.
+        def compute_scroll_fraction(target: int, length: int) -> float:
+            """Compute scroll fraction to show target line near top with context."""
             if length <= 0:
                 return 0.0
-            frac = (target - 1) / length
-            return max(0.0, min(frac, 1.0))
+            # Show target line with a few lines of context above.
+            context_lines = 3
+            frac = max(0.0, (target - 1 - context_lines) / length)
+            return min(frac, 1.0)
 
-        frac_a = compute_centered_fraction(target_a, len_a)
-        frac_b = compute_centered_fraction(target_b, len_b)
+        frac_a = compute_scroll_fraction(target_a, len_a)
+        frac_b = compute_scroll_fraction(target_b, len_b)
 
         if self.text_view_a and len_a > 0:
             self.text_view_a.yview_moveto(frac_a)
 
         if self.text_view_b and len_b > 0:
             self.text_view_b.yview_moveto(frac_b)
+
+        # Highlight the current block by selecting the first changed line.
+        self._highlight_current_block(block_index)
+
+    def _highlight_current_block(self, block_index: int):
+        """Temporarily highlight the current diff block for visibility."""
+        if not self.text_view_a or not self.text_view_b:
+            return
+
+        # Clear previous selection highlight.
+        self.text_view_a.tag_remove("current_block", "1.0", tk.END)
+        self.text_view_b.tag_remove("current_block", "1.0", tk.END)
+
+        # Configure highlight tag.
+        self.text_view_a.tag_configure("current_block", background="#ffff99")
+        self.text_view_b.tag_configure("current_block", background="#ffff99")
+
+        start_idx, end_idx = self._diff_blocks[block_index]
+        for i in range(start_idx, end_idx):
+            change_type, line_a, line_b, _ = self._diff_changes[i]
+            if change_type in ("removed", "removed_empty") and line_a > 0:
+                self.text_view_a.tag_add(
+                    "current_block", f"{line_a}.0", f"{line_a}.end"
+                )
+            elif change_type in ("added", "added_empty") and line_b > 0:
+                self.text_view_b.tag_add(
+                    "current_block", f"{line_b}.0", f"{line_b}.end"
+                )
 
     def _create_panels_frame(self, parent: ttk.Frame) -> ttk.Frame:
         """Create panels container.
@@ -300,8 +348,8 @@ class GCompare:
         panels_frame = ttk.Frame(parent)
         panels_frame.grid(row=1, column=0, columnspan=3, sticky=tk.NSEW)
 
-        panels_frame.columnconfigure(0, weight=1)  # noqa: B007
-        panels_frame.columnconfigure(1, weight=0)  # For diff map.
+        panels_frame.columnconfigure(0, weight=1)
+        panels_frame.columnconfigure(1, weight=0)
         panels_frame.columnconfigure(2, weight=1)
         panels_frame.rowconfigure(0, weight=1)
 
@@ -318,7 +366,6 @@ class GCompare:
             "title": "File A",
             "column": 0,
             "padx": (0, 2),
-            "content_var": self.content_a,
             "file_var": self.file_a,
             "file_history": self.file_a_history,
             "open_command": self.open_file_a,
@@ -331,7 +378,6 @@ class GCompare:
             "title": "File B",
             "column": 2,
             "padx": (2, 0),
-            "content_var": self.content_b,
             "file_var": self.file_b,
             "file_history": self.file_b_history,
             "open_command": self.open_file_b,
@@ -352,8 +398,8 @@ class GCompare:
         self.scroll_marker_id = self.diff_map_canvas.create_rectangle(
             2,
             2,
-            SCROLL_MARKER_WIDTH - 1,  # noqa: B007
-            3,
+            SCROLL_MARKER_WIDTH - 1,
+            6,
             fill=self.colors["diff"]["marker_fill"],
             outline=self.colors["diff"]["marker_outline"],
             width=1,
@@ -379,15 +425,27 @@ class GCompare:
                 "scroll_marker", "<Leave>", self._on_marker_leave
             )
 
-        self.diff_map_canvas.bind("<Configure>", self.compare_files)
+        self.diff_map_canvas.bind("<Configure>", self._on_configure)
 
         # Create panel B.
         self._create_single_panel(parent, panel_b_config)
 
+    def _on_configure(self, event: Optional[tk.Event] = None):
+        """Debounced handler for canvas configure events.
+
+        Args:
+            event: Optional Tkinter event
+        """
+        if self._configure_after_id:
+            self.root.after_cancel(self._configure_after_id)
+        self._configure_after_id = self.root.after(
+            CONFIGURE_DEBOUNCE_MS, self.compare_files
+        )
+
     def _create_single_panel(
         self,
         parent: ttk.Frame,
-        config: Dict,  # Keep for grid layout, could be refactored further.
+        config: Dict,
     ):
         """Create a single file panel.
 
@@ -413,12 +471,12 @@ class GCompare:
             sticky=tk.NSEW,
             padx=config["padx"],
         )
-        panel.columnconfigure(0, weight=0)  # For Path label.
-        panel.columnconfigure(1, weight=1)  # For combobox.
-        panel.columnconfigure(2, weight=0)  # For Open button.
-        panel.columnconfigure(3, weight=0)  # For Save button.
-        panel.columnconfigure(4, weight=0)  # For vertical scrollbar.
-        panel.rowconfigure(1, weight=1)  # For text area.
+        panel.columnconfigure(0, weight=0)
+        panel.columnconfigure(1, weight=1)
+        panel.columnconfigure(2, weight=0)
+        panel.columnconfigure(3, weight=0)
+        panel.columnconfigure(4, weight=0)
+        panel.rowconfigure(1, weight=1)
 
         spacing = GScaling.scale_pixels(DEFAULT_SPACING, panel)
 
@@ -447,7 +505,12 @@ class GCompare:
 
         # Open button.
         GButton(
-            panel, text="Open", command=open_command, width=70, height=30, **btn_colors
+            panel,
+            text="Open",
+            command=open_command,
+            width=BUTTON_WIDTH_PANEL,
+            height=BUTTON_HEIGHT_PANEL,
+            **btn_colors,
         ).grid(
             row=0,
             column=2,
@@ -458,7 +521,12 @@ class GCompare:
 
         # Save button.
         GButton(
-            panel, text="Save", command=save_command, width=70, height=30, **btn_colors
+            panel,
+            text="Save",
+            command=save_command,
+            width=BUTTON_WIDTH_PANEL,
+            height=BUTTON_HEIGHT_PANEL,
+            **btn_colors,
         ).grid(
             row=0,
             column=3,
@@ -477,7 +545,7 @@ class GCompare:
         # Line numbers widget (initially hidden) - placed on the left.
         line_numbers = tk.Text(
             panel,
-            width=4,
+            width=LINE_NUMBERS_MIN_WIDTH,
             wrap=tk.NONE,
             state=tk.DISABLED,
             font=font_tuple,
@@ -508,28 +576,38 @@ class GCompare:
         else:
             text_area.grid(row=1, column=0, columnspan=4, pady=(10, 0), sticky=tk.NSEW)
 
-        # Bind events to update line numbers when text changes.
-        def on_text_change(event=None):
-            """Update line numbers when text content changes."""
+        # Unified text modification handler.
+        def on_text_modified(event: Optional[tk.Event] = None):
+            """Handle text modification: update line numbers, mark dirty, auto-compare."""
+            # Update line numbers first.
             self._update_line_numbers(line_numbers, text_area)
-            # Also trigger comparison if auto-compare is enabled.
-            if self.options["auto_compare"] and event:
-                self._on_text_modified(event, panel, title)
 
-        # Bind text modification events to update line numbers.
-        text_area.bind("<<Modified>>", lambda e: on_text_change())
-        text_area.bind("<KeyRelease>", lambda e: on_text_change())
+            # Check if content actually changed (not just flag reset).
+            if text_area.edit_modified():
+                panel.config(text=f"{title}*")
+                text_area.edit_modified(False)
 
-        # Also bind the original modified event for panel marking.
+                # Auto compare if enabled and both files are loaded.
+                if (
+                    self.options["auto_compare"]
+                    and self.file_a.get()
+                    and self.file_b.get()
+                ):
+                    self.compare_files()
+
+        # Bind text modification event.
+        text_area.bind("<<Modified>>", lambda e: on_text_modified())
+
+        # Also update line numbers on key release for responsive typing feedback.
         text_area.bind(
-            "<<Modified>>",
-            lambda e, p=panel, t=title: self._on_text_modified(e, p, t),
+            "<KeyRelease>",
+            lambda e: self._update_line_numbers(line_numbers, text_area),
         )
 
-        # Bind scroll events to update line numbers.
+        # Update line numbers on resize.
         text_area.bind(
             "<Configure>",
-            lambda e, ln=line_numbers, ta=text_area: self._update_line_numbers(ln, ta),
+            lambda e: self._update_line_numbers(line_numbers, text_area),
         )
 
         # Scrollbars.
@@ -543,7 +621,7 @@ class GCompare:
         text_area.configure(xscrollcommand=h_scrollbar.set)
         h_scrollbar.grid(row=2, column=0, columnspan=5, sticky=tk.EW)
 
-        # Disable mouse wheel scrolling.
+        # Disable mouse wheel scrolling on line numbers.
         def disable_mouse_wheel(event):
             """Disable mouse wheel events."""
             return "break"
@@ -559,12 +637,14 @@ class GCompare:
             self.v_scrollbar_a = v_scrollbar
             self.h_scrollbar_a = h_scrollbar
             self.line_numbers_a = line_numbers
+            self.path_combobox_a = path_combobox
         else:
             self.text_view_b = text_area
             self.panel_b = panel
             self.v_scrollbar_b = v_scrollbar
             self.h_scrollbar_b = h_scrollbar
             self.line_numbers_b = line_numbers
+            self.path_combobox_b = path_combobox
 
     def _create_status_bar(self, parent: ttk.Frame):
         """Create status bar with legends.
@@ -640,9 +720,9 @@ class GCompare:
         )
         empty_square_b.pack(side=tk.LEFT, padx=(4, 4))
 
-    # ========================================================================
+    # =======================================================================
     # OPTIONS DIALOG
-    # ========================================================================
+    # =======================================================================
 
     def show_options_dialog(self):
         """Show the options configuration dialog."""
@@ -656,27 +736,20 @@ class GCompare:
             """Center the dialog after it's fully mapped."""
             dialog.update_idletasks()
 
-            # Get parent window center.
             parent_x = self.root.winfo_rootx() + self.root.winfo_width() // 2
             parent_y = self.root.winfo_rooty() + self.root.winfo_height() // 2
 
-            # Get dialog dimensions (including decorations).
             dialog_width = dialog.winfo_width()
             dialog_height = dialog.winfo_height()
 
-            # Calculate final position to center the dialog.
             dialog_x = parent_x - dialog_width // 2
             dialog_y = parent_y - dialog_height // 2
 
             dialog.geometry(f"+{dialog_x}+{dialog_y}")
 
-        # Schedule centering after dialog is mapped.
         dialog.after(100, center_dialog)
-
-        # Prevent resizing.
         dialog.resizable(False, False)
 
-        # Create main frame.
         main_frame = ttk.Frame(dialog, padding="20")
         main_frame.pack(fill=tk.BOTH, expand=True)
 
@@ -684,16 +757,13 @@ class GCompare:
         font_frame = ttk.LabelFrame(main_frame, text="Font", padding="10")
         font_frame.pack(fill=tk.X, pady=(0, 10))
 
-        # Font family.
         ttk.Label(font_frame, text="Family:").grid(
             row=0, column=0, sticky=tk.E, padx=(0, 5)
         )
 
-        # Get available font families.
         if self._font_families is None:
             self._font_families = tkfont.families()
 
-        # Filter to monospace fonts (simplified check).
         mono_fonts = sorted(
             set(
                 f
@@ -704,7 +774,7 @@ class GCompare:
                 )
             )
         )
-        if not mono_fonts:  # Fallback to all fonts.
+        if not mono_fonts:
             mono_fonts = sorted(set(self._font_families))
 
         font_family_var = tk.StringVar(value=self.options["font_family"])
@@ -713,7 +783,6 @@ class GCompare:
         )
         font_family_combo.grid(row=0, column=1, sticky=tk.W, padx=(0, 10))
 
-        # Font size.
         ttk.Label(font_frame, text="Size:").grid(
             row=0, column=2, sticky=tk.W, padx=(0, 5)
         )
@@ -723,7 +792,6 @@ class GCompare:
         )
         font_size_spinbox.grid(row=0, column=3, sticky=tk.W)
 
-        # Font example.
         ttk.Label(font_frame, text="Example:").grid(
             row=1, column=0, sticky=tk.E, pady=(5, 0), padx=(0, 5)
         )
@@ -737,32 +805,26 @@ class GCompare:
             if font_family and font_size:
                 font_example_label.configure(font=(font_family, font_size))
 
-        # Bind font changes to update example.
         font_family_var.trace("w", update_font_example)
         font_size_var.trace("w", update_font_example)
-
-        # Initialize font example.
         update_font_example()
 
-        # Display and Comparison options (merged).
+        # Display and Comparison options.
         options_frame = ttk.LabelFrame(main_frame, text="Options", padding="10")
         options_frame.pack(fill=tk.X, pady=(0, 10))
 
-        # Show line numbers.
         line_numbers_var = tk.BooleanVar(value=self.options["show_line_numbers"])
         line_numbers_check = ttk.Checkbutton(
             options_frame, text="Show Line Numbers", variable=line_numbers_var
         )
         line_numbers_check.grid(row=0, column=0, sticky=tk.W, padx=(0, 20))
 
-        # Wrap lines.
         wrap_lines_var = tk.BooleanVar(value=self.options["wrap_lines"])
         wrap_lines_check = ttk.Checkbutton(
             options_frame, text="Wrap Lines", variable=wrap_lines_var
         )
         wrap_lines_check.grid(row=0, column=1, sticky=tk.W, pady=(5, 0))
 
-        # Tab size.
         ttk.Label(options_frame, text="Tab Size:").grid(
             row=0, column=2, sticky=tk.W, padx=(20, 5), pady=(5, 0)
         )
@@ -772,26 +834,33 @@ class GCompare:
         )
         tab_size_spinbox.grid(row=0, column=3, sticky=tk.W, pady=(5, 0))
 
-        # Compare on change.
         auto_compare_var = tk.BooleanVar(value=self.options["auto_compare"])
         auto_compare_check = ttk.Checkbutton(
             options_frame, text="Compare on Change", variable=auto_compare_var
         )
         auto_compare_check.grid(row=1, column=0, sticky=tk.W, pady=(5, 0))
 
-        # Ignore whitespace.
         ignore_whitespace_var = tk.BooleanVar(value=self.options["ignore_whitespace"])
         ignore_whitespace_check = ttk.Checkbutton(
             options_frame, text="Ignore Whitespace", variable=ignore_whitespace_var
         )
         ignore_whitespace_check.grid(row=1, column=1, sticky=tk.W, pady=(5, 0))
 
-        # Ignore case.
         ignore_case_var = tk.BooleanVar(value=self.options["ignore_case"])
         ignore_case_check = ttk.Checkbutton(
             options_frame, text="Ignore Case", variable=ignore_case_var
         )
         ignore_case_check.grid(row=1, column=2, sticky=tk.W, padx=(20, 0), pady=(5, 0))
+
+        highlight_line_var = tk.BooleanVar(
+            value=self.options.get("highlight_current_line", False)
+        )
+        highlight_line_check = ttk.Checkbutton(
+            options_frame,
+            text="Highlight Current Line",
+            variable=highlight_line_var,
+        )
+        highlight_line_check.grid(row=2, column=0, sticky=tk.W, pady=(5, 0))
 
         # Button frame.
         button_frame = ttk.Frame(main_frame)
@@ -799,7 +868,6 @@ class GCompare:
 
         def apply_options():
             """Apply the selected options."""
-            # Update options dictionary.
             self.options.update(
                 {
                     "font_family": font_family_var.get(),
@@ -810,27 +878,23 @@ class GCompare:
                     "auto_compare": auto_compare_var.get(),
                     "ignore_whitespace": ignore_whitespace_var.get(),
                     "ignore_case": ignore_case_var.get(),
+                    "highlight_current_line": highlight_line_var.get(),
                 }
             )
 
-            # Apply font changes.
             self._update_font_style()
 
-            # Apply wrap lines.
             wrap_option = tk.WORD if self.options["wrap_lines"] else tk.NONE
             if self.text_view_a:
                 self.text_view_a.configure(wrap=wrap_option)
             if self.text_view_b:
                 self.text_view_b.configure(wrap=wrap_option)
 
-            # Apply line numbers.
             self._toggle_line_numbers(self.options["show_line_numbers"])
 
-            # Save config and close dialog.
             self.save_config()
             dialog.destroy()
 
-            # Refresh comparison if needed.
             if self.file_a.get() and self.file_b.get():
                 self.compare_files()
 
@@ -838,14 +902,14 @@ class GCompare:
             """Reset options to default values."""
             font_family_var.set(DEFAULT_FONT_FAMILY)
             font_size_var.set(DEFAULT_FONT_SIZE)
-            line_numbers_var.set(False)
+            line_numbers_var.set(True)
             wrap_lines_var.set(False)
             tab_size_var.set(4)
             auto_compare_var.set(True)
             ignore_whitespace_var.set(False)
             ignore_case_var.set(False)
+            highlight_line_var.set(False)
 
-        # Buttons - centered.
         button_center_frame = ttk.Frame(button_frame)
         button_center_frame.pack(expand=True)
 
@@ -858,8 +922,8 @@ class GCompare:
             button_row_frame,
             text="Apply",
             command=apply_options,
-            width=100,
-            height=34,
+            width=BUTTON_WIDTH_MAIN,
+            height=BUTTON_HEIGHT_MAIN,
             **self.colors["buttons"]["primary"],
         ).pack(side=tk.LEFT, padx=btn_spacing)
 
@@ -867,8 +931,8 @@ class GCompare:
             button_row_frame,
             text="Reset",
             command=reset_options,
-            width=100,
-            height=34,
+            width=BUTTON_WIDTH_MAIN,
+            height=BUTTON_HEIGHT_MAIN,
             **self.colors["buttons"]["secondary"],
         ).pack(side=tk.LEFT, padx=btn_spacing)
 
@@ -876,14 +940,14 @@ class GCompare:
             button_row_frame,
             text="Cancel",
             command=dialog.destroy,
-            width=100,
-            height=34,
+            width=BUTTON_WIDTH_MAIN,
+            height=BUTTON_HEIGHT_MAIN,
             **self.colors["buttons"]["secondary"],
         ).pack(side=tk.LEFT, padx=btn_spacing)
 
-    # ========================================================================
+    # =======================================================================
     # CONFIGURATION METHODS
-    # ========================================================================
+    # =======================================================================
 
     def load_config(self):
         """Load configuration from file."""
@@ -894,23 +958,19 @@ class GCompare:
             with open(CONFIG_FILE, "r") as f:
                 config = json.load(f)
 
-            # Window geometry.
             if "WINDOW" in config and "geometry" in config["WINDOW"]:
                 self.root.geometry(config["WINDOW"]["geometry"])
 
-            # File A history.
             if "FILE_A_HISTORY" in config:
                 self.file_a_history = config["FILE_A_HISTORY"]
                 if self.file_a_history:
                     self.file_a.set(self.file_a_history[0])
 
-            # File B history.
             if "FILE_B_HISTORY" in config:
                 self.file_b_history = config["FILE_B_HISTORY"]
                 if self.file_b_history:
                     self.file_b.set(self.file_b_history[0])
 
-            # Load options.
             if "OPTIONS" in config:
                 self.options.update(config["OPTIONS"])
 
@@ -919,12 +979,6 @@ class GCompare:
 
     def save_config(self):
         """Save configuration to file."""
-        # Update file history.
-        if self.file_a.get():
-            self._update_file_history("A", self.file_a.get())
-        if self.file_b.get():
-            self._update_file_history("B", self.file_b.get())
-
         config = {
             "WINDOW": {"geometry": self.root.geometry()},
             "FILE_A_HISTORY": self.file_a_history,
@@ -945,19 +999,16 @@ class GCompare:
             font=(self.options["font_family"], self.options["font_size"], "bold"),
         )
 
-        # Update text widgets if they exist.
         if self.text_view_a:
             self.text_view_a.configure(font=font_tuple)
         if self.text_view_b:
             self.text_view_b.configure(font=font_tuple)
 
-        # Update line number widgets if they exist.
         if self.line_numbers_a:
             self.line_numbers_a.configure(font=font_tuple)
         if self.line_numbers_b:
             self.line_numbers_b.configure(font=font_tuple)
 
-        # Update line numbers after font change.
         if self.options["show_line_numbers"]:
             if self.line_numbers_a and self.text_view_a:
                 self._update_line_numbers(self.line_numbers_a, self.text_view_a)
@@ -978,23 +1029,24 @@ class GCompare:
         ):
             return
 
-        # Get the text content.
         text_content = text_widget.get("1.0", tk.END)
         lines = text_content.splitlines()
 
-        # Generate line numbers.
+        # Dynamically adjust width based on line count.
+        max_line = len(lines)
+        width = max(LINE_NUMBERS_MIN_WIDTH, len(str(max_line)) + 1)
+        line_numbers_widget.configure(width=width)
+
         line_numbers_text = "\n".join(str(i) for i in range(1, len(lines) + 1))
 
-        # Update line numbers widget.
         line_numbers_widget.config(state=tk.NORMAL)
         line_numbers_widget.delete("1.0", tk.END)
         line_numbers_widget.insert("1.0", line_numbers_text)
         line_numbers_widget.tag_add("right", "1.0", "end")
         line_numbers_widget.config(state=tk.DISABLED)
 
-        # Synchronize scrolling - move line numbers to match text widget
-        # position.
-        first, last = text_widget.yview()
+        # Synchronize scrolling.
+        first, _ = text_widget.yview()
         line_numbers_widget.yview_moveto(first)
 
     def _toggle_line_numbers(self, show: bool):
@@ -1045,19 +1097,20 @@ class GCompare:
 
         history_list = self.file_a_history if panel_name == "A" else self.file_b_history
 
-        # Remove duplicate if exists.
         if new_path in history_list:
             history_list.remove(new_path)
 
-        # Add to beginning of list.
         history_list.insert(0, new_path)
-
-        # Trim to max history length.
         del history_list[HISTORY_LENGTH:]
 
-    # ========================================================================
+        # Update combobox values dynamically.
+        combobox = self.path_combobox_a if panel_name == "A" else self.path_combobox_b
+        if combobox:
+            combobox.configure(values=history_list)
+
+    # =======================================================================
     # FILE OPERATIONS
-    # ========================================================================
+    # =======================================================================
 
     def open_file_a(self):
         """Open file dialog for File A."""
@@ -1074,12 +1127,7 @@ class GCompare:
             panel_name: Either "A" or "B"
         """
         initial_dir = None
-        current_path = ""
-
-        if panel_name == "A":
-            current_path = self.file_a.get()
-        else:
-            current_path = self.file_b.get()
+        current_path = self.file_a.get() if panel_name == "A" else self.file_b.get()
 
         if current_path:
             if os.path.isdir(current_path):
@@ -1102,9 +1150,10 @@ class GCompare:
                 "Unsaved Changes",
                 "File A has unsaved changes. Do you want to save them before reloading?",
             )
-            if response is True:  # Yes.
-                self.save_file_a()
-            elif response is None:  # Cancel.
+            if response is True:
+                if not self.save_file_a():
+                    return
+            elif response is None:
                 return
 
         # Check File B for unsaved changes.
@@ -1113,71 +1162,78 @@ class GCompare:
                 "Unsaved Changes",
                 "File B has unsaved changes. Do you want to save them before reloading?",
             )
-            if response is True:  # Yes.
-                self.save_file_b()
-            elif response is None:  # Cancel.
+            if response is True:
+                if not self.save_file_b():
+                    return
+            elif response is None:
                 return
 
-        # Clear the diff map visualization.
         self._clear_diff_map()
 
-        # Reload files.
         if self.file_a.get():
             self.load_file_a(self.file_a.get())
         if self.file_b.get():
             self.load_file_b(self.file_b.get())
 
-    def save_file_a(self):
-        """Save File A."""
+    def save_file_a(self) -> bool:
+        """Save File A.
+
+        Returns:
+            True if saved successfully, False otherwise
+        """
         if self.text_view_a:
-            self.save_file(self.file_a.get(), self.text_view_a, "A")
+            return self.save_file(self.file_a.get(), self.text_view_a, "A")
+        return False
 
-    def save_file_b(self):
-        """Save File B."""
+    def save_file_b(self) -> bool:
+        """Save File B.
+
+        Returns:
+            True if saved successfully, False otherwise
+        """
         if self.text_view_b:
-            self.save_file(self.file_b.get(), self.text_view_b, "B")
+            return self.save_file(self.file_b.get(), self.text_view_b, "B")
+        return False
 
-    def save_file(self, file_path: str, text_widget: tk.Text, panel_name: str):
+    def save_file(self, file_path: str, text_widget: tk.Text, panel_name: str) -> bool:
         """Write text widget content to disk.
 
         Args:
             file_path: Path to save to
             text_widget: Text widget containing content
             panel_name: Either "A" or "B"
+
+        Returns:
+            True if saved successfully, False otherwise
         """
         if not file_path:
             messagebox.showwarning(
                 "Save Error", f"No file path specified for Panel {panel_name}."
             )
-            return
+            return False
 
         if not text_widget:
             messagebox.showerror(
                 "Save Error", f"Text view for Panel {panel_name} is not available."
             )
-            return
-
-        # Save confirmation dialog.
-        if not messagebox.askyesno(
-            "Confirm Save", f"Are you sure you want to overwrite '{file_path}'?"
-        ):
-            return
+            return False
 
         try:
             content = text_widget.get("1.0", tk.END)
             with open(file_path, "w", encoding="utf-8") as file:
                 file.write(content)
 
-            # Reset modified state.
             panel_widget = self.panel_a if panel_name == "A" else self.panel_b
             if panel_widget:
                 panel_widget.config(text=f"File {panel_name}")
 
             messagebox.showinfo("Success", f"File '{file_path}' saved successfully.")
+            return True
         except Exception as e:
             messagebox.showerror(
                 "Save Error", f"Failed to save file '{file_path}':\n{e}"
             )
+            return False
 
     def load_file_a(self, file_path: str):
         """Load file into File A view.
@@ -1189,7 +1245,6 @@ class GCompare:
             file_path,
             "A",
             self.file_a,
-            self.content_a,
             self.text_view_a,
             self.panel_a,
             self.status_a,
@@ -1205,7 +1260,6 @@ class GCompare:
             file_path,
             "B",
             self.file_b,
-            self.content_b,
             self.text_view_b,
             self.panel_b,
             self.status_b,
@@ -1216,7 +1270,6 @@ class GCompare:
         file_path: str,
         panel_name: str,
         file_var: tk.StringVar,
-        content_var: tk.StringVar,
         text_view: Optional[tk.Text],
         panel_widget: Optional[ttk.LabelFrame],
         status_var: tk.StringVar,
@@ -1227,7 +1280,6 @@ class GCompare:
             file_path: Path to file to load
             panel_name: Either "A" or "B"
             file_var: StringVar to store file path
-            content_var: StringVar to store content
             text_view: Text widget to display content
             panel_widget: Panel widget to update title
             status_var: Status variable to update
@@ -1236,65 +1288,34 @@ class GCompare:
             with open(file_path, "r", encoding="utf-8") as file:
                 content = file.read()
 
-                # Update history.
-                self._update_file_history(panel_name, file_path)
+            self._update_file_history(panel_name, file_path)
 
-                # Update variables.
-                file_var.set(file_path)
-                content_var.set(content)
+            file_var.set(file_path)
 
-                # Update text view.
-                if text_view:
-                    text_view.delete("1.0", tk.END)
-                    text_view.insert("1.0", content)
-                    text_view.edit_modified(False)
+            if text_view:
+                text_view.delete("1.0", tk.END)
+                text_view.insert("1.0", content)
+                text_view.edit_modified(False)
 
-                # Update panel title.
-                if panel_widget:
-                    panel_widget.config(text=f"File {panel_name}")
+            if panel_widget:
+                panel_widget.config(text=f"File {panel_name}")
 
-                # Update status.
-                line_count = len(content.splitlines())
-                char_count = len(content)
-                status_var.set(f"{line_count} lines, {char_count} characters")
+            line_count = len(content.splitlines())
+            char_count = len(content)
+            status_var.set(f"{line_count} lines, {char_count} characters")
 
-                # Update line numbers if enabled.
-                if self.options["show_line_numbers"] and text_view:
-                    if panel_name == "A" and self.line_numbers_a:
-                        self._update_line_numbers(self.line_numbers_a, text_view)
-                    elif panel_name == "B" and self.line_numbers_b:
-                        self._update_line_numbers(self.line_numbers_b, text_view)
+            if self.options["show_line_numbers"] and text_view:
+                if panel_name == "A" and self.line_numbers_a:
+                    self._update_line_numbers(self.line_numbers_a, text_view)
+                elif panel_name == "B" and self.line_numbers_b:
+                    self._update_line_numbers(self.line_numbers_b, text_view)
 
         except Exception as e:
             messagebox.showerror("Error", f"Failed to load file: {e}")
 
-    # ========================================================================
+    # =======================================================================
     # TEXT AND COMPARISON METHODS
-    # ========================================================================
-
-    def _on_text_modified(
-        self, event: tk.Event, panel_widget: ttk.LabelFrame, original_title: str
-    ):
-        """Mark panel as modified when its text changes.
-
-        Args:
-            event: Tkinter event
-            panel_widget: Panel to mark as modified
-            original_title: Original panel title
-        """
-        try:
-            # Cast the widget to Text since we know it's a Text widget.
-            text_widget = cast(tk.Text, event.widget)
-        except (AttributeError, TypeError):
-            return
-
-        if panel_widget and text_widget.edit_modified():
-            panel_widget.config(text=f"{original_title}*")
-            text_widget.edit_modified(False)
-
-            # Auto compare if enabled.
-            if self.options["auto_compare"] and self.file_a.get() and self.file_b.get():
-                self.compare_files()
+    # =======================================================================
 
     def compare_files(self, event=None):
         """Compare the two files and highlight differences.
@@ -1308,19 +1329,14 @@ class GCompare:
             )
             return
 
-        # Compute differences.
         diff_result = self._compute_diff()
 
-        # Store diff navigation state for Prev/Next buttons.
         self._diff_changes = diff_result.get("changes", [])
         self._diff_blocks = diff_result.get("blocks", [])
-        self._diff_total_lines = diff_result.get("total_lines", 0)
         self._diff_len_a = len(diff_result.get("lines_a", []))
         self._diff_len_b = len(diff_result.get("lines_b", []))
-        # Reset block index when new comparison is run.
         self._diff_block_index = -1
 
-        # Apply visual changes.
         self._apply_highlights(diff_result)
         self._update_diff_map(diff_result)
         self._update_status(diff_result)
@@ -1330,13 +1346,7 @@ class GCompare:
 
         Returns:
             dict: Contains diff lines, line counts, and content information.
-                  The 'changes' list stores tuples of:
-                  (type, line_a, line_b, is_empty)
-                  The 'blocks' list stores tuples of:
-                  (start_change_idx, end_change_idx) representing contiguous
-                  groups of changes (hunks) in the diff output.
         """
-        # Get content.
         lines_a = (
             self.text_view_a.get("1.0", tk.END).splitlines() if self.text_view_a else []
         )
@@ -1344,24 +1354,23 @@ class GCompare:
             self.text_view_b.get("1.0", tk.END).splitlines() if self.text_view_b else []
         )
 
-        # Apply options if needed.
+        compare_a = lines_a.copy()
+        compare_b = lines_b.copy()
+
         if self.options["ignore_whitespace"]:
-            lines_a = [line.rstrip() for line in lines_a]
-            lines_b = [line.rstrip() for line in lines_b]
+            compare_a = [line.rstrip() for line in compare_a]
+            compare_b = [line.rstrip() for line in compare_b]
 
         if self.options["ignore_case"]:
-            lines_a = [line.lower() for line in lines_a]
-            lines_b = [line.lower() for line in lines_b]
+            compare_a = [line.lower() for line in compare_a]
+            compare_b = [line.lower() for line in compare_b]
 
-        # Perform comparison.
         differ = difflib.Differ()
-        diff_lines = list(differ.compare(lines_a, lines_b))
+        diff_lines = list(differ.compare(compare_a, compare_b))
 
-        # Track line numbers in BOTH files simultaneously.
-        a_index = 1  # Current line in File A
-        b_index = 1  # Current line in File B
+        a_index = 1
+        b_index = 1
 
-        # Prepare diff information.
         diff_info = {
             "lines_a": lines_a,
             "lines_b": lines_b,
@@ -1371,21 +1380,15 @@ class GCompare:
             "added_empty_lines": 0,
             "removed_empty_lines": 0,
             "total_lines": max(len(lines_a), len(lines_b)),
-            # Each entry: (type, line_a, line_b, is_empty)
             "changes": [],
-            # Each entry: (start_idx, end_idx) into changes list
             "blocks": [],
         }
 
-        # Helper function to check if line is empty (only whitespace).
         def is_empty_line(line: str) -> bool:
-            """Check if a line is empty or contains only whitespace."""
             return len(line.strip()) == 0
 
-        # Track block boundaries.
-        current_block_start = None  # Index in changes list where current block starts
+        current_block_start = None
 
-        # Process diff results.
         for line in diff_lines:
             if not line:
                 continue
@@ -1395,7 +1398,6 @@ class GCompare:
             is_empty = is_empty_line(line_content)
 
             if code == " ":
-                # Unchanged line - end current block if any.
                 if current_block_start is not None:
                     diff_info["blocks"].append(
                         (current_block_start, len(diff_info["changes"]))
@@ -1404,31 +1406,26 @@ class GCompare:
                 a_index += 1
                 b_index += 1
             elif code == "-":
-                # Removed from A - start new block if not in one.
                 if current_block_start is None:
                     current_block_start = len(diff_info["changes"])
                 diff_info["removed_lines"] += 1
+                # For removed lines, line_b shows where we are in B (before advance).
+                change_type = "removed_empty" if is_empty else "removed"
+                diff_info["changes"].append((change_type, a_index, b_index, is_empty))
                 if is_empty:
                     diff_info["removed_empty_lines"] += 1
-                    diff_info["changes"].append(
-                        ("removed_empty", a_index, b_index, True)
-                    )
-                else:
-                    diff_info["changes"].append(("removed", a_index, b_index, False))
                 a_index += 1
             elif code == "+":
-                # Added to B - start new block if not in one.
                 if current_block_start is None:
                     current_block_start = len(diff_info["changes"])
                 diff_info["added_lines"] += 1
+                # For added lines, line_a shows where we are in A (before advance).
+                change_type = "added_empty" if is_empty else "added"
+                diff_info["changes"].append((change_type, a_index, b_index, is_empty))
                 if is_empty:
                     diff_info["added_empty_lines"] += 1
-                    diff_info["changes"].append(("added_empty", a_index, b_index, True))
-                else:
-                    diff_info["changes"].append(("added", a_index, b_index, False))
                 b_index += 1
 
-        # Close any remaining open block.
         if current_block_start is not None:
             diff_info["blocks"].append((current_block_start, len(diff_info["changes"])))
 
@@ -1440,15 +1437,15 @@ class GCompare:
         Args:
             diff_result: Dictionary containing diff information
         """
-        # Clear existing tags.
         if self.text_view_a:
             self.text_view_a.tag_remove("removed", "1.0", tk.END)
             self.text_view_a.tag_remove("removed_empty", "1.0", tk.END)
+            self.text_view_a.tag_remove("current_block", "1.0", tk.END)
         if self.text_view_b:
             self.text_view_b.tag_remove("added", "1.0", tk.END)
             self.text_view_b.tag_remove("added_empty", "1.0", tk.END)
+            self.text_view_b.tag_remove("current_block", "1.0", tk.END)
 
-        # Configure highlight tags.
         if self.text_view_a:
             self.text_view_a.tag_configure(
                 "removed", background=self.colors["diff"]["removed"]
@@ -1464,12 +1461,10 @@ class GCompare:
                 "added_empty", background=self.colors["diff"]["added_empty"]
             )
 
-        # Apply highlights based on diff results.
         for change_info in diff_result["changes"]:
             change_type, line_a, line_b, is_empty = change_info
 
             if change_type in ("removed", "removed_empty") and self.text_view_a:
-                # Removed lines are in File A at line_a.
                 start_pos = f"{line_a}.0"
                 end_pos = f"{line_a}.end"
                 tag_name = (
@@ -1477,7 +1472,6 @@ class GCompare:
                 )
                 self.text_view_a.tag_add(tag_name, start_pos, end_pos)
             elif change_type in ("added", "added_empty") and self.text_view_b:
-                # Added lines are in File B at line_b.
                 start_pos = f"{line_b}.0"
                 end_pos = f"{line_b}.end"
                 tag_name = "added_empty" if change_type == "added_empty" else "added"
@@ -1492,27 +1486,21 @@ class GCompare:
         if not self.diff_map_canvas or not self.text_view_a:
             return
 
-        # Clear existing diff map.
         self.diff_map_canvas.delete("diff_line")
 
-        # Update scroll marker.
         first, last = self.text_view_a.yview()
         self._update_scroll_marker(float(first), float(last))
 
-        # Check if we have content to visualize.
         canvas_height = self.diff_map_canvas.winfo_height()
-
         if canvas_height <= 0:
             return
 
-        # Draw diff indicators.
         canvas_width = self.diff_map_canvas.winfo_width()
         half_width = canvas_width / 2
 
         for change_info in diff_result["changes"]:
             change_type, line_a, line_b, is_empty = change_info
 
-            # Use the appropriate line number and file length for each side.
             if change_type in ("removed", "removed_empty"):
                 line_num = line_a
                 total = max(1, len(diff_result.get("lines_a", [])))
@@ -1520,12 +1508,11 @@ class GCompare:
                 line_num = line_b
                 total = max(1, len(diff_result.get("lines_b", [])))
 
-            if line_num <= total:
+            if 1 <= line_num <= total:
                 y_start = ((line_num - 1) / total) * canvas_height
                 line_height = max(1, canvas_height / total)
                 y_end = y_start + line_height
 
-                # Determine color based on change type.
                 if change_type in ("removed", "removed_empty"):
                     fill_color = (
                         self.colors["diff"]["removed_empty"]
@@ -1557,7 +1544,6 @@ class GCompare:
                         tags="diff_line",
                     )
 
-        # Ensure scroll marker is on top.
         if self.scroll_marker_id:
             self.diff_map_canvas.tag_raise("scroll_marker")
 
@@ -1567,13 +1553,11 @@ class GCompare:
         Args:
             diff_result: Dictionary containing diff information
         """
-        # Calculate non-empty changes.
         non_empty_removed = (
             diff_result["removed_lines"] - diff_result["removed_empty_lines"]
         )
         non_empty_added = diff_result["added_lines"] - diff_result["added_empty_lines"]
 
-        # Build concise status strings.
         if diff_result["removed_lines"] > 0:
             if diff_result["removed_empty_lines"] > 0:
                 self.status_a.set(
@@ -1594,9 +1578,9 @@ class GCompare:
         else:
             self.status_b.set("File B")
 
-    # ========================================================================
+    # =======================================================================
     # SCROLLING METHODS
-    # ========================================================================
+    # =======================================================================
 
     def _setup_synchronized_scrolling(self):
         """Link scrolling between both panels."""
@@ -1610,7 +1594,6 @@ class GCompare:
         ):
             return
 
-        # Local references for clarity.
         text_view_a, text_view_b = self.text_view_a, self.text_view_b
         v_scrollbar_a, v_scrollbar_b = self.v_scrollbar_a, self.v_scrollbar_b
         h_scrollbar_a, h_scrollbar_b = self.h_scrollbar_a, self.h_scrollbar_b
@@ -1628,7 +1611,6 @@ class GCompare:
                 first, last = self.text_view_a.yview()
                 self._update_scroll_marker(float(first), float(last))
 
-            # Update line numbers when view changes.
             if (
                 self.options["show_line_numbers"]
                 and self.line_numbers_a
@@ -1649,13 +1631,11 @@ class GCompare:
             h_scrollbar_a.set(*args)
             h_scrollbar_b.set(*args)
 
-        # Configure vertical scrolling.
         v_scrollbar_a.config(command=_on_y_scroll)
         v_scrollbar_b.config(command=_on_y_scroll)
         text_view_a.config(yscrollcommand=_on_y_view_change)
         text_view_b.config(yscrollcommand=_on_y_view_change)
 
-        # Configure horizontal scrolling.
         h_scrollbar_a.config(command=_on_x_scroll)
         h_scrollbar_b.config(command=_on_x_scroll)
         text_view_a.config(xscrollcommand=_on_x_view_change)
@@ -1670,45 +1650,53 @@ class GCompare:
             first_visible_fraction: Fraction of document at top of viewport
             last_visible_fraction: Fraction of document at bottom of viewport
         """
-        if self.diff_map_canvas and self.scroll_marker_id:
-            canvas_height = self.diff_map_canvas.winfo_height()
-            if canvas_height == 0:
-                return
+        if not self.diff_map_canvas or not self.scroll_marker_id:
+            return
 
-            y1 = first_visible_fraction * canvas_height
-            y2 = last_visible_fraction * canvas_height
+        canvas_height = self.diff_map_canvas.winfo_height()
+        if canvas_height <= 0:
+            return
 
-            # Ensure minimum height.
-            if y2 - y1 < 4:
-                y2 = y1 + 4
-                if y2 > canvas_height:
-                    y1 = canvas_height - 4
+        y1 = first_visible_fraction * canvas_height
+        y2 = last_visible_fraction * canvas_height
 
-            self.diff_map_canvas.coords(
-                self.scroll_marker_id, 2, y1 + 2, SCROLL_MARKER_WIDTH - 1, y2 - 3
-            )
+        # Ensure minimum height.
+        if y2 - y1 < MARKER_MIN_HEIGHT:
+            y2 = y1 + MARKER_MIN_HEIGHT
+
+        # Clamp to canvas bounds.
+        if y2 > canvas_height:
+            y2 = canvas_height
+            y1 = max(0.0, y2 - MARKER_MIN_HEIGHT)
+
+        # Apply padding with bounds checking to ensure positive height.
+        y1_draw = min(y1 + MARKER_PAD_TOP, canvas_height - 1)
+        y2_draw = max(y1_draw + 1, y2 - MARKER_PAD_BOTTOM)
+        y2_draw = min(y2_draw, canvas_height)
+
+        self.diff_map_canvas.coords(
+            self.scroll_marker_id,
+            2,
+            y1_draw,
+            SCROLL_MARKER_WIDTH - 1,
+            y2_draw,
+        )
 
     def _on_marker_press(self, event: tk.Event):
         """Handle mouse button press on the scroll marker.
-        Stores the initial drag position and current scroll fraction.
 
         Args:
             event: Mouse event
         """
-        if not self.diff_map_canvas:
-            return
-
-        if not self.text_view_a:
+        if not self.diff_map_canvas or not self.text_view_a:
             return
 
         self._marker_drag_start_y = event.y
-        # Get the current scroll fraction of the text widgets.
         self._marker_initial_scroll_fraction = self.text_view_a.yview()[0]
-        self.diff_map_canvas.config(cursor="hand2")  # Change cursor to a grabbing hand.
+        self.diff_map_canvas.config(cursor="hand2")
 
     def _on_marker_drag(self, event: tk.Event):
         """Handle mouse drag motion on the scroll marker.
-        Calculates new scroll position and updates text widgets.
 
         Args:
             event: Mouse event
@@ -1722,16 +1710,12 @@ class GCompare:
         dy = event.y - self._marker_drag_start_y
         canvas_height = self.diff_map_canvas.winfo_height()
 
-        if canvas_height == 0:  # Avoid division by zero.
+        if canvas_height <= 0:
             return
 
-        # Calculate the new scroll fraction based on drag movement.
         new_fraction = self._marker_initial_scroll_fraction + (dy / canvas_height)
-
-        # Clamp the fraction between 0 and 1 to stay within bounds.
         new_fraction = max(0.0, min(1.0, new_fraction))
 
-        # Apply the new scroll position to both text widgets.
         if self.text_view_a:
             self.text_view_a.yview_moveto(new_fraction)
         if self.text_view_b:
@@ -1739,7 +1723,6 @@ class GCompare:
 
     def _on_marker_release(self, event: tk.Event):
         """Handle mouse button release on the scroll marker.
-        Resets the drag state and cursor.
 
         Args:
             event: Mouse event
@@ -1747,8 +1730,8 @@ class GCompare:
         if not self.diff_map_canvas:
             return
 
-        self._marker_drag_start_y = None  # Reset drag state.
-        self.diff_map_canvas.config(cursor="")  # Reset cursor to default.
+        self._marker_drag_start_y = None
+        self.diff_map_canvas.config(cursor="")
 
     def _on_marker_enter(self, event: tk.Event):
         """Change cursor to a hand when entering the scroll marker.
@@ -1768,9 +1751,9 @@ class GCompare:
         if self.diff_map_canvas:
             self.diff_map_canvas.config(cursor="")
 
-    # ========================================================================
+    # =======================================================================
     # UTILITY METHODS
-    # ========================================================================
+    # =======================================================================
 
     def _is_temporary_path(self, path: str) -> bool:
         """Check if a path is a temporary file or directory.
@@ -1784,53 +1767,46 @@ class GCompare:
         if not path:
             return False
 
-        # Check for common temporary directory patterns.
-        temp_patterns = [
-            "/tmp/",
-            "\\tmp\\",
-            "/temp/",
-            "\\temp\\",
-            tempfile.gettempdir(),
-        ]
-
         path_normalized = os.path.normpath(path)
-        for pattern in temp_patterns:
-            if pattern in path_normalized:
-                return True
+        temp_dir = os.path.normpath(tempfile.gettempdir())
 
-        # Check for tempfile.NamedTemporaryFile patterns.
-        if "tmp" in path_normalized and (
-            path_normalized.startswith("/tmp/")
-            or path_normalized.startswith("\\tmp\\")
-            or "tmp" in os.path.basename(path_normalized)
-        ):
+        # Check if path is within the system temp directory.
+        if path_normalized.startswith(temp_dir + os.sep):
             return True
+
+        # Check common temp prefixes.
+        common_temp_prefixes = [
+            os.sep + "tmp" + os.sep,
+            os.sep + "temp" + os.sep,
+        ]
+        for prefix in common_temp_prefixes:
+            if path_normalized.startswith(prefix):
+                return True
 
         return False
 
     def _clear_diff_map(self):
         """Clear the diff map visualization."""
         if self.diff_map_canvas:
-            # Clear all diff lines.
             self.diff_map_canvas.delete("diff_line")
 
-            # Reset status to default.
             if self.status_a:
                 self.status_a.set("by Gino Bogo")
             if self.status_b:
                 self.status_b.set("")
 
-            # Clear any text highlighting.
             if self.text_view_a:
                 self.text_view_a.tag_remove("removed", "1.0", tk.END)
                 self.text_view_a.tag_remove("removed_empty", "1.0", tk.END)
+                self.text_view_a.tag_remove("current_block", "1.0", tk.END)
             if self.text_view_b:
                 self.text_view_b.tag_remove("added", "1.0", tk.END)
                 self.text_view_b.tag_remove("added_empty", "1.0", tk.END)
+                self.text_view_b.tag_remove("current_block", "1.0", tk.END)
 
-    # ========================================================================
+    # =======================================================================
     # EVENT HANDLERS
-    # ========================================================================
+    # =======================================================================
 
     def on_closing(self):
         """Handle window close event."""
