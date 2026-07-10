@@ -1245,6 +1245,12 @@ class GSynchro:
         self.tree_context_menu.add_command(
             label="◀  Sync", command=self._sync_selected_b_to_a
         )
+        self.tree_context_menu.add_command(
+            label="Copy  ▶", command=lambda: self._copy_selected("A", "B")
+        )
+        self.tree_context_menu.add_command(
+            label="◀  Copy", command=lambda: self._copy_selected("B", "A")
+        )
         self.tree_context_menu.add_separator()
         self.tree_context_menu.add_command(label="Select All", command=self._select_all)
         self.tree_context_menu.add_command(
@@ -2989,15 +2995,23 @@ class GSynchro:
             if tree is self.tree_a:
                 self.tree_context_menu.entryconfig("Sync  ▶", state="normal")
                 self.tree_context_menu.entryconfig("◀  Sync", state="disabled")
+                self.tree_context_menu.entryconfig("Copy  ▶", state="normal")
+                self.tree_context_menu.entryconfig("◀  Copy", state="disabled")
             elif tree is self.tree_b:
                 self.tree_context_menu.entryconfig("Sync  ▶", state="disabled")
                 self.tree_context_menu.entryconfig("◀  Sync", state="normal")
+                self.tree_context_menu.entryconfig("Copy  ▶", state="disabled")
+                self.tree_context_menu.entryconfig("◀  Copy", state="normal")
             else:
                 self.tree_context_menu.entryconfig("Sync  ▶", state="disabled")
                 self.tree_context_menu.entryconfig("◀  Sync", state="disabled")
+                self.tree_context_menu.entryconfig("Copy  ▶", state="disabled")
+                self.tree_context_menu.entryconfig("◀  Copy", state="disabled")
         else:
             self.tree_context_menu.entryconfig("Sync  ▶", state="disabled")
             self.tree_context_menu.entryconfig("◀  Sync", state="disabled")
+            self.tree_context_menu.entryconfig("Copy  ▶", state="disabled")
+            self.tree_context_menu.entryconfig("◀  Copy", state="disabled")
         if item_id:
             self.tree_context_menu.entryconfig("Delete", state="normal")
         else:
@@ -3117,6 +3131,199 @@ class GSynchro:
             self._get_relative_path(self.tree_b, item) for item in selected_items
         ]
         self._sync_items([p for p in rel_paths if p], "b_to_a")
+
+    def _copy_selected(self, source_panel: str, dest_panel: str):
+        """Copy the selected items from one panel to a user-chosen destination
+        folder in the other panel (as opposed to Sync, which always targets
+        the same relative path)."""
+        tree = self.tree_a if source_panel == "A" else self.tree_b
+        if not tree:
+            return
+
+        selected_items = tree.selection()
+        if not selected_items:
+            messagebox.showwarning(
+                "Copy Error", "Please select one or more items to copy."
+            )
+            return
+
+        missing_ssh_fields = self._validate_ssh_fields()
+        if missing_ssh_fields:
+            messagebox.showerror(
+                "Missing SSH Configuration",
+                "Please fill in all required SSH fields:"
+                + "\n"
+                + "\n".join(missing_ssh_fields),
+            )
+            return
+
+        # 1. Pick destination folder in the target panel.
+        dest_folder = self._pick_destination_folder(dest_panel)
+        if not dest_folder:
+            return  # User cancelled.
+
+        # 2. Get relative paths and expand directories into individual files.
+        rel_paths = [self._get_relative_path(tree, item) for item in selected_items]
+        rel_paths = [p for p in rel_paths if p]
+
+        source_files_dict = self.files_a if source_panel == "A" else self.files_b
+        items_to_copy = self._get_copy_items(rel_paths, source_files_dict)
+
+        if not items_to_copy:
+            messagebox.showinfo("Copy", "No files found to copy.")
+            return
+
+        # 3. Execute the copy in the background.
+        source_ssh_config = self._get_ssh_config_for_panel(source_panel)
+        target_ssh_config = self._get_ssh_config_for_panel(dest_panel)
+
+        threading.Thread(
+            target=self._execute_copy_thread,
+            args=(
+                items_to_copy,
+                dest_folder,
+                source_ssh_config,
+                target_ssh_config,
+                dest_panel,
+            ),
+            daemon=True,
+        ).start()
+
+    def _pick_destination_folder(self, panel: str) -> Optional[str]:
+        """Open a dialog to pick a destination folder in the specified panel."""
+        root_path = self.folder_a.get() if panel == "A" else self.folder_b.get()
+        ssh_config = self._get_ssh_config_for_panel(panel)
+
+        if ssh_config is None:
+            # Local folder picker.
+            selected = filedialog.askdirectory(
+                initialdir=root_path,
+                title=f"Select Destination Folder in Panel {panel}",
+            )
+            return selected if selected else None
+        else:
+            # Remote folder picker.
+            try:
+                with self._get_ssh_connection_for_panel(panel) as ssh_client:
+                    if ssh_client is None:
+                        raise ConnectionError("Failed to connect to remote host.")
+                    dummy_var = tk.StringVar(value=root_path)
+                    selected = self._show_remote_dialog(
+                        ssh_client, dummy_var, root_path, f"Panel {panel}"
+                    )
+                    return selected if selected else None
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to browse remote folder: {e}")
+                return None
+
+    def _get_copy_items(self, rel_paths: list, source_files_dict: dict) -> list:
+        """Expand selected paths into individual files, preserving the
+        internal folder structure of any selected directories."""
+        items = []
+        for rel_path in rel_paths:
+            source_item = source_files_dict.get(rel_path)
+            if not source_item:
+                continue
+
+            if source_item.get("type") == "file":
+                items.append(
+                    {
+                        "source_full_path": source_item["full_path"],
+                        "dest_filename": os.path.basename(rel_path),
+                    }
+                )
+            else:  # It's a directory.
+                dir_prefix = rel_path.rstrip(os.sep).replace(os.sep, "/") + "/"
+                for p, info in source_files_dict.items():
+                    if info.get("type") == "file" and p.replace(os.sep, "/").startswith(
+                        dir_prefix
+                    ):
+                        # Preserve the relative structure inside the
+                        # destination folder.
+                        relative_inside_dir = p[len(dir_prefix) :]
+                        dest_filename = posix_join(
+                            os.path.basename(rel_path), relative_inside_dir
+                        )
+                        items.append(
+                            {
+                                "source_full_path": info["full_path"],
+                                "dest_filename": dest_filename,
+                            }
+                        )
+        return items
+
+    def _execute_copy_thread(
+        self,
+        items_to_copy: list,
+        dest_folder_abs: str,
+        source_ssh_config: Optional[dict],
+        target_ssh_config: Optional[dict],
+        dest_panel: str,
+    ):
+        """Background thread that executes the file copy to the
+        user-selected destination."""
+        try:
+            self.root.after(
+                0, self._start_progress, None, len(items_to_copy), "Copying files..."
+            )
+
+            # Reuse the existing sync primitives by presenting the copy set
+            # as a "source dict" keyed on destination filename. Note that an
+            # empty target_files_dict is passed, so unlike Sync, an existing
+            # directory at the destination path will not be replaced
+            # automatically; the copy of that particular item will be
+            # skipped and logged instead of overwriting it.
+            files_to_copy = [item["dest_filename"] for item in items_to_copy]
+            temp_source_dict = {
+                item["dest_filename"]: {
+                    "full_path": item["source_full_path"],
+                    "type": "file",
+                }
+                for item in items_to_copy
+            }
+
+            if source_ssh_config is None and target_ssh_config is None:
+                self._sync_local_to_local(
+                    files_to_copy, temp_source_dict, dest_folder_abs, {}
+                )
+            elif source_ssh_config is not None and target_ssh_config is None:
+                self._sync_remote_to_local(
+                    files_to_copy,
+                    temp_source_dict,
+                    dest_folder_abs,
+                    source_ssh_config,
+                    {},
+                )
+            elif source_ssh_config is None and target_ssh_config is not None:
+                self._sync_local_to_remote(
+                    files_to_copy,
+                    temp_source_dict,
+                    dest_folder_abs,
+                    target_ssh_config,
+                    {},
+                )
+            else:
+                self._sync_remote_to_remote(
+                    files_to_copy,
+                    temp_source_dict,
+                    dest_folder_abs,
+                    source_ssh_config,
+                    target_ssh_config,
+                    {},
+                )
+
+            self._log(f"Copy to Panel {dest_panel} completed successfully.")
+            self.root.after(
+                0,
+                lambda: messagebox.showinfo("Success", "Copy completed successfully!"),
+            )
+            self.root.after(0, self.compare_folders)
+        except Exception as e:
+            error_msg = f"Copy failed: {e}"
+            self._log(error_msg)
+            self.root.after(0, lambda: messagebox.showerror("Error", error_msg))
+        finally:
+            self.root.after(0, self._stop_progress)
 
     def _sync_items(self, rel_paths: list[str], direction: str):
         """Handle the synchronization of multiple files or directories."""
