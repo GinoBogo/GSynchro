@@ -256,80 +256,53 @@ class GCompare:
     def _goto_change(self, index: int):
         """Scroll both text views to the change at `index`.
 
-        The `changes` list contains tuples of (type, line_num, is_empty). For
-        'removed' types the line_num refers to File A; for 'added' it refers to
-        File B. We ensure both views show a corresponding position by using
-        `see` for the exact line and `yview_moveto` for proportional alignment
-        of the other view.
+        The `changes` list contains tuples of (type, line_a, line_b, is_empty).
+        - For 'removed' types: line_a is the line in File A; line_b is the
+          corresponding alignment point in File B.
+        - For 'added' types: line_b is the line in File B; line_a is the
+          corresponding alignment point in File A.
         """
         changes = self._diff_changes
         if not changes:
             return
 
-        change_type, line_num, _ = changes[index]  # noqa: B007
+        change_type, line_a, line_b, _ = changes[index]
 
-        # Use per-panel lengths for mapping between panels.
+        # Use per-panel lengths for clamping.
         len_a = getattr(self, "_diff_len_a", 0) or 0
         len_b = getattr(self, "_diff_len_b", 0) or 0
 
-        # Clamp the source line number within the combined total.
-        total = getattr(self, "_diff_total_lines", 1)
-        line_num = max(1, min(line_num, total))
+        # Determine target line for each panel.
+        # line_a and line_b were tracked together during diff computation,
+        # so they correctly represent the alignment between the two files.
+        target_a = line_a
+        target_b = line_b
 
-        # Compute a fraction representing the position in the combined space.
-        frac = (line_num - 1) / max(1, total)
+        # Clamp targets to valid line ranges.
+        def clamp_line(n, length):
+            return max(1, min(n, max(1, length)))
 
-        # Map to per-panel target lines.
-        if change_type.startswith("removed"):
-            target_a = line_num
-            target_b = int(frac * max(1, len_b)) + 1 if len_b > 0 else 1
-        else:
-            target_b = line_num
-            target_a = int(frac * max(1, len_a)) + 1 if len_a > 0 else 1
+        target_a = clamp_line(target_a, len_a)
+        target_b = clamp_line(target_b, len_b)
 
-        # Helper to clamp and format a line number for see().
-        def fmt(n, length):
-            n = max(1, min(n, max(1, length)))
-            return f"{n if n is not None else 1}.0"
+        # Compute scroll fractions to center the target line in the viewport.
+        def compute_centered_fraction(target, length):
+            if length <= 0:
+                return 0.0
+            frac = (target - 1) / length
+            return max(0.0, min(frac, 1.0))
 
-        # Suspend nav sync while we programmatically move views to avoid
-        # callbacks overwriting our intended index.
+        frac_a = compute_centered_fraction(target_a, len_a)
+        frac_b = compute_centered_fraction(target_b, len_b)
+
+        # Suspend nav sync while we programmatically move views.
         self._nav_sync_suspended = True
         try:
-            if self.text_view_a:
-                try:
-                    if len_a > 0:
-                        frac_a = (target_a - 1) / max(1, len_a)
-                        first_a, last_a = self.text_view_a.yview()
-                        viewport_a = max(0.01, last_a - first_a)
-                        desired_first_a = frac_a - (viewport_a / 2.0)
-                        desired_first_a = max(
-                            0.0, min(desired_first_a, 1.0 - viewport_a)
-                        )
-                        self.text_view_a.yview_moveto(desired_first_a)
-                        self.text_view_a.see(fmt(target_a, len_a))
-                    else:
-                        self.text_view_a.see(fmt(target_a, len_a))
-                except Exception as _e:
-                    # Ignore errors if the widget is not ready.
-                    pass
+            if self.text_view_a and len_a > 0:
+                self.text_view_a.yview_moveto(frac_a)
 
-            if self.text_view_b:
-                try:
-                    if len_b > 0:
-                        frac_b = (target_b - 1) / max(1, len_b)
-                        first_b, last_b = self.text_view_b.yview()
-                        viewport_b = max(0.01, last_b - first_b)
-                        desired_first_b = frac_b - (viewport_b / 2.0)
-                        desired_first_b = max(
-                            0.0, min(desired_first_b, 1.0 - viewport_b)
-                        )
-                        self.text_view_b.yview_moveto(desired_first_b)
-                        self.text_view_b.see(fmt(target_b, len_b))
-                    else:
-                        self.text_view_b.see(fmt(target_b, len_b))
-                except Exception as _e:
-                    pass
+            if self.text_view_b and len_b > 0:
+                self.text_view_b.yview_moveto(frac_b)
         finally:
             self._nav_sync_suspended = False
 
@@ -1381,7 +1354,11 @@ class GCompare:
         """Compute differences between the two files.
 
         Returns:
-            dict: Contains diff lines, line counts, and content information
+            dict: Contains diff lines, line counts, and content information.
+                  The 'changes' list now stores tuples of:
+                  (type, line_a, line_b, is_empty) where:
+                  - line_a: line number in File A at this point in the diff
+                  - line_b: line number in File B at this point in the diff
         """
         # Get content.
         lines_a = (
@@ -1404,9 +1381,9 @@ class GCompare:
         differ = difflib.Differ()
         diff_lines = list(differ.compare(lines_a, lines_b))
 
-        # Initialize counters.
-        a_index = 1
-        b_index = 1
+        # Track line numbers in BOTH files simultaneously.
+        a_index = 1  # Current line in File A
+        b_index = 1  # Current line in File B
 
         # Prepare diff information.
         diff_info = {
@@ -1418,19 +1395,17 @@ class GCompare:
             "added_empty_lines": 0,
             "removed_empty_lines": 0,
             "total_lines": max(len(lines_a), len(lines_b)),
-            "changes": [],  # List of (type, line_num, is_empty) tuples.
+            # Each entry: (type, line_a, line_b, is_empty)
+            # - line_a: line number in File A
+            #   (for removed=where it was; for added=insertion point)
+            # - line_b: line number in File B
+            #   (for added=where it is; for removed=corresponding point)
+            "changes": [],
         }
 
         # Helper function to check if line is empty (only whitespace).
         def is_empty_line(line: str) -> bool:
-            """Check if a line is empty or contains only whitespace.
-
-            Args:
-                line: Line to check
-
-            Returns:
-                True if line is empty or contains only whitespace
-            """
+            """Check if a line is empty or contains only whitespace."""
             return len(line.strip()) == 0
 
         # Process diff results.
@@ -1443,23 +1418,28 @@ class GCompare:
             is_empty = is_empty_line(line_content)
 
             if code == " ":
+                # Unchanged line - present in both files at current positions.
                 a_index += 1
                 b_index += 1
             elif code == "-":
+                # Removed from A - line exists only in File A at a_index.
                 diff_info["removed_lines"] += 1
                 if is_empty:
                     diff_info["removed_empty_lines"] += 1
-                    diff_info["changes"].append(("removed_empty", a_index, True))
+                    diff_info["changes"].append(
+                        ("removed_empty", a_index, b_index, True)
+                    )
                 else:
-                    diff_info["changes"].append(("removed", a_index, False))
+                    diff_info["changes"].append(("removed", a_index, b_index, False))
                 a_index += 1
             elif code == "+":
+                # Added to B - line exists only in File B at b_index.
                 diff_info["added_lines"] += 1
                 if is_empty:
                     diff_info["added_empty_lines"] += 1
-                    diff_info["changes"].append(("added_empty", b_index, True))
+                    diff_info["changes"].append(("added_empty", a_index, b_index, True))
                 else:
-                    diff_info["changes"].append(("added", b_index, False))
+                    diff_info["changes"].append(("added", a_index, b_index, False))
                 b_index += 1
 
         return diff_info
@@ -1496,18 +1476,20 @@ class GCompare:
 
         # Apply highlights based on diff results.
         for change_info in diff_result["changes"]:
-            change_type, line_num, is_empty = change_info
+            change_type, line_a, line_b, is_empty = change_info
 
             if change_type in ("removed", "removed_empty") and self.text_view_a:
-                start_pos = f"{line_num}.0"
-                end_pos = f"{line_num}.end"
+                # Removed lines are in File A at line_a.
+                start_pos = f"{line_a}.0"
+                end_pos = f"{line_a}.end"
                 tag_name = (
                     "removed_empty" if change_type == "removed_empty" else "removed"
                 )
                 self.text_view_a.tag_add(tag_name, start_pos, end_pos)
             elif change_type in ("added", "added_empty") and self.text_view_b:
-                start_pos = f"{line_num}.0"
-                end_pos = f"{line_num}.end"
+                # Added lines are in File B at line_b.
+                start_pos = f"{line_b}.0"
+                end_pos = f"{line_b}.end"
                 tag_name = "added_empty" if change_type == "added_empty" else "added"
                 self.text_view_b.tag_add(tag_name, start_pos, end_pos)
 
@@ -1528,22 +1510,29 @@ class GCompare:
         self._update_scroll_marker(float(first), float(last))
 
         # Check if we have content to visualize.
-        total_lines = diff_result["total_lines"]
         canvas_height = self.diff_map_canvas.winfo_height()
 
-        if total_lines <= 0 or canvas_height <= 0:
+        if canvas_height <= 0:
             return
 
         # Draw diff indicators.
         canvas_width = self.diff_map_canvas.winfo_width()
         half_width = canvas_width / 2
 
-        for change_info in diff_result["changes"]:  # noqa: B007
-            change_type, line_num, is_empty = change_info
+        for change_info in diff_result["changes"]:
+            change_type, line_a, line_b, is_empty = change_info
 
-            if line_num <= total_lines:
-                y_start = ((line_num - 1) / total_lines) * canvas_height
-                line_height = max(1, canvas_height / total_lines)
+            # Use the appropriate line number and file length for each side.
+            if change_type in ("removed", "removed_empty"):
+                line_num = line_a
+                total = max(1, len(diff_result.get("lines_a", [])))
+            else:
+                line_num = line_b
+                total = max(1, len(diff_result.get("lines_b", [])))
+
+            if line_num <= total:
+                y_start = ((line_num - 1) / total) * canvas_height
+                line_height = max(1, canvas_height / total)
                 y_end = y_start + line_height
 
                 # Determine color based on change type.
@@ -1649,16 +1638,6 @@ class GCompare:
                 first, last = self.text_view_a.yview()
                 self._update_scroll_marker(float(first), float(last))
 
-            # Only update navigation index if not suspended (i.e., manual
-            # scroll).
-            if not getattr(self, "_nav_sync_suspended", False):
-                try:
-                    self._update_nav_index_from_view()
-                except Exception:
-                    # Non-fatal: keep UI responsive even if navigation state
-                    # isn't available.
-                    pass
-
             # Update line numbers when view changes.
             if (
                 self.options["show_line_numbers"]
@@ -1718,47 +1697,6 @@ class GCompare:
             self.diff_map_canvas.coords(
                 self.scroll_marker_id, 2, y1 + 2, SCROLL_MARKER_WIDTH - 1, y2 - 3
             )
-
-    def _update_nav_index_from_view(self):
-        """Update the stored diff navigation index to match the current view.
-
-        Finds the nearest change at or after the current top-visible line
-        and sets `self._diff_index` so Prev/Next navigation reflects manual
-        scrolling or minimap dragging.
-        """
-        # Require diff state and a text view.
-        if not hasattr(self, "_diff_changes") or not self._diff_changes:
-            return
-        if not getattr(self, "text_view_a", None):
-            return
-
-        total_lines = getattr(self, "_diff_total_lines", 0)
-        if total_lines <= 0:
-            return
-
-        if self.text_view_a is None:
-            return
-
-        first_frac = float(self.text_view_a.yview()[0])
-        # Convert fraction to a 1-based line number estimate.
-        current_line = int(first_frac * total_lines) + 1
-
-        # Find the index of the change that is closest to the current line.
-        chosen_idx = None
-        min_distance = float("inf")
-
-        for i, change in enumerate(self._diff_changes):
-            _, line_num_a, _ = change
-            distance = abs(line_num_a - current_line)
-
-            if distance < min_distance:
-                min_distance = distance
-                chosen_idx = i
-
-        # If a closest change was found, update the index. This prevents
-        # Prev/Next from being reset by a manual scroll.
-        if chosen_idx is not None:
-            self._diff_index = chosen_idx
 
     def _on_marker_press(self, event: tk.Event):
         """Handle mouse button press on the scroll marker.
@@ -1821,11 +1759,6 @@ class GCompare:
 
         self._marker_drag_start_y = None  # Reset drag state.
         self.diff_map_canvas.config(cursor="")  # Reset cursor to default.
-        # After a manual marker move, update the navigation index to match view.
-        try:
-            self._update_nav_index_from_view()
-        except Exception:
-            pass
 
     def _on_marker_enter(self, event: tk.Event):
         """Change cursor to a hand when entering the scroll marker.
