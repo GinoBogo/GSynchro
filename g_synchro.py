@@ -731,6 +731,10 @@ class GSynchro:
             relief="flat",
         )
         style.configure(
+            "TLabelframe.Label",
+            font=(self.options["font_family"], self.options["font_size"], "bold"),
+        )
+        style.configure(
             "TTreeview.Heading",
             font=(self.options["font_family"], self.options["font_size"], "bold"),
         )
