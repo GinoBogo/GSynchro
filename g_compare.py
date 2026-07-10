@@ -8,7 +8,7 @@ changes between two files.
 
  Author: Gino Bogo
 License: MIT
-Version: 1.0
+Version: 1.1
 """
 
 from __future__ import annotations
@@ -33,7 +33,7 @@ from libs.g_theme import get_theme_colors
 # CONSTANTS
 # ============================================================================
 
-APP_VERSION = "1.0"
+APP_VERSION = "1.1"
 CONFIG_FILE = "g_compare.json"
 HISTORY_LENGTH = 10
 SCROLL_MARKER_WIDTH = 40
@@ -224,68 +224,55 @@ class GCompare:
             )
 
     def _go_to_next_change(self):
-        """Move both text views to the next change location."""
-        if not hasattr(self, "_diff_changes") or not self._diff_changes:
+        """Move both text views to the next change block."""
+        if not hasattr(self, "_diff_blocks") or not self._diff_blocks:
             return
 
-        # If the index is at the end of the list or uninitialized, loop to the
-        # start.
-        if self._diff_index >= len(self._diff_changes) - 1:
-            self._diff_index = 0
+        if self._diff_block_index >= len(self._diff_blocks) - 1:
+            self._diff_block_index = 0
         else:
-            # Otherwise, simply increment the index.
-            self._diff_index += 1
+            self._diff_block_index += 1
 
-        self._goto_change(self._diff_index)
+        self._goto_change(self._diff_block_index)
 
     def _go_to_prev_change(self):
-        """Move both text views to the previous change location."""
-        if not hasattr(self, "_diff_changes") or not self._diff_changes:
+        """Move both text views to the previous change block."""
+        if not hasattr(self, "_diff_blocks") or not self._diff_blocks:
             return
 
-        # If the index is at the beginning of the list or uninitialized, loop to
-        # the end.
-        if self._diff_index <= 0:
-            self._diff_index = len(self._diff_changes) - 1
+        if self._diff_block_index <= 0:
+            self._diff_block_index = len(self._diff_blocks) - 1
         else:
-            # Otherwise, simply decrement the index.
-            self._diff_index -= 1
+            self._diff_block_index -= 1
 
-        self._goto_change(self._diff_index)
+        self._goto_change(self._diff_block_index)
 
-    def _goto_change(self, index: int):
-        """Scroll both text views to the change at `index`.
+    def _goto_change(self, block_index: int):
+        """Scroll both text views to the change block at `block_index`.
 
-        The `changes` list contains tuples of (type, line_a, line_b, is_empty).
-        - For 'removed' types: line_a is the line in File A; line_b is the
-          corresponding alignment point in File B.
-        - For 'added' types: line_b is the line in File B; line_a is the
-          corresponding alignment point in File A.
+        Each block is a contiguous group of changes (a hunk) in the diff.
+        We scroll to the first change in the block.
         """
-        changes = self._diff_changes
-        if not changes:
+        blocks = self._diff_blocks
+        if not blocks:
             return
 
-        change_type, line_a, line_b, _ = changes[index]
+        # Get the first change in this block.
+        start_idx, _ = blocks[block_index]
+        change_type, line_a, line_b, _ = self._diff_changes[start_idx]
 
-        # Use per-panel lengths for clamping.
         len_a = getattr(self, "_diff_len_a", 0) or 0
         len_b = getattr(self, "_diff_len_b", 0) or 0
 
-        # Determine target line for each panel.
-        # line_a and line_b were tracked together during diff computation,
-        # so they correctly represent the alignment between the two files.
         target_a = line_a
         target_b = line_b
 
-        # Clamp targets to valid line ranges.
         def clamp_line(n, length):
             return max(1, min(n, max(1, length)))
 
         target_a = clamp_line(target_a, len_a)
         target_b = clamp_line(target_b, len_b)
 
-        # Compute scroll fractions to center the target line in the viewport.
         def compute_centered_fraction(target, length):
             if length <= 0:
                 return 0.0
@@ -295,16 +282,11 @@ class GCompare:
         frac_a = compute_centered_fraction(target_a, len_a)
         frac_b = compute_centered_fraction(target_b, len_b)
 
-        # Suspend nav sync while we programmatically move views.
-        self._nav_sync_suspended = True
-        try:
-            if self.text_view_a and len_a > 0:
-                self.text_view_a.yview_moveto(frac_a)
+        if self.text_view_a and len_a > 0:
+            self.text_view_a.yview_moveto(frac_a)
 
-            if self.text_view_b and len_b > 0:
-                self.text_view_b.yview_moveto(frac_b)
-        finally:
-            self._nav_sync_suspended = False
+        if self.text_view_b and len_b > 0:
+            self.text_view_b.yview_moveto(frac_b)
 
     def _create_panels_frame(self, parent: ttk.Frame) -> ttk.Frame:
         """Create panels container.
@@ -1331,19 +1313,12 @@ class GCompare:
 
         # Store diff navigation state for Prev/Next buttons.
         self._diff_changes = diff_result.get("changes", [])
+        self._diff_blocks = diff_result.get("blocks", [])
         self._diff_total_lines = diff_result.get("total_lines", 0)
         self._diff_len_a = len(diff_result.get("lines_a", []))
         self._diff_len_b = len(diff_result.get("lines_b", []))
-        # Reset index when new comparison is run.
-        self._diff_index = -1
-
-        # Precompute per-change viewport fractions (0..1) for simple navigation.
-        # Using fractions avoids line-mapping edge cases and makes Next/Prev.
-        # operate relative to the visible viewport.
-        total = max(1, self._diff_total_lines or 1)
-        self._diff_positions = [
-            max(0.0, min(1.0, (c[1] - 1) / total)) for c in self._diff_changes
-        ]
+        # Reset block index when new comparison is run.
+        self._diff_block_index = -1
 
         # Apply visual changes.
         self._apply_highlights(diff_result)
@@ -1355,10 +1330,11 @@ class GCompare:
 
         Returns:
             dict: Contains diff lines, line counts, and content information.
-                  The 'changes' list now stores tuples of:
-                  (type, line_a, line_b, is_empty) where:
-                  - line_a: line number in File A at this point in the diff
-                  - line_b: line number in File B at this point in the diff
+                  The 'changes' list stores tuples of:
+                  (type, line_a, line_b, is_empty)
+                  The 'blocks' list stores tuples of:
+                  (start_change_idx, end_change_idx) representing contiguous
+                  groups of changes (hunks) in the diff output.
         """
         # Get content.
         lines_a = (
@@ -1396,17 +1372,18 @@ class GCompare:
             "removed_empty_lines": 0,
             "total_lines": max(len(lines_a), len(lines_b)),
             # Each entry: (type, line_a, line_b, is_empty)
-            # - line_a: line number in File A
-            #   (for removed=where it was; for added=insertion point)
-            # - line_b: line number in File B
-            #   (for added=where it is; for removed=corresponding point)
             "changes": [],
+            # Each entry: (start_idx, end_idx) into changes list
+            "blocks": [],
         }
 
         # Helper function to check if line is empty (only whitespace).
         def is_empty_line(line: str) -> bool:
             """Check if a line is empty or contains only whitespace."""
             return len(line.strip()) == 0
+
+        # Track block boundaries.
+        current_block_start = None  # Index in changes list where current block starts
 
         # Process diff results.
         for line in diff_lines:
@@ -1418,11 +1395,18 @@ class GCompare:
             is_empty = is_empty_line(line_content)
 
             if code == " ":
-                # Unchanged line - present in both files at current positions.
+                # Unchanged line - end current block if any.
+                if current_block_start is not None:
+                    diff_info["blocks"].append(
+                        (current_block_start, len(diff_info["changes"]))
+                    )
+                    current_block_start = None
                 a_index += 1
                 b_index += 1
             elif code == "-":
-                # Removed from A - line exists only in File A at a_index.
+                # Removed from A - start new block if not in one.
+                if current_block_start is None:
+                    current_block_start = len(diff_info["changes"])
                 diff_info["removed_lines"] += 1
                 if is_empty:
                     diff_info["removed_empty_lines"] += 1
@@ -1433,7 +1417,9 @@ class GCompare:
                     diff_info["changes"].append(("removed", a_index, b_index, False))
                 a_index += 1
             elif code == "+":
-                # Added to B - line exists only in File B at b_index.
+                # Added to B - start new block if not in one.
+                if current_block_start is None:
+                    current_block_start = len(diff_info["changes"])
                 diff_info["added_lines"] += 1
                 if is_empty:
                     diff_info["added_empty_lines"] += 1
@@ -1441,6 +1427,10 @@ class GCompare:
                 else:
                     diff_info["changes"].append(("added", a_index, b_index, False))
                 b_index += 1
+
+        # Close any remaining open block.
+        if current_block_start is not None:
+            diff_info["blocks"].append((current_block_start, len(diff_info["changes"])))
 
         return diff_info
 
