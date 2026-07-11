@@ -76,6 +76,7 @@ def get_theme_colors():
             "red": "red",
             "magenta": "magenta",
             "black": "black",
+            "gray": "gray",
         },
         "diff": {
             "removed": "lightcoral",

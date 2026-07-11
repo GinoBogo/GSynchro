@@ -2424,7 +2424,7 @@ class GSynchro:
                         )
             except Exception as e:
                 self._log(f"Error comparing {rel_path}: {e}")
-                status, status_color = "Error", "black"
+                status, status_color = "Error", "gray"
             return rel_path, status, status_color
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
