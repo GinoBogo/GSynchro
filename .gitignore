@@ -2,6 +2,7 @@
 
 __pycache__
 
+.continue
 .venv
 .vscode
 dist
