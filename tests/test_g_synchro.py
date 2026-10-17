@@ -96,7 +96,7 @@ def _run_comparison(app, panel_a_dir, panel_b_dir):
 
     # Correctly unpack the three return values from the parallel status calculation.
     item_statuses, stats, dirty_folders = app._calculate_item_statuses_parallel(
-        all_paths, app.files_a, app.files_b, False, False, {}, {}
+        all_paths, app.files_a, app.files_b, None, None
     )
 
     # Mimic the application's logic by propagating the "dirty" status to parent folders.
@@ -251,11 +251,13 @@ class TestSync:
         # To test, I can call app._sync_local_to_local directly.
 
         # Get files_to_copy
-        files_to_copy = app._get_files_to_copy(app.files_a)
+        files_to_copy, dirs_to_create = app._get_files_to_copy(app.files_a)
         assert "conflict" in files_to_copy  # since it's a file in A
 
         # Call _sync_local_to_local
-        app._sync_local_to_local(files_to_copy, app.files_a, str(panel_b_dir), app.files_b)
+        app._sync_local_to_local(
+            files_to_copy, app.files_a, str(panel_b_dir), app.files_b, dirs_to_create
+        )
 
         # Check that the dir in B is replaced by the file from A
         assert (panel_b_dir / "conflict").is_file()
@@ -263,6 +265,64 @@ class TestSync:
 
 
 
+
+class TestCopyAndEmptyDirs:
+    """Test suite for copying and synchronizing empty directories."""
+
+    def test_get_copy_items_includes_empty_directory(
+        self, comparison_test_environment
+    ):
+        """_get_copy_items should emit an empty directory with is_dir=True."""
+        app, panel_a_dir, panel_b_dir = comparison_test_environment
+        empty_dir = panel_b_dir / "emptydir"
+        empty_dir.mkdir()
+        app.files_b = app._scan_local(str(panel_b_dir))
+        items = app._get_copy_items(["emptydir"], app.files_b)
+        assert len(items) == 1
+        assert items[0]["dest_filename"] == "emptydir"
+        assert items[0]["is_dir"] is True
+        assert items[0]["source_full_path"] == str(empty_dir)
+
+    def test_get_files_to_copy_includes_empty_directory(
+        self, comparison_test_environment
+    ):
+        """_get_files_to_copy should include an empty checked directory in dirs_to_sync."""
+        app, panel_a_dir, panel_b_dir = comparison_test_environment
+        empty_dir = panel_b_dir / "emptydir"
+        empty_dir.mkdir()
+        app.files_b = app._scan_local(str(panel_b_dir))
+        with app.state_lock:
+            app.sync_states = {"emptydir": True}
+        files_to_copy, dirs_to_create = app._get_files_to_copy(app.files_b)
+        assert files_to_copy == []
+        assert dirs_to_create == ["emptydir"]
+
+    def test_sync_local_to_local_creates_empty_directory(
+        self, comparison_test_environment
+    ):
+        """_sync_local_to_local should create an empty directory at the target."""
+        app, panel_a_dir, panel_b_dir = comparison_test_environment
+        app._sync_local_to_local(
+            [],  # files_to_copy
+            app.files_b,  # source_files_dict
+            str(panel_a_dir),  # target_path
+            app.files_a,  # target_files_dict
+            ("new_empty_dir",),  # dirs_to_create
+        )
+        assert (panel_a_dir / "new_empty_dir").is_dir()
+
+    def test_sync_nothing_checked_returns_empty(
+        self, comparison_test_environment
+    ):
+        """With nothing checked, _get_files_to_copy returns empty lists."""
+        app, panel_a_dir, panel_b_dir = comparison_test_environment
+        app.files_a = app._scan_local(str(panel_a_dir))
+        app.files_b = app._scan_local(str(panel_b_dir))
+        with app.state_lock:
+            app.sync_states = {}
+        files_to_copy, dirs_to_create = app._get_files_to_copy(app.files_a)
+        assert files_to_copy == []
+        assert dirs_to_create == []
 
 class TestUIComparisonDisplay:
     """Test suite for UI display after comparison."""
@@ -287,7 +347,7 @@ class TestUIComparisonDisplay:
         # 2. Run comparison logic to get statuses
         all_paths = set(app.files_a.keys()) | set(app.files_b.keys())
         item_statuses, stats, dirty_folders = app._calculate_item_statuses_parallel(
-            all_paths, app.files_a, app.files_b, False, False, {}, {}
+            all_paths, app.files_a, app.files_b, None, None
         )
 
         # Propagate dirty status to parent directories
@@ -343,7 +403,7 @@ class TestUIComparisonDisplay:
         # 2. Run comparison logic to get statuses
         all_paths = set(app.files_a.keys()) | set(app.files_b.keys())
         item_statuses, stats, dirty_folders = app._calculate_item_statuses_parallel(
-            all_paths, app.files_a, app.files_b, False, False, {}, {}
+            all_paths, app.files_a, app.files_b, None, None
         )
 
         # Propagate dirty status to parent directories
