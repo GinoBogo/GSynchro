@@ -33,7 +33,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
 from datetime import datetime
 from tkinter import filedialog, ttk
-from typing import Optional, Union, cast
+from typing import cast
 
 # Third-party library imports.
 import paramiko
@@ -170,14 +170,14 @@ class OptionsDialog(tk.Toplevel):
         )
         font_families = tkfont.families()
         mono_fonts = sorted(
-            set(
+            {
                 f
                 for f in font_families
                 if any(
                     mono in f.lower()
                     for mono in ["mono", "consolas", "courier", "fixedsys", "terminal"]
                 )
-            )
+            }
         )
         if not mono_fonts:
             mono_fonts = sorted(set(font_families))
@@ -481,8 +481,8 @@ class GSynchro:
         self.remote_mode_a = tk.BooleanVar(value=False)
         self.remote_mode_b = tk.BooleanVar(value=False)
 
-        self.tree_a: Optional[ttk.Treeview] = None
-        self.tree_b: Optional[ttk.Treeview] = None
+        self.tree_a: ttk.Treeview | None = None
+        self.tree_b: ttk.Treeview | None = None
 
         self.files_a = {}
         self.files_b = {}
@@ -524,8 +524,8 @@ class GSynchro:
 
         self.sync_states = {}
 
-        self._context_menu_tree: Optional[ttk.Treeview] = None
-        self._context_menu_item_id: Optional[str] = None
+        self._context_menu_tree: ttk.Treeview | None = None
+        self._context_menu_item_id: str | None = None
         self.status_a = tk.StringVar()
         self.status_b = tk.StringVar()
 
@@ -548,7 +548,7 @@ class GSynchro:
 
     def _init_window(self):
         """Initialize main window properties and event handlers."""
-        self.root.title("GSynchro - Synchronization Tool {}".format(APP_VERSION))
+        self.root.title(f"GSynchro - Synchronization Tool {APP_VERSION}")
         self.root.minsize(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT)
         self.root.protocol("WM_DELETE_WINDOW", self._on_closing)
 
@@ -1136,7 +1136,7 @@ class GSynchro:
         self._on_remote_toggle(panel_letter)
 
     def _create_tree_view(
-        self, parent: ttk.LabelFrame, column_widths: Optional[dict] = None
+        self, parent: ttk.LabelFrame, column_widths: dict | None = None
     ) -> ttk.Treeview:
         """Create a tree view for displaying file structure."""
         # Get display scaling factor
@@ -1424,7 +1424,7 @@ class GSynchro:
                 folder_var.set(folder)
                 self._populate_single_panel(panel_name, folder)
 
-    def _get_ssh_config_for_panel(self, panel: str) -> Optional[dict]:
+    def _get_ssh_config_for_panel(self, panel: str) -> dict | None:
         """Get SSH configuration for the specified panel."""
         if panel == "A":
             if not self.remote_mode_a.get():
@@ -1508,15 +1508,15 @@ class GSynchro:
                 ) as client:
                     if client is None:
                         raise ConnectionError("Failed to establish SSH connection.")
-                    stdin, stdout, stderr = client.exec_command("echo ok")
+                    _stdin, stdout, _stderr = client.exec_command("echo ok")
                     stdout.channel.recv_exit_status()
                 self._log(f"✓ SSH {panel_title} connected")
                 messagebox.showinfo(
                     "Success", f"SSH connection established for {panel_title}!"
                 )
             except Exception as e:
-                self._log(f"✗ SSH connection failed for {panel_title}: {str(e)}")
-                messagebox.showerror("Error", f"SSH connection failed: {str(e)}")
+                self._log(f"✗ SSH connection failed for {panel_title}: {e!s}")
+                messagebox.showerror("Error", f"SSH connection failed: {e!s}")
 
         threading.Thread(target=test_thread, daemon=True).start()
 
@@ -1547,7 +1547,7 @@ class GSynchro:
             if combobox:
                 combobox["values"] = [h["path"] for h in self.folder_b_history]
 
-    def _get_path_combobox(self, panel: str) -> Optional[ttk.Combobox]:
+    def _get_path_combobox(self, panel: str) -> ttk.Combobox | None:
         """Get the path combobox widget for the specified panel."""
         return getattr(self, f"_path_combobox_{panel.lower()}", None)
 
@@ -1556,7 +1556,7 @@ class GSynchro:
         panel_name: str,
         folder_var: tk.StringVar,
         new_path: str,
-        ssh_config: Optional[dict],
+        ssh_config: dict | None,
     ):
         """Update panel history with new path and SSH config."""
         if not new_path or self._is_temporary_path(new_path):
@@ -1627,7 +1627,7 @@ class GSynchro:
 
     def _browse_remote(
         self, folder_var: tk.StringVar, panel_name: str, initial_path: str = ""
-    ) -> Optional[str]:
+    ) -> str | None:
         """Browse remote folder via SSH and return selected path."""
         panel = panel_name.split(" ")[1]
         try:
@@ -1638,7 +1638,7 @@ class GSynchro:
                     )
                 current_path = initial_path or folder_var.get()
                 if not current_path:
-                    stdin, stdout, stderr = ssh_client.exec_command("pwd")
+                    _stdin, stdout, _stderr = ssh_client.exec_command("pwd")
                     remote_path = stdout.read().decode().strip()
                     current_path = remote_path
                 selected_path = self._show_remote_dialog(
@@ -1652,7 +1652,7 @@ class GSynchro:
                     return selected_path
         except Exception as e:
             messagebox.showerror(
-                "Error", f"Failed to connect to remote {panel_name}: {str(e)}"
+                "Error", f"Failed to connect to remote {panel_name}: {e!s}"
             )
             return None
 
@@ -1723,16 +1723,16 @@ class GSynchro:
                 if path != "/":
                     listbox.insert(tk.END, "..")
                 command = f"find {posix_quote(path)} -maxdepth 1 -mindepth 1 -type d"
-                stdin, stdout, stderr = ssh_client.exec_command(command)
+                _stdin, stdout, stderr = ssh_client.exec_command(command)
                 error = stderr.read().decode().strip()
                 if error:
-                    raise Exception(error)
+                    raise RuntimeError(error)
                 for line in stdout:
                     full_dir_path = line.strip()
                     dir_name = full_dir_path.split("/")[-1]
                     listbox.insert(tk.END, dir_name)
             except Exception as e:
-                messagebox.showerror("Error", f"Failed to load folders: {str(e)}")
+                messagebox.showerror("Error", f"Failed to load folders: {e!s}")
 
         def on_select(event: tk.Event):
             """Handle double-click on listbox item to navigate."""
@@ -1790,7 +1790,7 @@ class GSynchro:
         self,
         panel: str,
         folder_path: str,
-        active_rules: Optional[list] = None,
+        active_rules: list | None = None,
     ) -> threading.Thread:
         """Populate a single panel with files from the specified path."""
 
@@ -1820,9 +1820,9 @@ class GSynchro:
 
                 self.root.after(0, populate_tree)
             except Exception as e:
-                self._log(f"Error populating panel {panel}: {str(e)}")
+                self._log(f"Error populating panel {panel}: {e!s}")
                 messagebox.showerror(
-                    "Error", f"Failed to populate panel {panel}: {str(e)}"
+                    "Error", f"Failed to populate panel {panel}: {e!s}"
                 )
             finally:
                 self.root.after(0, self._stop_progress)
@@ -1834,9 +1834,9 @@ class GSynchro:
     def _scan_folder(
         self,
         folder_path: str,
-        ssh_config: Optional[dict],
+        ssh_config: dict | None,
         panel_name: str,
-        rules: Optional[list] = None,
+        rules: list | None = None,
     ) -> dict:
         """Scan folder locally or via SSH and return file dictionary."""
         if rules is None:
@@ -1869,7 +1869,7 @@ class GSynchro:
             )
             return files
 
-    def _scan_local(self, folder_path: str, rules: Optional[list] = None) -> dict:
+    def _scan_local(self, folder_path: str, rules: list | None = None) -> dict:
         """Scan local folder and return file dictionary with metadata."""
         files = {}
         if rules is None:
@@ -1886,11 +1886,7 @@ class GSynchro:
                     for pattern in rules:
                         if pattern.endswith("/") and fnmatch.fnmatch(
                             dir_rel_path + "/", pattern
-                        ):
-                            excluded_dirs.add(d)
-                        elif fnmatch.fnmatch(dir_rel_path, pattern):
-                            excluded_dirs.add(d)
-                        elif not pattern.endswith("/") and fnmatch.fnmatch(d, pattern):
+                        ) or fnmatch.fnmatch(dir_rel_path, pattern) or not pattern.endswith("/") and fnmatch.fnmatch(d, pattern):
                             excluded_dirs.add(d)
                 dirs[:] = [d for d in dirs if d not in excluded_dirs]
 
@@ -1921,9 +1917,9 @@ class GSynchro:
                             "type": "file",
                         }
                     except OSError as e:
-                        self._log(f"Error accessing {full_path}: {str(e)}")
+                        self._log(f"Error accessing {full_path}: {e!s}")
         except Exception as e:
-            self._log(f"Error scanning folder {folder_path}: {str(e)}")
+            self._log(f"Error scanning folder {folder_path}: {e!s}")
         self._log(f"Local folder scan ended for {folder_path}")
         return files
 
@@ -1931,7 +1927,7 @@ class GSynchro:
         self,
         folder_path: str,
         ssh_client: paramiko.SSHClient,
-        rules: Optional[list] = None,
+        rules: list | None = None,
     ) -> dict:
         """Scan remote folder via SSH and return file dictionary."""
         files = {}
@@ -2019,9 +2015,9 @@ class GSynchro:
 
     def _batch_populate_tree(
         self,
-        tree: Optional[ttk.Treeview],
+        tree: ttk.Treeview | None,
         structure: dict,
-        filter_rules: Optional[list] = None,
+        filter_rules: list | None = None,
     ):
         """Batch populate tree view with file structure."""
         if not tree:
@@ -2091,7 +2087,7 @@ class GSynchro:
         tree.tag_configure("custom_font", font=(font_family, font_size))
 
     def _build_tree_map(
-        self, tree: Optional[ttk.Treeview], parent_item: str = "", path: str = ""
+        self, tree: ttk.Treeview | None, parent_item: str = "", path: str = ""
     ) -> dict:
         """Build a mapping of paths to tree item IDs."""
         path_map = {}
@@ -2107,7 +2103,7 @@ class GSynchro:
 
     def _update_tree_item(
         self,
-        tree: Optional[ttk.Treeview],
+        tree: ttk.Treeview | None,
         item_id: str,
         rel_path: str,
         status: str,
@@ -2261,7 +2257,7 @@ class GSynchro:
 
                 self.root.after(0, final_ui_update)
             except Exception as e:
-                self._log(f"Error during comparison: {str(e)}")
+                self._log(f"Error during comparison: {e!s}")
             finally:
                 self.root.after(0, self._stop_progress)
 
@@ -2269,8 +2265,8 @@ class GSynchro:
 
     def _run_comparison_logic(
         self,
-        ssh_config_a: Optional[dict],
-        ssh_config_b: Optional[dict],
+        ssh_config_a: dict | None,
+        ssh_config_b: dict | None,
         files_a: dict,
         files_b: dict,
     ) -> tuple:
@@ -2312,8 +2308,8 @@ class GSynchro:
         all_visible_paths: set,
         files_a: dict,
         files_b: dict,
-        ssh_config_a: Optional[dict],
-        ssh_config_b: Optional[dict],
+        ssh_config_a: dict | None,
+        ssh_config_b: dict | None,
         max_workers: int = 4,
     ) -> tuple:
         """Calculate item statuses using parallel processing."""
@@ -2613,8 +2609,8 @@ class GSynchro:
                     ),
                 )
             except Exception as e:
-                self._log(f"Synchronization failed: {str(e)}")
-                error_msg = f"Synchronization failed: {str(e)}"
+                self._log(f"Synchronization failed: {e!s}")
+                error_msg = f"Synchronization failed: {e!s}"
                 self.root.after(0, lambda: messagebox.showerror("Error", error_msg))
             finally:
                 self.root.after(0, self._stop_progress)
@@ -2669,8 +2665,8 @@ class GSynchro:
         dirs_to_create: tuple,
         source_files_dict: dict,
         target_path: str,
-        source_ssh_config: Optional[dict],
-        target_ssh_config: Optional[dict],
+        source_ssh_config: dict | None,
+        target_ssh_config: dict | None,
         target_files_dict: dict,
         direction: str,
     ):
@@ -2783,7 +2779,7 @@ class GSynchro:
                         sftp.stat(remote_dir)
                     except FileNotFoundError:
                         self._log(f"Creating remote directory: {remote_dir}")
-                        stdin, stdout, stderr = ssh_client.exec_command(
+                        _stdin, _stdout, stderr = ssh_client.exec_command(
                             f"mkdir -p {posix_quote(remote_dir)}"
                         )
                         stderr.read()
@@ -2797,14 +2793,14 @@ class GSynchro:
                         sftp.stat(remote_dir)
                     except FileNotFoundError:
                         self._log(f"Creating remote directory: {remote_dir}")
-                        stdin, stdout, stderr = ssh_client.exec_command(
+                        _stdin, _stdout, stderr = ssh_client.exec_command(
                             f"mkdir -p {posix_quote(remote_dir)}"
                         )
                         stderr.read()
 
                     target_item = target_files_dict.get(rel_path)
                     if target_item and target_item.get("type") == "dir":
-                        stdin, stdout, stderr = ssh_client.exec_command(
+                        _stdin, _stdout, stderr = ssh_client.exec_command(
                             f"rm -rf {posix_quote(remote_file)}"
                         )
                         stderr.read()
@@ -2868,52 +2864,52 @@ class GSynchro:
             source_ssh_config["user"],
             source_ssh_config["password"],
             source_ssh_config["port"],
-        ) as source_ssh:
-            with self.connection_manager.get_connection(
-                target_ssh_config["host"],
-                target_ssh_config["user"],
-                target_ssh_config["password"],
-                target_ssh_config["port"],
-            ) as target_ssh:
-                source_transport = source_ssh.get_transport()
-                target_transport = target_ssh.get_transport()
-                if not source_transport or not target_transport:
-                    raise ConnectionError("SSH transport not available.")
+        ) as source_ssh, self.connection_manager.get_connection(
+            target_ssh_config["host"],
+            target_ssh_config["user"],
+            target_ssh_config["password"],
+            target_ssh_config["port"],
+        ) as target_ssh:
+            source_transport = source_ssh.get_transport()
+            target_transport = target_ssh.get_transport()
+            if not source_transport or not target_transport:
+                raise ConnectionError("SSH transport not available.")
 
-                # Recreate selected directories at the destination (empty ones too).
-                for d in dirs_to_create:
-                    target_ssh.exec_command(
-                        f"mkdir -p {posix_quote(posix_join(target_path, d))}"
-                    )
+            # Recreate selected directories at the destination (empty ones too).
+            for d in dirs_to_create:
+                target_ssh.exec_command(
+                    f"mkdir -p {posix_quote(posix_join(target_path, d))}"
+                )
 
-                for rel_path in files_to_copy:
-                    source_file_path = source_files_dict[rel_path]["full_path"]
-                    target_file_path = posix_join(target_path, rel_path)
-                    target_dir = posixpath.dirname(target_file_path)
-                    target_ssh.exec_command(f"mkdir -p {posix_quote(target_dir)}")
+            for rel_path in files_to_copy:
+                source_file_path = source_files_dict[rel_path]["full_path"]
+                target_file_path = posix_join(target_path, rel_path)
+                target_dir = posixpath.dirname(target_file_path)
+                target_ssh.exec_command(f"mkdir -p {posix_quote(target_dir)}")
 
-                    with SCPClient(source_transport) as scp_source:
-                        with SCPClient(target_transport) as scp_target:
-                            self._log(f"Copying remote-to-remote: {rel_path}")
-                            temp_f = tempfile.NamedTemporaryFile(delete=False)
-                            temp_name = temp_f.name
+                with (
+                    SCPClient(source_transport) as scp_source,
+                    SCPClient(target_transport) as scp_target,
+                ):
+                    self._log(f"Copying remote-to-remote: {rel_path}")
+                    with tempfile.NamedTemporaryFile(delete=False) as temp_f:
+                        temp_name = temp_f.name
+                        try:
+                            scp_source.get(source_file_path, temp_name)
+                            target_item = target_files_dict.get(rel_path)
+                            if target_item and target_item.get("type") == "dir":
+                                target_ssh.exec_command(
+                                    f"rm -rf {posix_quote(target_file_path)}"
+                                )
+                            scp_target.put(temp_name, target_file_path)
+                        finally:
                             try:
-                                temp_f.close()
-                                scp_source.get(source_file_path, temp_name)
-                                target_item = target_files_dict.get(rel_path)
-                                if target_item and target_item.get("type") == "dir":
-                                    target_ssh.exec_command(
-                                        f"rm -rf {posix_quote(target_file_path)}"
-                                    )
-                                scp_target.put(temp_name, target_file_path)
-                            finally:
-                                try:
-                                    os.remove(temp_name)
-                                except Exception:
-                                    self._log(
-                                        f"Warning: could not remove temp file {temp_name}"
-                                    )
-                    self.root.after(0, self._update_progress)
+                                os.remove(temp_name)
+                            except Exception:
+                                self._log(
+                                    f"Warning: could not remove temp file {temp_name}"
+                                )
+                self.root.after(0, self._update_progress)
 
     def _show_options_dialog(self):
         """Show the options dialog for configuring application settings."""
@@ -2932,7 +2928,7 @@ class GSynchro:
             self.tree_b.tag_configure("custom_font", font=(font_family, font_size))
         self._save_config()
 
-    def _create_filter_tree(self, parent: Union[tk.Toplevel, tk.Widget]) -> tuple:
+    def _create_filter_tree(self, parent: tk.Toplevel | tk.Widget) -> tuple:
         """Create a tree view widget for displaying filter rules."""
         tree_frame = ttk.Frame(parent)
         tree_frame.rowconfigure(0, weight=1)
@@ -3255,7 +3251,7 @@ class GSynchro:
             daemon=True,
         ).start()
 
-    def _pick_destination_folder(self, panel: str) -> Optional[str]:
+    def _pick_destination_folder(self, panel: str) -> str | None:
         """Open a dialog to pick a destination folder in the specified panel."""
         root_path = self.folder_a.get() if panel == "A" else self.folder_b.get()
         ssh_config = self._get_ssh_config_for_panel(panel)
@@ -3336,8 +3332,8 @@ class GSynchro:
         self,
         items_to_copy: list,
         dest_folder_abs: str,
-        source_ssh_config: Optional[dict],
-        target_ssh_config: Optional[dict],
+        source_ssh_config: dict | None,
+        target_ssh_config: dict | None,
         dest_panel: str,
     ):
         """Background thread that executes the file copy to the
@@ -3663,7 +3659,7 @@ class GSynchro:
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                 )
-                stdout, stderr = process.communicate()
+                _stdout, stderr = process.communicate()
                 if process.returncode != 0:
                     messagebox.showwarning(
                         "Warning", f"Could not open file: {stderr.decode().strip()}"
@@ -3706,7 +3702,7 @@ class GSynchro:
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                 )
-                stdout, stderr = process.communicate()
+                _stdout, stderr = process.communicate()
                 if process.returncode != 0:
                     messagebox.showwarning(
                         "Warning", f"Could not open folder: {stderr.decode().strip()}"
@@ -3769,7 +3765,7 @@ class GSynchro:
                         for full_path, _ in items_to_delete:
                             self._log(f"Deleting item: {full_path}")
                             command = f"rm -rf {posix_quote(full_path)}"
-                            stdin, stdout, stderr = ssh_client.exec_command(command)
+                            _stdin, _stdout, stderr = ssh_client.exec_command(command)
                             error = stderr.read().decode()
                             if error:
                                 self._log(f"Error deleting {full_path}: {error}")
@@ -3835,17 +3831,17 @@ class GSynchro:
         for pattern in temp_patterns:
             if pattern in path_normalized:
                 return True
-        if "tmp" in path_normalized and (
-            path_normalized.startswith("/tmp/")
-            or path_normalized.startswith("\\tmp\\")
-            or "tmp" in os.path.basename(path_normalized)
-        ):
-            return True
-        return False
+        return bool(
+            "tmp" in path_normalized
+            and (
+                path_normalized.startswith(("/tmp/", "\\tmp\\"))
+                or "tmp" in os.path.basename(path_normalized)
+            )
+        )
 
     def _get_relative_path(
-        self, tree: Optional[ttk.Treeview], item_id: str
-    ) -> Optional[str]:
+        self, tree: ttk.Treeview | None, item_id: str
+    ) -> str | None:
         """Construct relative path for item."""
         if tree is None or item_id is None:
             return None
@@ -3859,8 +3855,8 @@ class GSynchro:
         return None
 
     def _get_full_path_for_item(
-        self, tree: Optional[ttk.Treeview], item_id: str, panel: Optional[str] = None
-    ) -> Optional[str]:
+        self, tree: ttk.Treeview | None, item_id: str, panel: str | None = None
+    ) -> str | None:
         """Get the full, possibly temporary, path for a tree item."""
         if tree is None:
             return None
@@ -3947,7 +3943,7 @@ class GSynchro:
         """Log message to console."""
         print(f"[{datetime.now().strftime('%H:%M:%S')}] {message}")
 
-    def _format_size(self, size_bytes: Union[int, float]) -> str:
+    def _format_size(self, size_bytes: float) -> str:
         """Format file size to be readable."""
         for unit in [" B", "KB", "MB", "GB", "TB"]:
             if size_bytes < 1024.0:
@@ -3962,7 +3958,7 @@ class GSynchro:
     def _center_dialog(
         self,
         dialog: tk.Toplevel,
-        relative_to: Optional[Union[tk.Widget, tk.Toplevel]] = None,
+        relative_to: tk.Widget | tk.Toplevel | None = None,
     ):
         """Center a dialog on a parent window."""
         parent = relative_to or self.root
