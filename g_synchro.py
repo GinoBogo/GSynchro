@@ -10,6 +10,7 @@ License: MIT
 Version: 1.0 (initial stable version)
 Version: 1.1 (robust remote scanner)
 Version: 1.2 (display scaling support)
+Version: 1.3 (copy and sync empty directories)
 """
 
 from __future__ import annotations
@@ -28,31 +29,30 @@ import tempfile
 import threading
 import tkinter as tk
 import tkinter.font as tkfont
-
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
 from datetime import datetime
-from typing import Optional, cast, Union
 from tkinter import filedialog, ttk
-from libs.g_messagebox import GMessagebox as messagebox
-
-# Personal library imports.
-from libs.g_button import GButton
-from libs.g_scaling import GScaling
-from libs.g_theme import get_theme_colors
-from libs.g_path_utils import posix_quote, posix_join
-from libs.g_dialog import ask_string_dialog
-from libs.g_ssh_connection import ConnectionManager
-from libs.g_file_comparer import Comparer
+from typing import Optional, Union, cast
 
 # Third-party library imports.
 import paramiko
 from scp import SCPClient
 
+# Personal library imports.
+from libs.g_button import GButton
+from libs.g_dialog import ask_string_dialog
+from libs.g_file_comparer import Comparer
+from libs.g_messagebox import GMessagebox as messagebox
+from libs.g_path_utils import posix_join, posix_quote
+from libs.g_scaling import GScaling
+from libs.g_ssh_connection import ConnectionManager
+from libs.g_theme import get_theme_colors
+
 # ============================================================================
 # CONSTANTS
 # ============================================================================
-APP_VERSION = "1.2"
+APP_VERSION = "1.3"
 CONFIG_FILE = "g_synchro.json"
 HISTORY_LENGTH = 10
 CHUNK_SIZE = 4096
@@ -2564,13 +2564,15 @@ class GSynchro:
                 return
 
             try:
-                files_to_copy = self._get_files_to_copy(source_files_dict)
+                files_to_copy, dirs_to_create = self._get_files_to_copy(
+                    source_files_dict
+                )
                 with self.state_lock:
                     target_files_dict = (
                         self.files_b if direction == "a_to_b" else self.files_a
                     ).copy()
 
-                if not files_to_copy:
+                if not files_to_copy and not dirs_to_create:
                     self._log("No files selected for synchronization.")
                     self.root.after(
                         0,
@@ -2585,12 +2587,13 @@ class GSynchro:
                     0,
                     self._start_progress,
                     None,
-                    len(files_to_copy),
+                    len(files_to_copy) + len(dirs_to_create),
                     "Synchronizing...",
                 )
 
                 self._perform_sync(
                     files_to_copy,
+                    dirs_to_create,
                     source_files_dict,
                     target_path,
                     source_ssh_config,
@@ -2618,9 +2621,18 @@ class GSynchro:
 
         threading.Thread(target=sync_thread, daemon=True).start()
 
-    def _get_files_to_copy(self, source_files_dict: dict) -> list:
-        """Get list of files marked for synchronization from source."""
+    def _get_files_to_copy(self, source_files_dict: dict) -> tuple:
+        """Get files and directories marked for synchronization from source.
+
+        Returns a tuple ``(files_to_sync, dirs_to_sync)`` where:
+          - ``files_to_sync``: checked files, including files beneath checked
+            directories.
+          - ``dirs_to_sync``: checked directories that have no checked files
+            beneath them (empty directories, or directories whose children are
+            all unchecked) that the user still wants recreated at the target.
+        """
         files_to_sync = set()
+        dirs_to_sync = set()
 
         def _norm(p: str) -> str:
             """Normalize path separators to forward slashes."""
@@ -2638,18 +2650,23 @@ class GSynchro:
                     files_to_sync.add(rel_path)
                 elif source_item.get("type") == "dir":
                     dir_prefix = _norm(rel_path.rstrip(os.sep)) + "/"
+                    has_checked_child = False
                     for file_path, file_info in source_files_dict.items():
                         if file_info.get("type") != "file":
                             continue
                         if _norm(file_path).startswith(
                             dir_prefix
                         ) and sync_states_snapshot.get(file_path, False):
+                            has_checked_child = True
                             files_to_sync.add(file_path)
-        return sorted(files_to_sync)
+                    if not has_checked_child:
+                        dirs_to_sync.add(rel_path)
+        return sorted(files_to_sync), sorted(dirs_to_sync)
 
     def _perform_sync(
         self,
         files_to_copy: list,
+        dirs_to_create: tuple,
         source_files_dict: dict,
         target_path: str,
         source_ssh_config: Optional[dict],
@@ -2666,6 +2683,7 @@ class GSynchro:
                 source_ssh_config,
                 target_ssh_config,
                 target_files_dict,
+                dirs_to_create,
             )
         elif source_ssh_config is not None:
             self._sync_remote_to_local(
@@ -2674,6 +2692,7 @@ class GSynchro:
                 target_path,
                 source_ssh_config,
                 target_files_dict,
+                dirs_to_create,
             )
         elif target_ssh_config is not None:
             self._sync_local_to_remote(
@@ -2682,10 +2701,15 @@ class GSynchro:
                 target_path,
                 target_ssh_config,
                 target_files_dict,
+                dirs_to_create,
             )
         else:
             self._sync_local_to_local(
-                files_to_copy, source_files_dict, target_path, target_files_dict
+                files_to_copy,
+                source_files_dict,
+                target_path,
+                target_files_dict,
+                dirs_to_create,
             )
 
     def _sync_local_to_local(
@@ -2694,9 +2718,15 @@ class GSynchro:
         source_files_dict: dict,
         target_path: str,
         target_files_dict: dict,
+        dirs_to_create: tuple = (),
     ):
         """Synchronize files from local source to local target."""
         self._log(f"Syncing local files to {target_path}")
+        # Recreate selected directories at the destination (empty ones too).
+        for d in dirs_to_create:
+            os.makedirs(
+                os.path.join(target_path, d.replace("/", os.sep)), exist_ok=True
+            )
         for rel_path in files_to_copy:
             source_file = source_files_dict[rel_path]["full_path"]
             target_file = os.path.join(target_path, rel_path.replace("/", os.sep))
@@ -2731,6 +2761,7 @@ class GSynchro:
         remote_path: str,
         target_ssh_config: dict,
         target_files_dict: dict,
+        dirs_to_create: tuple = (),
     ):
         """Synchronize files from local source to remote target via SCP."""
         self._log(f"Syncing local files to remote {remote_path}")
@@ -2744,6 +2775,19 @@ class GSynchro:
             if not transport:
                 raise ConnectionError("SSH client transport is not available.")
             with SCPClient(transport) as scp:
+                # Recreate selected directories at the destination (empty ones too).
+                sftp = ssh_client.open_sftp()
+                for d in dirs_to_create:
+                    remote_dir = posix_join(remote_path, d)
+                    try:
+                        sftp.stat(remote_dir)
+                    except FileNotFoundError:
+                        self._log(f"Creating remote directory: {remote_dir}")
+                        stdin, stdout, stderr = ssh_client.exec_command(
+                            f"mkdir -p {posix_quote(remote_dir)}"
+                        )
+                        stderr.read()
+                sftp.close()
                 for rel_path in files_to_copy:
                     local_file = source_files_dict[rel_path]["full_path"]
                     remote_file = posix_join(remote_path, rel_path)
@@ -2774,9 +2818,15 @@ class GSynchro:
         local_path: str,
         source_ssh_config: dict,
         target_files_dict: dict,
+        dirs_to_create: tuple = (),
     ):
         """Synchronize files from remote source to local target via SCP."""
         self._log(f"Syncing remote files to local {local_path}")
+        # Recreate selected directories at the destination (empty ones too).
+        for d in dirs_to_create:
+            os.makedirs(
+                os.path.join(local_path, d.replace("/", os.sep)), exist_ok=True
+            )
         with self.connection_manager.get_connection(
             source_ssh_config["host"],
             source_ssh_config["user"],
@@ -2809,6 +2859,7 @@ class GSynchro:
         source_ssh_config: dict,
         target_ssh_config: dict,
         target_files_dict: dict,
+        dirs_to_create: tuple = (),
     ):
         """Synchronize files from remote source to remote target via SSH."""
         self._log(f"Syncing remote files to remote {target_path}")
@@ -2828,6 +2879,12 @@ class GSynchro:
                 target_transport = target_ssh.get_transport()
                 if not source_transport or not target_transport:
                     raise ConnectionError("SSH transport not available.")
+
+                # Recreate selected directories at the destination (empty ones too).
+                for d in dirs_to_create:
+                    target_ssh.exec_command(
+                        f"mkdir -p {posix_quote(posix_join(target_path, d))}"
+                    )
 
                 for rel_path in files_to_copy:
                     source_file_path = source_files_dict[rel_path]["full_path"]
@@ -3227,7 +3284,12 @@ class GSynchro:
 
     def _get_copy_items(self, rel_paths: list, source_files_dict: dict) -> list:
         """Expand selected paths into individual files, preserving the
-        internal folder structure of any selected directories."""
+        internal folder structure of any selected directories.
+
+        Selected directories (including empty ones) are emitted with
+        "is_dir": True so the destination directory itself is recreated,
+        not just the files it contains.
+        """
         items = []
         for rel_path in rel_paths:
             source_item = source_files_dict.get(rel_path)
@@ -3239,9 +3301,17 @@ class GSynchro:
                     {
                         "source_full_path": source_item["full_path"],
                         "dest_filename": os.path.basename(rel_path),
+                        "is_dir": False,
                     }
                 )
             else:  # It's a directory.
+                items.append(
+                    {
+                        "source_full_path": source_item["full_path"],
+                        "dest_filename": os.path.basename(rel_path),
+                        "is_dir": True,
+                    }
+                )
                 dir_prefix = rel_path.rstrip(os.sep).replace(os.sep, "/") + "/"
                 for p, info in source_files_dict.items():
                     if info.get("type") == "file" and p.replace(os.sep, "/").startswith(
@@ -3257,6 +3327,7 @@ class GSynchro:
                             {
                                 "source_full_path": info["full_path"],
                                 "dest_filename": dest_filename,
+                                "is_dir": False,
                             }
                         )
         return items
@@ -3282,26 +3353,50 @@ class GSynchro:
             # directory at the destination path will not be replaced
             # automatically; the copy of that particular item will be
             # skipped and logged instead of overwriting it.
-            files_to_copy = [item["dest_filename"] for item in items_to_copy]
+            #
+            # Selected directories (including empty ones) are recreated at the
+            # destination first; only file items are handed to the sync primitives.
+            dirs_to_create = [
+                item["dest_filename"] for item in items_to_copy if item.get("is_dir")
+            ]
+            file_items = [item for item in items_to_copy if not item.get("is_dir")]
+
+            files_to_copy = [item["dest_filename"] for item in file_items]
             temp_source_dict = {
                 item["dest_filename"]: {
                     "full_path": item["source_full_path"],
                     "type": "file",
                 }
-                for item in items_to_copy
+                for item in file_items
             }
 
+            # Recreate selected directories at the destination (empty ones too).
             if source_ssh_config is None and target_ssh_config is None:
+                for d in dirs_to_create:
+                    os.makedirs(
+                        os.path.join(dest_folder_abs, d.replace("/", os.sep)),
+                        exist_ok=True,
+                    )
                 self._sync_local_to_local(
-                    files_to_copy, temp_source_dict, dest_folder_abs, {}
+                    files_to_copy,
+                    temp_source_dict,
+                    dest_folder_abs,
+                    {},
+                    dirs_to_create,
                 )
             elif source_ssh_config is not None and target_ssh_config is None:
+                for d in dirs_to_create:
+                    os.makedirs(
+                        os.path.join(dest_folder_abs, d.replace("/", os.sep)),
+                        exist_ok=True,
+                    )
                 self._sync_remote_to_local(
                     files_to_copy,
                     temp_source_dict,
                     dest_folder_abs,
                     source_ssh_config,
                     {},
+                    dirs_to_create,
                 )
             elif source_ssh_config is None and target_ssh_config is not None:
                 self._sync_local_to_remote(
@@ -3310,6 +3405,7 @@ class GSynchro:
                     dest_folder_abs,
                     target_ssh_config,
                     {},
+                    dirs_to_create,
                 )
             else:
                 self._sync_remote_to_remote(
@@ -3319,6 +3415,7 @@ class GSynchro:
                     source_ssh_config,
                     target_ssh_config,
                     {},
+                    dirs_to_create,
                 )
 
             self._log(f"Copy to Panel {dest_panel} completed successfully.")
@@ -3362,6 +3459,7 @@ class GSynchro:
                         source_ssh_config = self._get_ssh_config_for_panel("B")
                         target_ssh_config = self._get_ssh_config_for_panel("A")
                 files_to_copy = []
+                dirs_to_create = []
                 for rel_path in rel_paths:
                     source_item = source_files_dict.get(rel_path)
                     if not source_item:
@@ -3369,13 +3467,21 @@ class GSynchro:
                     if source_item.get("type") == "file":
                         files_to_copy.append(rel_path)
                     else:
-                        dir_prefix = rel_path.rstrip(os.sep).replace(os.sep, "/") + "/"
-                        for p, info in source_files_dict.items():
-                            if info.get("type") != "file":
-                                continue
-                            if p.replace(os.sep, "/").startswith(dir_prefix):
-                                files_to_copy.append(p)
-                files_to_copy = sorted(list(set(files_to_copy)))
+                        dir_prefix = (
+                            rel_path.rstrip(os.sep).replace(os.sep, "/") + "/"
+                        )
+                        children = [
+                            p
+                            for p, info in source_files_dict.items()
+                            if info.get("type") == "file"
+                            and p.replace(os.sep, "/").startswith(dir_prefix)
+                        ]
+                        if children:
+                            files_to_copy.extend(children)
+                        else:
+                            dirs_to_create.append(rel_path)
+                files_to_copy = sorted(set(files_to_copy))
+                dirs_to_create = sorted(set(dirs_to_create))
                 with self.state_lock:
                     target_files_dict = (
                         self.files_b if direction == "a_to_b" else self.files_a
@@ -3384,11 +3490,12 @@ class GSynchro:
                     0,
                     self._start_progress,
                     None,
-                    len(files_to_copy),
-                    f"Syncing {len(files_to_copy)} items...",
+                    len(files_to_copy) + len(dirs_to_create),
+                    f"Syncing {len(files_to_copy) + len(dirs_to_create)} items...",
                 )
                 self._perform_sync(
                     files_to_copy,
+                    dirs_to_create,
                     source_files_dict,
                     target_path,
                     source_ssh_config,
