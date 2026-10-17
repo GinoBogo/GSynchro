@@ -1,0 +1,5 @@
+[tool.ruff.lint]
+# BLE001 (blind except) is intentionally ignored across this codebase:
+# every `except Exception` block shows a GUI error dialog rather than
+# re-raising, so catching broadly is the desired behavior here.
+ignore = ["BLE001"]
