@@ -30,7 +30,7 @@ GSynchro provides a clear side‑by‑side view to visualize differences and ena
 - **Flexible Synchronization**:
     - Synchronize from left to right (`A` → `B`) or right to left (`B` → `A`).
     - Selectively include or exclude individual files and directories from a sync operation using checkboxes.
-- **Powerful Filtering**: Define custom filter rules (with wildcard support) to exclude files and directories (like `.git`, `__pycache__`, `*.log`) from scans and comparisons.
+- **Powerful Filtering**: Define custom filter rules (with wildcard support) to exclude files and directories (like `.git`, `__pycache__`, `*.log`) from scans and comparisons. Organize rules into named projects (e.g. "Python", "Node") and switch between them in Options → Filters.
 - **File Operations**:
     - Open files directly from the application (downloads remote files to a temporary location first).
     - Delete files and directories from both local and remote locations.

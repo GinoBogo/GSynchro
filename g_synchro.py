@@ -11,6 +11,7 @@ Version: 1.0 (initial stable version)
 Version: 1.1 (robust remote scanner)
 Version: 1.2 (display scaling support)
 Version: 1.3 (copy and sync empty directories)
+Version: 1.4 (project-selectable filter lists)
 """
 
 from __future__ import annotations
@@ -52,7 +53,7 @@ from libs.g_theme import get_theme_colors
 # ============================================================================
 # CONSTANTS
 # ============================================================================
-APP_VERSION = "1.3"
+APP_VERSION = "1.4"
 CONFIG_FILE = "g_synchro.json"
 HISTORY_LENGTH = 10
 CHUNK_SIZE = 4096
@@ -116,12 +117,56 @@ class OptionsDialog(tk.Toplevel):
 
         filters_frame = ttk.Frame(notebook, padding=self.spacing * 2)
         notebook.add(filters_frame, text="Filters")
+        filters_frame.rowconfigure(1, weight=1)
+        filters_frame.columnconfigure(0, weight=1)
+
+        # Project selector row.
+        project_row = ttk.Frame(filters_frame)
+        project_row.grid(row=0, column=0, sticky=tk.EW, pady=(0, self.spacing))
+        project_row.columnconfigure(1, weight=1)
+
+        ttk.Label(project_row, text="Project:").grid(
+            row=0, column=0, sticky=tk.W, padx=(0, self.spacing)
+        )
+        self.project_var = tk.StringVar(value=self.app.active_filter_project)
+        self.project_combo = ttk.Combobox(
+            project_row,
+            textvariable=self.project_var,
+            values=sorted(self.app.filter_projects.keys()),
+            state="readonly",
+            width=24,
+        )
+        self.project_combo.grid(row=0, column=1, sticky=tk.EW, padx=(0, self.spacing))
+        self.project_combo.bind("<<ComboboxSelected>>", lambda e: self._on_project_changed())
+
+        btn_row = ttk.Frame(project_row)
+        btn_row.grid(row=0, column=2, sticky=tk.E)
+        self.new_project_btn = GButton(
+            btn_row,
+            text="Add Project…",
+            command=self._new_project,
+            width=150,
+            height=30,
+            **self.colors["buttons"]["secondary"],
+        )
+        self.new_project_btn.pack(side=tk.LEFT, padx=(0, self.spacing))
+        self.delete_project_btn = GButton(
+            btn_row,
+            text="Delete Project",
+            command=self._delete_project,
+            width=150,
+            height=30,
+            **self.colors["buttons"]["secondary"],
+        )
+        self.delete_project_btn.pack(side=tk.LEFT)
+
         self.temp_filters = [dict(item) for item in self.app.filter_rules]
         tree_frame, self.filter_tree = self.app._create_filter_tree(filters_frame)
-        tree_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 0))
+        tree_frame.grid(row=1, column=0, sticky=tk.NSEW)
         self.filter_tree.bind("<Double-1>", lambda e: self._toggle_rules())
         self.filter_tree.bind("<Button-3>", self._show_filter_context_menu)
         self._populate_tree()
+        self._update_project_button_states()
 
         compare_frame = ttk.Frame(notebook, padding=self.spacing * 2)
         notebook.add(compare_frame, text="Compare")
@@ -259,6 +304,78 @@ class OptionsDialog(tk.Toplevel):
         for i, item in enumerate(self.temp_filters):
             check_char = CHECKED_CHAR if item.get("active", True) else UNCHECKED_CHAR
             self.filter_tree.insert("", "end", iid=i, values=(check_char, item["rule"]))
+
+    def _update_project_button_states(self):
+        """Enable/disable project management buttons based on current selection."""
+        active = self.project_var.get()
+        projects = self.app.filter_projects
+        # "Default" cannot be deleted; delete disabled when only one project exists.
+        can_delete = active != "Default" and len(projects) > 1
+        try:
+            self.delete_project_btn.configure(
+                state=("normal" if can_delete else "disabled")
+            )
+        except tk.TclError:
+            pass
+
+    def _on_project_changed(self):
+        """Switch to the selected filter project and reload its rules."""
+        name = self.project_var.get()
+        if not name or name == self.app.active_filter_project:
+            self._update_project_button_states()
+            return
+        self.app._set_active_project(name)
+        self.temp_filters = [dict(item) for item in self.app.filter_rules]
+        self.project_combo["values"] = sorted(self.app.filter_projects.keys())
+        self._populate_tree()
+        self._update_project_button_states()
+
+    def _new_project(self):
+        """Create a new filter project initialized from the active project's rules."""
+        base = ask_string_dialog(
+            self,
+            "New Project",
+            "Enter project name:",
+            colors=self.colors,
+        )
+        if not base or not base.strip():
+            return
+        name = base.strip()
+        if name in self.app.filter_projects:
+            messagebox.showerror(
+                "Error", f"A filter project named '{name}' already exists."
+            )
+            return
+        self.app.filter_projects[name] = [
+            dict(item) for item in self.app.filter_projects[self.app.active_filter_project]
+        ]
+        self.app._set_active_project(name)
+        self.temp_filters = [dict(item) for item in self.app.filter_rules]
+        self.project_combo["values"] = sorted(self.app.filter_projects.keys())
+        self.project_var.set(name)
+        self._populate_tree()
+        self._update_project_button_states()
+
+    def _delete_project(self):
+        """Delete the active filter project, falling back to "Default"."""
+        name = self.project_var.get()
+        if not name or name == "Default":
+            return
+        if len(self.app.filter_projects) <= 1:
+            return
+        confirm = messagebox.askyesno(
+            "Confirm Deletion",
+            f"Are you sure you want to delete the filter project '{name}'?",
+        )
+        if not confirm:
+            return
+        del self.app.filter_projects[name]
+        self.app._set_active_project("Default")
+        self.temp_filters = [dict(item) for item in self.app.filter_rules]
+        self.project_combo["values"] = sorted(self.app.filter_projects.keys())
+        self.project_var.set("Default")
+        self._populate_tree()
+        self._update_project_button_states()
 
     def _update_font_example(self, *args):
         """Update the font example label to show current font selection."""
@@ -487,6 +604,8 @@ class GSynchro:
         self.files_a = {}
         self.files_b = {}
         self.filter_rules = []
+        self.filter_projects = {"Default": []}
+        self.active_filter_project = "Default"
         self.temp_files_to_clean = []
 
         self.options = {
@@ -561,8 +680,24 @@ class GSynchro:
                 config = json.load(f)
             if "WINDOW" in config and "geometry" in config["WINDOW"]:
                 self.root.geometry(config["WINDOW"]["geometry"])
-            if "FILTERS" in config and "rules" in config["FILTERS"]:
-                self._load_filter_rules(config["FILTERS"]["rules"])
+            if "FILTERS" in config:
+                filters_cfg = config["FILTERS"]
+                if "projects" in filters_cfg and isinstance(
+                    filters_cfg["projects"], dict
+                ):
+                    loaded_projects = {}
+                    for name, rules in filters_cfg["projects"].items():
+                        if isinstance(rules, list):
+                            loaded_projects[str(name)] = rules
+                    if loaded_projects:
+                        self.filter_projects = loaded_projects
+                if "rules" in filters_cfg and "projects" not in filters_cfg:
+                    # Migrate legacy single filter list into the "Default" project.
+                    self.filter_projects = {"Default": filters_cfg["rules"]}
+                active_project = filters_cfg.get("active_project")
+                if active_project and active_project in self.filter_projects:
+                    self.active_filter_project = active_project
+                self._set_active_project(self.active_filter_project)
             if "OPTIONS" in config:
                 self.options.update(config["OPTIONS"])
             if "COLUMN_WIDTHS_A" in config:
@@ -643,6 +778,18 @@ class GSynchro:
         processed_rules.sort(key=lambda item: item["rule"])
         self.filter_rules = processed_rules
 
+    def _set_active_project(self, name: str) -> None:
+        """Switch the active filter project and reload its rules into filter_rules."""
+        if not name or name not in self.filter_projects:
+            candidates = [n for n in self.filter_projects if n]
+            name = candidates[0] if candidates else "Default"
+            if name not in self.filter_projects:
+                self.filter_projects[name] = []
+        self.active_filter_project = name
+        self.filter_rules = [
+            dict(item) for item in self.filter_projects.get(name, [])
+        ]
+
     def _save_config(self):
         """Save current application configuration to config file."""
         current_folder_a = self.folder_a.get()
@@ -667,7 +814,13 @@ class GSynchro:
             self.remote_user_b.get(),
         )
 
-        self.filter_rules.sort(key=lambda item: item["rule"])
+        # Persist the currently edited rules back into the active project,
+        # then keep every project's rules sorted for stable config output.
+        self.filter_projects[self.active_filter_project] = [
+            dict(item) for item in self.filter_rules
+        ]
+        for rules in self.filter_projects.values():
+            rules.sort(key=lambda item: item["rule"])
 
         if self.tree_a:
             try:
@@ -690,7 +843,10 @@ class GSynchro:
             "WINDOW": {"geometry": self.root.geometry()},
             "HOSTS_A": self.hosts_a,
             "HOSTS_B": self.hosts_b,
-            "FILTERS": {"rules": self.filter_rules},
+            "FILTERS": {
+                "projects": self.filter_projects,
+                "active_project": self.active_filter_project,
+            },
             "OPTIONS": self.options,
             "COLUMN_WIDTHS_A": self.column_widths_a,
             "COLUMN_WIDTHS_B": self.column_widths_b,

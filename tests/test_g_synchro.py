@@ -11,7 +11,8 @@ from termcolor import cprint
 # Add project root to Python path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from g_synchro import GSynchro
+import g_synchro
+from g_synchro import GSynchro, OptionsDialog
 
 
 @pytest.fixture
@@ -622,6 +623,81 @@ class TestFiltering:
         assert "my_dir_folder" not in actual_paths
         assert "my_dir_folder/nested.txt" not in actual_paths
         assert "file.txt" in actual_paths  # Ensure other files are still present
+
+
+class TestFilterProjects:
+    """Test suite for project-selectable filter lists."""
+
+    @pytest.fixture
+    def app(self, monkeypatch, tmp_path):
+        # Isolate from any real g_synchro.json in the workspace.
+        cfg = tmp_path / "g_synchro.json"
+        monkeypatch.setattr(g_synchro, "CONFIG_FILE", str(cfg))
+        root = tk.Tk()
+        root.withdraw()
+        app = GSynchro(root)
+        yield app
+        root.destroy()
+
+    def test_default_project_exists(self, app):
+        assert "Default" in app.filter_projects
+        assert app.active_filter_project == "Default"
+        assert app.filter_rules == []
+
+    def test_set_active_project_reloads_rules(self, app):
+        app.filter_projects["Default"] = [{"rule": "*.log", "active": True}]
+        app.filter_projects["Python"] = [{"rule": "*.pyc", "active": True}]
+        app._set_active_project("Python")
+        assert app.active_filter_project == "Python"
+        assert app.filter_rules == [{"rule": "*.pyc", "active": True}]
+        assert app._get_active_filters() == ["*.pyc"]
+
+    def test_set_active_project_unknown_falls_back_to_default(self, app):
+        app.filter_projects["Default"] = [{"rule": "x", "active": True}]
+        app._set_active_project("DoesNotExist")
+        assert app.active_filter_project == "Default"
+        assert app._get_active_filters() == ["x"]
+
+    def test_legacy_rules_migrate_to_default_project(self, app, monkeypatch, tmp_path):
+        cfg = tmp_path / "migrate.json"
+        cfg.write_text(
+            '{"FILTERS": {"rules": [{"rule": "*.log", "active": true}]}}'
+        )
+        monkeypatch.setattr(g_synchro, "CONFIG_FILE", str(cfg))
+        root = tk.Tk()
+        root.withdraw()
+        migrated = GSynchro(root)
+        root.destroy()
+        assert migrated.filter_projects == {
+            "Default": [{"rule": "*.log", "active": True}]
+        }
+        assert migrated.active_filter_project == "Default"
+        assert migrated._get_active_filters() == ["*.log"]
+
+    def test_unknown_active_project_falls_back(self, app, monkeypatch, tmp_path):
+        cfg = tmp_path / "g_synchro.json"
+        cfg.write_text(
+            '{"FILTERS": {"projects": {"Default": []}, "active_project": "Missing"}}'
+        )
+        monkeypatch.setattr(g_synchro, "CONFIG_FILE", str(cfg))
+        root = tk.Tk()
+        root.withdraw()
+        recovered = GSynchro(root)
+        root.destroy()
+        assert recovered.active_filter_project == "Default"
+
+    def test_options_dialog_project_combo_lists_projects(self, app, monkeypatch):
+        app.filter_projects = {
+            "Default": [{"rule": "*.log", "active": True}],
+            "Python": [{"rule": "*.pyc", "active": True}],
+        }
+        app.active_filter_project = "Python"
+        app.filter_rules = [{"rule": "*.pyc", "active": True}]
+
+        dialog = OptionsDialog(app.root, app)
+        assert set(dialog.project_combo["values"]) == {"Default", "Python"}
+        assert dialog.project_var.get() == "Python"
+        dialog.destroy()
 
 
 class TestSymbolicLinks:
