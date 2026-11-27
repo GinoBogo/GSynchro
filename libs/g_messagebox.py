@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 GMessagebox - HiDPI-Compatible Custom Messagebox
 
@@ -13,7 +12,6 @@ Version: 1.0
 # Standard library imports.
 import tkinter as tk
 from tkinter import ttk
-from typing import Optional
 
 # Personal library imports.
 from libs.g_button import GButton
@@ -40,10 +38,10 @@ class GMessagebox:
                  if the type is not recognized.
         """
         icons = {
-            "info": "ℹ️",
-            "warning": "⚠️",
-            "error": "❌",
-            "question": "❓",
+            "info": "i",
+            "warning": "!",
+            "error": "X",
+            "question": "?",
         }
         return icons.get(icon_type, "")
 
@@ -53,9 +51,9 @@ class GMessagebox:
         message: str,
         icon_type: str,
         button_type: str,
-        parent: Optional[tk.Misc] = None,
+        parent: tk.Misc | None = None,
         **kwargs,
-    ) -> Optional[bool]:
+    ) -> bool | None:
         """
         Display a modal dialog with the specified parameters.
 
@@ -113,7 +111,7 @@ class GMessagebox:
         icon_label = ttk.Label(
             icon_message_frame,
             text=icon_symbol,
-            font=("Segoe UI Emoji", 32),
+            font=("TkDefaultFont", 24, "bold"),
         )
         icon_label.pack(side=tk.LEFT, padx=(0, spacing * 2))
 
@@ -211,7 +209,7 @@ class GMessagebox:
 
     @staticmethod
     def showinfo(
-        title: str, message: str, parent: Optional[tk.Misc] = None, **kwargs
+        title: str, message: str, parent: tk.Misc | None = None, **kwargs
     ) -> None:
         """
         Display an information message box.
@@ -233,7 +231,7 @@ class GMessagebox:
 
     @staticmethod
     def showwarning(
-        title: str, message: str, parent: Optional[tk.Misc] = None, **kwargs
+        title: str, message: str, parent: tk.Misc | None = None, **kwargs
     ) -> None:
         """
         Display a warning message box.
@@ -255,7 +253,7 @@ class GMessagebox:
 
     @staticmethod
     def showerror(
-        title: str, message: str, parent: Optional[tk.Misc] = None, **kwargs
+        title: str, message: str, parent: tk.Misc | None = None, **kwargs
     ) -> None:
         """
         Display an error message box.
@@ -277,7 +275,7 @@ class GMessagebox:
 
     @staticmethod
     def askyesno(
-        title: str, message: str, parent: Optional[tk.Misc] = None, **kwargs
+        title: str, message: str, parent: tk.Misc | None = None, **kwargs
     ) -> bool:
         """
         Display a yes/no question dialog.
