@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 GSynchro - GUI File Synchronization Tool
 
@@ -3770,8 +3769,24 @@ class GSynchro:
             return
         rel_path_a = self._get_relative_path(self.tree_a, selected_a[0])
         rel_path_b = self._get_relative_path(self.tree_b, selected_b[0])
-        is_file_a = self.files_a.get(rel_path_a, {}).get("type") == "file"
-        is_file_b = self.files_b.get(rel_path_b, {}).get("type") == "file"
+        if rel_path_a:
+            rel_path_a = rel_path_a.replace(os.sep, "/")
+        if rel_path_b:
+            rel_path_b = rel_path_b.replace(os.sep, "/")
+
+        info_a = self.files_a.get(rel_path_a)
+        if info_a is None and rel_path_a:
+            info_a = self.files_a.get(rel_path_a.replace("/", os.sep))
+        info_b = self.files_b.get(rel_path_b)
+        if info_b is None and rel_path_b:
+            info_b = self.files_b.get(rel_path_b.replace("/", os.sep))
+
+        is_file_a = (
+            isinstance(info_a, dict) and info_a.get("type") == "file"
+        ) or (bool(path_a) and os.path.isfile(path_a))
+        is_file_b = (
+            isinstance(info_b, dict) and info_b.get("type") == "file"
+        ) or (bool(path_b) and os.path.isfile(path_b))
         if not (is_file_a and is_file_b):
             messagebox.showwarning(
                 "Selection Error", "Please select files, not directories, to compare."
@@ -4019,11 +4034,15 @@ class GSynchro:
         rel_path = self._get_relative_path(tree, item_id)
         if not rel_path:
             return None
+        rel_path = rel_path.replace(os.sep, "/")
         if panel is None:
             panel = "A" if tree is self.tree_a else "B"
         ssh_config = self._get_ssh_config_for_panel(panel)
         files_dict = self.files_a if panel == "A" else self.files_b
-        full_path = files_dict.get(rel_path, {}).get("full_path")
+        file_info = files_dict.get(rel_path)
+        if file_info is None:
+            file_info = files_dict.get(rel_path.replace("/", os.sep))
+        full_path = (file_info or {}).get("full_path")
         if not full_path:
             return None
         if ssh_config is not None:
@@ -4049,7 +4068,7 @@ class GSynchro:
             except Exception as e:
                 self._log(f"Failed to download remote file: {e}")
                 return None
-        return full_path
+        return os.path.abspath(full_path) if full_path else None
 
     def _update_status(self, panel: str, files: dict):
         """Update the status bar text."""
