@@ -11,12 +11,22 @@ Version: 1.0
 
 # Standard library imports.
 import tkinter as tk
+from pathlib import Path
 from tkinter import ttk
 
 # Personal library imports.
 from libs.g_button import GButton
 from libs.g_scaling import GScaling
 from libs.g_theme import get_theme_colors
+
+ICON_DIR = Path(__file__).resolve().parent.parent / "assets" / "icons"
+ICON_FILES = {
+    "info": "info",
+    "warning": "warning",
+    "error": "error",
+    "question": "question",
+}
+ICON_SIZES = (64, 96, 128, 192, 256)
 
 
 class GMessagebox:
@@ -25,16 +35,16 @@ class GMessagebox:
     @staticmethod
     def _get_icon_symbol(icon_type: str) -> str:
         """
-        Return Unicode symbol for the icon type.
+        Return the ASCII fallback symbol for the icon type.
 
-        This method maps standard messagebox icon types to appropriate
-        Unicode emoji symbols for visual representation in the dialog.
+        This method is used when a PNG icon asset is missing or cannot be
+        loaded by Tkinter.
 
         Args:
             icon_type (str): The type of icon requested (e.g., "info", "warning").
 
         Returns:
-            str: Unicode symbol corresponding to the icon type, or empty string
+            str: ASCII symbol corresponding to the icon type, or empty string
                  if the type is not recognized.
         """
         icons = {
@@ -44,6 +54,37 @@ class GMessagebox:
             "question": "?",
         }
         return icons.get(icon_type, "")
+
+    @staticmethod
+    def _get_icon_image(icon_type: str, parent: tk.Misc) -> tk.PhotoImage | None:
+        """
+        Load a transparent PNG icon for the requested icon type.
+
+        The closest pre-rendered size is selected from ICON_SIZES.
+
+        Args:
+            icon_type (str): The type of icon requested (e.g., "info", "warning").
+            parent (tk.Misc): Parent widget used for display scaling.
+
+        Returns:
+            tk.PhotoImage | None: Loaded icon, or None if the asset is missing
+                 or cannot be loaded.
+        """
+        icon_name = ICON_FILES.get(icon_type)
+        if icon_name is None:
+            return None
+
+        scale_factor = GScaling.get_scale_factor(parent)
+        target_size = 64 * scale_factor
+        icon_size = min(ICON_SIZES, key=lambda size: abs(size - target_size))
+        path = ICON_DIR / f"{icon_name}-{icon_size}.png"
+        if not path.is_file():
+            return None
+
+        try:
+            return tk.PhotoImage(file=str(path))
+        except (OSError, tk.TclError):
+            return None
 
     @staticmethod
     def _show_dialog(
@@ -108,13 +149,18 @@ class GMessagebox:
         icon_message_frame = ttk.Frame(content_frame)
         icon_message_frame.pack(fill=tk.BOTH, expand=True, pady=(spacing, spacing * 2))
 
-        # Icon label with Unicode symbol
-        icon_symbol = GMessagebox._get_icon_symbol(icon_type)
-        icon_label = ttk.Label(
-            icon_message_frame,
-            text=icon_symbol,
-            font=("TkDefaultFont", 24, "bold"),
-        )
+        # Icon label with PNG image or ASCII fallback
+        icon_image = GMessagebox._get_icon_image(icon_type, parent)
+        if icon_image is not None:
+            icon_label = ttk.Label(icon_message_frame, image=icon_image)
+            icon_label.image = icon_image
+        else:
+            icon_symbol = GMessagebox._get_icon_symbol(icon_type)
+            icon_label = ttk.Label(
+                icon_message_frame,
+                text=icon_symbol,
+                font=("TkDefaultFont", 24, "bold"),
+            )
         icon_label.pack(side=tk.LEFT, padx=(0, spacing * 2))
 
         # Message label with wrapping

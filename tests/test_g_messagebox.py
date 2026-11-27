@@ -1,4 +1,4 @@
-"""Tests for GMessagebox yes/no cancellation behavior."""
+"""Tests for GMessagebox dialog behavior."""
 
 import sys
 from pathlib import Path
@@ -91,8 +91,11 @@ class FakeDialog:
 
 
 class FakeWidget:
+    instances: ClassVar[list] = []
+
     def __init__(self, *args, **kwargs):
-        pass
+        self.kwargs = kwargs
+        FakeWidget.instances.append(self)
 
     def pack(self, *args, **kwargs):
         pass
@@ -120,17 +123,56 @@ def setup_fakes(monkeypatch, wait_action="protocol"):
     module = sys.modules["libs.g_messagebox"]
     FakeDialog._next_wait_action = wait_action
     FakeGButton.last_commands.clear()
+    FakeWidget.instances.clear()
 
     monkeypatch.setattr(module.tk, "Toplevel", FakeDialog)
     monkeypatch.setattr(module.ttk, "Style", FakeStyle)
     monkeypatch.setattr(module.ttk, "Frame", FakeWidget)
     monkeypatch.setattr(module.ttk, "Label", FakeWidget)
     monkeypatch.setattr(module, "GButton", FakeGButton)
+    monkeypatch.setattr(
+        module.GMessagebox, "_get_icon_image", lambda icon_type, parent: None
+    )
     monkeypatch.setattr(module.tk, "_default_root", FakeParent(), raising=False)
     monkeypatch.setattr(module.GScaling, "get_scale_factor", lambda parent=None: 1.0)
     monkeypatch.setattr(
         module.GScaling, "scale_pixels", lambda value, master=None: value
     )
+
+
+def test_icon_size_matches_scale(monkeypatch):
+    module = sys.modules["libs.g_messagebox"]
+    monkeypatch.setattr(module.GScaling, "get_scale_factor", lambda parent=None: 2.0)
+    monkeypatch.setattr(module.tk, "PhotoImage", lambda file: file)
+
+    result = GMessagebox._get_icon_image("info", FakeParent())
+
+    assert result == str(module.ICON_DIR / "info-128.png")
+
+
+def test_icon_image_is_used_when_available(monkeypatch):
+    setup_fakes(monkeypatch)
+    image = object()
+    module = sys.modules["libs.g_messagebox"]
+    monkeypatch.setattr(
+        module.GMessagebox, "_get_icon_image", lambda icon_type, parent: image
+    )
+
+    GMessagebox.showinfo("Info", "message")
+
+    icon_label = FakeWidget.instances[2]
+    assert icon_label.kwargs.get("image") is image
+    assert "text" not in icon_label.kwargs
+
+
+def test_missing_icon_falls_back_to_symbol(monkeypatch):
+    setup_fakes(monkeypatch)
+
+    GMessagebox.showinfo("Info", "message")
+
+    icon_label = FakeWidget.instances[2]
+    assert icon_label.kwargs.get("text") == "i"
+    assert "image" not in icon_label.kwargs
 
 
 def test_window_close_returns_false(monkeypatch):
