@@ -175,6 +175,9 @@ class GMessagebox:
                 result = False
                 dialog.destroy()
 
+            # Treat window-manager closure as choosing No.
+            dialog.protocol("WM_DELETE_WINDOW", on_no)
+
             GButton(
                 button_frame,
                 text="No",
