@@ -4,9 +4,27 @@ import sys
 from pathlib import Path
 from typing import ClassVar
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from libs.g_messagebox import GMessagebox
+
+
+class FakeParent:
+    """Minimal widget stand-in used as a parent during tests."""
+
+    def winfo_rootx(self):
+        return 100
+
+    def winfo_rooty(self):
+        return 100
+
+    def winfo_width(self):
+        return 200
+
+    def winfo_height(self):
+        return 150
 
 
 class FakeDialog:
@@ -108,6 +126,7 @@ def setup_fakes(monkeypatch, wait_action="protocol"):
     monkeypatch.setattr(module.ttk, "Frame", FakeWidget)
     monkeypatch.setattr(module.ttk, "Label", FakeWidget)
     monkeypatch.setattr(module, "GButton", FakeGButton)
+    monkeypatch.setattr(module.tk, "_default_root", FakeParent(), raising=False)
     monkeypatch.setattr(module.GScaling, "get_scale_factor", lambda parent=None: 1.0)
     monkeypatch.setattr(
         module.GScaling, "scale_pixels", lambda value, master=None: value
@@ -117,6 +136,13 @@ def setup_fakes(monkeypatch, wait_action="protocol"):
 def test_window_close_returns_false(monkeypatch):
     setup_fakes(monkeypatch, "protocol")
     assert GMessagebox.askyesno("Confirm Delete", "Are you sure?") is False
+
+
+def test_missing_root_raises_clear_error(monkeypatch):
+    module = sys.modules["libs.g_messagebox"]
+    monkeypatch.setattr(module.tk, "_default_root", None, raising=False)
+    with pytest.raises(RuntimeError, match="requires a parent widget"):
+        GMessagebox.showinfo("Info", "message")
 
 
 def test_yes_returns_true(monkeypatch):

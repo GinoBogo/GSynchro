@@ -65,8 +65,9 @@ class GMessagebox:
             message (str): The message text to display in the dialog.
             icon_type (str): Type of icon to display ("info", "warning", "error", "question").
             button_type (str): Type of buttons to display ("ok" or "yes_no").
-            parent (tk.Misc, optional): Parent widget for the dialog. If None, attempts
-                                       to find the default root window.
+            parent (tk.Misc): Parent widget for the dialog. Requires an existing parent
+                              widget or Tk root window. Raises RuntimeError if neither is
+                              available.
             **kwargs: Additional keyword arguments (reserved for future use).
 
         Returns:
@@ -74,11 +75,12 @@ class GMessagebox:
                          False if No was clicked. For "ok" dialogs, returns None.
         """
         if parent is None:
-            # Try to find the root window if no parent specified
-            try:
-                parent = tk._default_root
-            except AttributeError:
-                parent = None
+            parent = getattr(tk, "_default_root", None)
+
+        if parent is None:
+            raise RuntimeError(
+                "GMessagebox requires a parent widget or an existing Tk root window"
+            )
 
         colors = get_theme_colors()
 
@@ -224,7 +226,8 @@ class GMessagebox:
         Args:
             title (str): The title to display in the dialog window's title bar.
             message (str): The information message to display.
-            parent (tk.Misc, optional): Parent widget for the dialog.
+            parent (tk.Misc): Parent widget for the dialog. Requires an existing parent
+                              widget or Tk root window.
             **kwargs: Additional keyword arguments (reserved for future use).
 
         Example:
@@ -246,7 +249,8 @@ class GMessagebox:
         Args:
             title (str): The title to display in the dialog window's title bar.
             message (str): The warning message to display.
-            parent (tk.Misc, optional): Parent widget for the dialog.
+            parent (tk.Misc): Parent widget for the dialog. Requires an existing parent
+                              widget or Tk root window.
             **kwargs: Additional keyword arguments (reserved for future use).
 
         Example:
@@ -268,7 +272,8 @@ class GMessagebox:
         Args:
             title (str): The title to display in the dialog window's title bar.
             message (str): The error message to display.
-            parent (tk.Misc, optional): Parent widget for the dialog.
+            parent (tk.Misc): Parent widget for the dialog. Requires an existing parent
+                              widget or Tk root window.
             **kwargs: Additional keyword arguments (reserved for future use).
 
         Example:
@@ -290,7 +295,8 @@ class GMessagebox:
         Args:
             title (str): The title to display in the dialog window's title bar.
             message (str): The question to ask the user.
-            parent (tk.Misc, optional): Parent widget for the dialog.
+            parent (tk.Misc): Parent widget for the dialog. Requires an existing parent
+                              widget or Tk root window.
             **kwargs: Additional keyword arguments (reserved for future use).
 
         Returns:
